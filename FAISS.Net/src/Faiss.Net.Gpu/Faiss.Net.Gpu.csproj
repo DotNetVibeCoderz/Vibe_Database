@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Faiss.Net.Gpu</RootNamespace>
+    <AssemblyName>Faiss.Net.Gpu</AssemblyName>
+    <PackageId>FAISS.Net.Gpu</PackageId>
+    <Description>GPU acceleration for FAISS.Net via ILGPU (CUDA, OpenCL, and a CPU fallback).</Description>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591;CS1573</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ILGPU" Version="1.5.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Faiss.Net\Faiss.Net.csproj" />
+  </ItemGroup>
+
+</Project>

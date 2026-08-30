@@ -1,0 +1,51 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Faiss.Net.Gallery.Views.SearchView">
+
+    <Grid RowDefinitions="Auto,Auto,*" Margin="30,24,30,24">
+
+        <TextBox Grid.Row="0" Name="QueryBox" FontSize="16" Padding="16,14"
+                 Watermark="Ask about indexing, compression, graphs, hardware..." />
+
+        <!-- Wraps rather than scrolls: a suggestion the user cannot see is not a suggestion. -->
+        <WrapPanel Grid.Row="1" Name="Suggestions" Margin="0,14,0,0" />
+
+        <Grid Grid.Row="2" ColumnDefinitions="*,300" Margin="0,20,0,0">
+
+            <Border Grid.Column="0" Classes="panel" Padding="0" Margin="0,0,20,0">
+                <Grid RowDefinitions="Auto,*">
+                    <Border Grid.Row="0" Padding="20,15" BorderBrush="{StaticResource Rule}" BorderThickness="0,0,0,1">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <TextBlock Grid.Column="0" Classes="label" Text="RANKED BY COSINE SIMILARITY" />
+                            <TextBlock Grid.Column="1" Name="SearchTiming" Classes="monoMute" FontSize="10" />
+                        </Grid>
+                    </Border>
+                    <ScrollViewer Grid.Row="1">
+                        <StackPanel Name="Results" Margin="20,8,20,20" Spacing="2" />
+                    </ScrollViewer>
+                </Grid>
+            </Border>
+
+            <Border Grid.Column="1" Classes="panel">
+                <StackPanel Spacing="16">
+                    <StackPanel Spacing="6">
+                        <TextBlock Classes="label" Text="HOW THIS WORKS" />
+                        <TextBlock Classes="body"
+                                   Text="Each sentence is turned into a unit vector by hashing its words into pseudo-random directions and summing them. Documents sharing vocabulary end up pointing the same way, so the inner product of two unit vectors is their cosine similarity." />
+                    </StackPanel>
+                    <Rectangle Height="1" Fill="{StaticResource Rule}" />
+                    <StackPanel Spacing="6">
+                        <TextBlock Classes="label" Text="WHAT IT CANNOT DO" />
+                        <TextBlock Classes="body"
+                                   Text="Word overlap is not meaning. &quot;Fast&quot; and &quot;quick&quot; are unrelated directions here. A sentence-transformer would fix that and would drop into the same index unchanged — retrieval would not need a single line rewritten." />
+                    </StackPanel>
+                    <Rectangle Height="1" Fill="{StaticResource Rule}" />
+                    <StackPanel Spacing="6">
+                        <TextBlock Classes="label" Text="INDEX" />
+                        <TextBlock Name="CorpusLine" Classes="mono" FontSize="11" TextWrapping="Wrap" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Grid>
+    </Grid>
+</UserControl>

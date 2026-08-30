@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Faiss.Net.Benchmarks</RootNamespace>
+    <AssemblyName>faissnet-bench</AssemblyName>
+    <IsPackable>false</IsPackable>
+    <Optimize>true</Optimize>
+    <ServerGarbageCollection>true</ServerGarbageCollection>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BenchmarkDotNet" Version="0.14.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Faiss.Net\Faiss.Net.csproj" />
+    <ProjectReference Include="..\..\src\Faiss.Net.Gpu\Faiss.Net.Gpu.csproj" />
+  </ItemGroup>
+
+</Project>

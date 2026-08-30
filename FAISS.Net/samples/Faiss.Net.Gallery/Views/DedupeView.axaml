@@ -1,0 +1,63 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Faiss.Net.Gallery.Views.DedupeView">
+
+    <Grid ColumnDefinitions="360,*" Margin="30,24,30,24">
+
+        <ScrollViewer Grid.Column="0" Margin="0,0,26,0" VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Spacing="18" Margin="0,0,6,0">
+
+            <Border Classes="panel">
+                <StackPanel Spacing="14">
+                    <TextBlock Classes="label" Text="SIMILARITY THRESHOLD" />
+                    <TextBlock Name="ThresholdValue" Classes="metric" />
+                    <Slider Name="ThresholdSlider" Minimum="0.05" Maximum="0.65" Value="0.38"
+                            TickFrequency="0.01" IsSnapToTickEnabled="True" />
+                    <TextBlock Classes="body"
+                               Text="Radius search returns everything above this cosine similarity, however many that is. Lower the threshold and unrelated documents start joining groups; raise it and genuine pairs fall apart." />
+                </StackPanel>
+            </Border>
+
+            <Border Classes="panel">
+                <StackPanel Spacing="16">
+                    <Grid ColumnDefinitions="*,*">
+                        <StackPanel Grid.Column="0" Spacing="5">
+                            <TextBlock Classes="label" Text="GROUPS FOUND" />
+                            <TextBlock Name="GroupCount" Classes="metric" Foreground="{StaticResource Amber}" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Spacing="5">
+                            <TextBlock Classes="label" Text="DOCUMENTS PAIRED" />
+                            <TextBlock Name="PairedCount" Classes="metric" />
+                        </StackPanel>
+                    </Grid>
+                    <Rectangle Height="1" Fill="{StaticResource Rule}" />
+                    <StackPanel Spacing="5">
+                        <TextBlock Classes="label" Text="SAME TOPIC" />
+                        <TextBlock Name="PurityValue" Classes="mono" Foreground="{StaticResource Cyan}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <Border Classes="inset">
+                <StackPanel Spacing="8">
+                    <TextBlock Classes="label" Text="WHY THIS IS NOT KNN" />
+                    <TextBlock Classes="body" FontSize="12"
+                               Text="Asking for the ten nearest documents always returns ten, whether or not any of them are actually related. Radius search returns however many are genuinely close — sometimes none. Deduplication needs the second question." />
+                </StackPanel>
+            </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <Border Grid.Column="1" Classes="panel" Padding="0">
+            <Grid RowDefinitions="Auto,*">
+                <Border Grid.Row="0" Padding="20,15" BorderBrush="{StaticResource Rule}" BorderThickness="0,0,0,1">
+                    <TextBlock Classes="label" Text="DOCUMENTS GROUPED BY SIMILARITY" />
+                </Border>
+                <ScrollViewer Grid.Row="1">
+                    <StackPanel Name="Groups" Margin="20,14,20,20" Spacing="16" />
+                </ScrollViewer>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

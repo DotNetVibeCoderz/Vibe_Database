@@ -1,0 +1,85 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:Faiss.Net.Gallery.Controls"
+        x:Class="Faiss.Net.Gallery.MainWindow"
+        Title="FAISS.Net Gallery"
+        Width="1320" Height="900"
+        MinWidth="960" MinHeight="640"
+        Background="{StaticResource Ink}"
+        FontFamily="{StaticResource BodyFont}">
+
+    <Grid ColumnDefinitions="228,*">
+
+        <!-- ─────────────────────────────────────────────────────── demo rail -->
+        <Border Grid.Column="0" Background="#0C0F17" BorderBrush="{StaticResource Rule}" BorderThickness="0,0,1,0">
+            <Grid RowDefinitions="Auto,*,Auto">
+
+                <StackPanel Grid.Row="0" Margin="20,26,20,22" Spacing="7">
+                    <TextBlock Text="faiss.net" Classes="display" FontSize="25" />
+                    <TextBlock Text="GALLERY" Classes="label" Foreground="{StaticResource Amber}" />
+                </StackPanel>
+
+                <StackPanel Grid.Row="1" Name="Rail">
+                    <RadioButton Classes="rail" GroupName="demo" Name="RailProbe" IsChecked="True"
+                                 Tag="probe" Content="watch an index skip data" />
+                    <RadioButton Classes="rail" GroupName="demo" Name="RailSearch"
+                                 Tag="search" Content="retrieve by meaning" />
+                    <RadioButton Classes="rail" GroupName="demo" Name="RailCompress"
+                                 Tag="compress" Content="shrink vectors, keep answers" />
+                    <RadioButton Classes="rail" GroupName="demo" Name="RailTraverse"
+                                 Tag="traverse" Content="walk a proximity graph" />
+                    <RadioButton Classes="rail" GroupName="demo" Name="RailBench"
+                                 Tag="measure" Content="compare every index" />
+                    <RadioButton Classes="rail" GroupName="demo" Name="RailDedupe"
+                                 Tag="dedupe" Content="find near-duplicates" />
+                </StackPanel>
+
+                <StackPanel Grid.Row="2" Margin="20,0,20,20" Spacing="6">
+                    <Rectangle Height="1" Fill="{StaticResource Rule}" Margin="0,0,0,14" />
+                    <TextBlock Name="EnvironmentLine" Classes="monoMute" FontSize="10" TextWrapping="Wrap" />
+                    <TextBlock Text="Gravicode Studios" Classes="mono" FontSize="11" Margin="0,8,0,0" />
+                    <TextBlock Text="led by Kang Fadhil" Classes="monoMute" FontSize="10" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- ────────────────────────────────────────────────────── work area -->
+        <Grid Grid.Column="1" RowDefinitions="Auto,*,Auto">
+
+            <Border Grid.Row="0" Padding="30,24,30,20" BorderBrush="{StaticResource Rule}" BorderThickness="0,0,0,1">
+                <StackPanel Spacing="8">
+                    <TextBlock Name="ViewTitle" Classes="display" />
+                    <TextBlock Name="ViewSummary" Classes="body" MaxWidth="820" HorizontalAlignment="Left" />
+                </StackPanel>
+            </Border>
+
+            <Panel Grid.Row="1">
+                <ContentControl Name="Host" />
+
+                <!-- Shown until the shared dataset finishes building on a background thread. -->
+                <Border Name="LoadingOverlay" Background="{StaticResource Ink}">
+                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="12">
+                        <TextBlock Text="building the workspace" Classes="display" FontSize="20"
+                                   HorizontalAlignment="Center" />
+                        <TextBlock Name="LoadingDetail" Classes="monoMute" HorizontalAlignment="Center"
+                                   Text="embedding the corpus and computing exact ground truth" />
+                    </StackPanel>
+                </Border>
+            </Panel>
+
+            <!--
+                The probe band. Present on every screen, always answering the same question, so the
+                central idea of approximate search is never more than a glance away.
+            -->
+            <Border Grid.Row="2" Background="#0C0F17" BorderBrush="{StaticResource Rule}" BorderThickness="0,1,0,0"
+                    Padding="30,16,30,18">
+                <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="*,Auto">
+                    <TextBlock Grid.Row="0" Grid.Column="0" Classes="label" Text="DATABASE SCANNED BY THE LAST QUERY" />
+                    <TextBlock Grid.Row="0" Grid.Column="1" Name="BandReadout" Classes="mono"
+                               Foreground="{StaticResource Amber}" />
+                    <controls:ProbeBand Grid.Row="1" Grid.ColumnSpan="2" Name="Band" Height="16" Margin="0,9,0,0" />
+                </Grid>
+            </Border>
+        </Grid>
+    </Grid>
+</Window>

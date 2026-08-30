@@ -1,0 +1,53 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!--
+        FAISS.Net Gallery design tokens.
+
+        The palette is chromatic, not neutral: the ground is a deep indigo rather than black, and the
+        text is a warm bone rather than white. That single warm/cool tension is the whole atmosphere,
+        so nothing else in the app needs decoration to feel considered.
+
+        The two accents are semantic and used consistently everywhere:
+
+            Amber  = approximate. What an index chose to scan; the cells it probed; a result it
+                     found by looking at part of the data.
+            Cyan   = exact. Ground truth from a flat scan; the reference every approximation is
+                     measured against.
+
+        Because the meaning never changes, the colours are readable as data after the first screen.
+        No third accent is introduced anywhere — a new hue would have to mean something new.
+    -->
+
+    <Color x:Key="InkColor">#10131C</Color>
+    <Color x:Key="SlateColor">#171C2B</Color>
+    <Color x:Key="RaisedColor">#1E2436</Color>
+    <Color x:Key="RuleColor">#262D42</Color>
+    <Color x:Key="BoneColor">#E9E5DB</Color>
+    <Color x:Key="MuteColor">#868DA3</Color>
+    <Color x:Key="AmberColor">#F0A22E</Color>
+    <Color x:Key="CyanColor">#3EC8D8</Color>
+
+    <SolidColorBrush x:Key="Ink" Color="{StaticResource InkColor}" />
+    <SolidColorBrush x:Key="Slate" Color="{StaticResource SlateColor}" />
+    <SolidColorBrush x:Key="Raised" Color="{StaticResource RaisedColor}" />
+    <SolidColorBrush x:Key="Rule" Color="{StaticResource RuleColor}" />
+    <SolidColorBrush x:Key="Bone" Color="{StaticResource BoneColor}" />
+    <SolidColorBrush x:Key="Mute" Color="{StaticResource MuteColor}" />
+    <SolidColorBrush x:Key="Amber" Color="{StaticResource AmberColor}" />
+    <SolidColorBrush x:Key="Cyan" Color="{StaticResource CyanColor}" />
+    <SolidColorBrush x:Key="AmberDim" Color="#4A3418" />
+    <SolidColorBrush x:Key="CyanDim" Color="#14383D" />
+
+    <!--
+        Type. The display face is monospaced, which is an inversion of the usual pairing and is the
+        point: every headline in this app is a measurement, and measurements belong in a face where
+        digits share a width and columns line up. Prose uses Inter, which ships with the app so the
+        body text is identical on every machine.
+    -->
+    <FontFamily x:Key="DisplayFont">Cascadia Mono,Consolas,JetBrains Mono,Menlo,monospace</FontFamily>
+    <FontFamily x:Key="BodyFont">Inter,Segoe UI,sans-serif</FontFamily>
+
+    <Thickness x:Key="PanelPadding">24</Thickness>
+
+</ResourceDictionary>

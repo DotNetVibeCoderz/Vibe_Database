@@ -1,0 +1,16 @@
+<Solution>
+  <Folder Name="/benchmarks/">
+    <Project Path="benchmarks/Faiss.Net.Benchmarks/Faiss.Net.Benchmarks.csproj" />
+  </Folder>
+  <Folder Name="/samples/">
+    <Project Path="samples/Faiss.Net.Gallery/Faiss.Net.Gallery.csproj" />
+    <Project Path="samples/Faiss.Net.Samples.Console/Faiss.Net.Samples.Console.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/Faiss.Net.Gpu/Faiss.Net.Gpu.csproj" />
+    <Project Path="src/Faiss.Net/Faiss.Net.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Faiss.Net.Tests/Faiss.Net.Tests.csproj" />
+  </Folder>
+</Solution>

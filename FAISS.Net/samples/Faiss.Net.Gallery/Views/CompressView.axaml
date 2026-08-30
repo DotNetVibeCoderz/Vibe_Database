@@ -1,0 +1,57 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:Faiss.Net.Gallery.Controls"
+             x:Class="Faiss.Net.Gallery.Views.CompressView">
+
+    <Grid RowDefinitions="*,Auto" Margin="30,24,30,24">
+
+        <Border Grid.Row="0" Classes="panel" Padding="0">
+            <Grid RowDefinitions="Auto,*">
+                <Border Grid.Row="0" Padding="20,15" BorderBrush="{StaticResource Rule}" BorderThickness="0,0,0,1">
+                    <Grid ColumnDefinitions="*,90,110,110,170,110">
+                        <TextBlock Grid.Column="0" Classes="label" Text="INDEX" />
+                        <TextBlock Grid.Column="1" Classes="label" Text="BYTES/VEC" />
+                        <TextBlock Grid.Column="2" Classes="label" Text="MEMORY" />
+                        <TextBlock Grid.Column="3" Classes="label" Text="SMALLER BY" />
+                        <TextBlock Grid.Column="4" Classes="label" Text="RECALL @10" />
+                        <TextBlock Grid.Column="5" Classes="label" Text="PER QUERY" />
+                    </Grid>
+                </Border>
+                <ScrollViewer Grid.Row="1">
+                    <StackPanel Name="Rows" Margin="20,6,20,18" />
+                </ScrollViewer>
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="1" Classes="panel" Margin="0,20,0,0">
+            <Grid ColumnDefinitions="*,300">
+                <StackPanel Grid.Column="0" Spacing="12" Margin="0,0,24,0">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Grid.Column="0" Classes="label" Text="ONE VECTOR, BEFORE AND AFTER" />
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="18">
+                            <StackPanel Orientation="Horizontal" Spacing="7">
+                                <Rectangle Width="12" Height="2" Fill="{StaticResource Bone}" VerticalAlignment="Center" />
+                                <TextBlock Classes="monoMute" FontSize="10" Text="original" VerticalAlignment="Center" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="7">
+                                <Rectangle Width="12" Height="2" Fill="{StaticResource Amber}" VerticalAlignment="Center" />
+                                <TextBlock Name="StripLabel" Classes="monoMute" FontSize="10" Text="decoded"
+                                           VerticalAlignment="Center" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Grid>
+                    <controls:ReconstructionStrip Name="Strip" Height="88" />
+                    <TextBlock Name="StripNote" Classes="body" FontSize="12" />
+                </StackPanel>
+
+                <StackPanel Grid.Column="1" Spacing="14">
+                    <TextBlock Classes="label" Text="INSPECT" />
+                    <ComboBox Name="SchemePicker" HorizontalAlignment="Stretch" />
+                    <Rectangle Height="1" Fill="{StaticResource Rule}" />
+                    <TextBlock Classes="body"
+                               Text="Codebook memory does not grow with the corpus, so the ratios above improve as the dataset gets larger. At a hundred vectors a product quantizer costs more than it saves; at ten million it is the only thing that fits." />
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

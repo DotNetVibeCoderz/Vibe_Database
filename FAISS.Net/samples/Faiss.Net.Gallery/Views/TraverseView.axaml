@@ -1,0 +1,65 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:Faiss.Net.Gallery.Controls"
+             x:Class="Faiss.Net.Gallery.Views.TraverseView">
+
+    <Grid ColumnDefinitions="360,*" Margin="30,24,30,24">
+
+        <ScrollViewer Grid.Column="0" Margin="0,0,26,0" VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Spacing="18" Margin="0,0,6,0">
+
+            <Border Classes="panel">
+                <StackPanel Spacing="14">
+                    <TextBlock Classes="label" Text="BEAM WIDTH (EFSEARCH)" />
+                    <TextBlock Name="EfValue" Classes="metric" />
+                    <Slider Name="EfSlider" Minimum="4" Maximum="256" Value="16"
+                            TickFrequency="4" IsSnapToTickEnabled="True" />
+                    <TextBlock Classes="body"
+                               Text="The walk keeps this many candidates alive at once and stops when none of them can improve on the worst result it is holding. A wider beam finds more, and costs more distance computations to do it." />
+                </StackPanel>
+            </Border>
+
+            <Border Classes="panel">
+                <StackPanel Spacing="16">
+                    <Grid ColumnDefinitions="*,*">
+                        <StackPanel Grid.Column="0" Spacing="5">
+                            <TextBlock Classes="label" Text="RECALL @10" />
+                            <TextBlock Name="RecallValue" Classes="metric" Foreground="{StaticResource Amber}" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Spacing="5">
+                            <TextBlock Classes="label" Text="PER QUERY" />
+                            <TextBlock Name="LatencyValue" Classes="metric" />
+                        </StackPanel>
+                    </Grid>
+                    <Rectangle Height="1" Fill="{StaticResource Rule}" />
+                    <StackPanel Spacing="5">
+                        <TextBlock Classes="label" Text="VS EXACT SCAN" />
+                        <TextBlock Name="SpeedupValue" Classes="mono" Foreground="{StaticResource Cyan}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <Border Classes="inset">
+                <StackPanel Spacing="10">
+                    <TextBlock Classes="label" Text="GRAPH" />
+                    <TextBlock Name="GraphLine" Classes="mono" FontSize="11" TextWrapping="Wrap" />
+                    <StackPanel Name="Layers" Spacing="6" Margin="0,4,0,0" />
+                </StackPanel>
+            </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <Border Grid.Column="1" Classes="panel" Padding="0">
+            <Grid RowDefinitions="Auto,*,Auto">
+                <Border Grid.Row="0" Padding="20,16,20,14" BorderBrush="{StaticResource Rule}" BorderThickness="0,0,0,1">
+                    <TextBlock Classes="label" Text="WHERE THE WALK ENDED UP" />
+                </Border>
+                <controls:ScatterPlot Grid.Row="1" Name="Plot" />
+                <Border Grid.Row="2" Padding="20,14" BorderBrush="{StaticResource Rule}" BorderThickness="0,1,0,0">
+                    <TextBlock Name="PlotNote" Classes="body" FontSize="12" />
+                </Border>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Faiss.Net.Samples.ConsoleApp</RootNamespace>
+    <AssemblyName>faissnet-samples</AssemblyName>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Faiss.Net\Faiss.Net.csproj" />
+    <ProjectReference Include="..\..\src\Faiss.Net.Gpu\Faiss.Net.Gpu.csproj" />
+  </ItemGroup>
+
+</Project>

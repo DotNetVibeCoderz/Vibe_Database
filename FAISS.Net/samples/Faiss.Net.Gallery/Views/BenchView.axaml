@@ -1,0 +1,53 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:Faiss.Net.Gallery.Controls"
+             x:Class="Faiss.Net.Gallery.Views.BenchView">
+
+    <Grid ColumnDefinitions="*,380" Margin="30,24,30,24">
+
+        <Border Grid.Column="0" Classes="panel" Padding="0" Margin="0,0,24,0">
+            <Grid RowDefinitions="Auto,*,Auto">
+                <Border Grid.Row="0" Padding="20,15" BorderBrush="{StaticResource Rule}" BorderThickness="0,0,0,1">
+                    <Grid ColumnDefinitions="176,70,80,152,*">
+                        <TextBlock Grid.Column="0" Classes="label" Text="CONFIGURATION" />
+                        <TextBlock Grid.Column="1" Classes="label" Text="BUILD" />
+                        <TextBlock Grid.Column="2" Classes="label" Text="MS/QUERY" />
+                        <TextBlock Grid.Column="3" Classes="label" Text="RECALL @10" />
+                        <TextBlock Grid.Column="4" Classes="label" Text="MEMORY" />
+                    </Grid>
+                </Border>
+
+                <ScrollViewer Grid.Row="1">
+                    <StackPanel Name="Rows" Margin="20,6,20,18" />
+                </ScrollViewer>
+
+                <Border Grid.Row="2" Padding="20,14" BorderBrush="{StaticResource Rule}" BorderThickness="0,1,0,0">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Grid.Column="0" Name="Progress" Classes="monoMute" FontSize="11"
+                                   VerticalAlignment="Center" />
+                        <Button Grid.Column="1" Name="RunButton" Classes="primary" Content="run every index" />
+                    </Grid>
+                </Border>
+            </Grid>
+        </Border>
+
+        <StackPanel Grid.Column="1" Spacing="18">
+            <Border Classes="panel" Padding="0">
+                <Grid RowDefinitions="Auto,*">
+                    <Border Grid.Row="0" Padding="20,15" BorderBrush="{StaticResource Rule}" BorderThickness="0,0,0,1">
+                        <TextBlock Classes="label" Text="RECALL AGAINST THROUGHPUT" />
+                    </Border>
+                    <controls:TradeoffCurve Grid.Row="1" Name="Curve" Height="280" />
+                </Grid>
+            </Border>
+
+            <Border Classes="panel">
+                <StackPanel Spacing="10">
+                    <TextBlock Classes="label" Text="READING THIS" />
+                    <TextBlock Classes="body"
+                               Text="An index is faster than another only at equal recall. Compare points along the curve, not columns in the table: a configuration that is up and to the right beats one that is down and to the left, and everything else is a judgement call about which you need." />
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </Grid>
+</UserControl>

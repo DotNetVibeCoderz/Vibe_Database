@@ -1,0 +1,91 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:Faiss.Net.Gallery.Controls"
+             x:Class="Faiss.Net.Gallery.Views.ProbeView">
+
+    <Grid ColumnDefinitions="360,*" Margin="30,24,30,24">
+
+        <!-- controls -->
+        <ScrollViewer Grid.Column="0" Margin="0,0,26,0" VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Spacing="18" Margin="0,0,6,0">
+
+            <Border Classes="panel">
+                <StackPanel Spacing="14">
+                    <TextBlock Classes="label" Text="CELLS VISITED PER QUERY" />
+                    <TextBlock Name="NprobeValue" Classes="metric" />
+                    <Slider Name="NprobeSlider" Minimum="1" Maximum="128" Value="1"
+                            TickFrequency="1" IsSnapToTickEnabled="True" />
+                    <TextBlock Classes="body"
+                               Text="nprobe can be changed at any time after the index is built. Nothing is retrained and nothing is re-added — it is purely a decision about how hard to look." />
+                </StackPanel>
+            </Border>
+
+            <Border Classes="panel">
+                <StackPanel Spacing="16">
+                    <Grid ColumnDefinitions="*,*">
+                        <StackPanel Grid.Column="0" Spacing="5">
+                            <TextBlock Classes="label" Text="RECALL @10" />
+                            <TextBlock Name="RecallValue" Classes="metric" Foreground="{StaticResource Amber}" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Spacing="5">
+                            <TextBlock Classes="label" Text="PER QUERY" />
+                            <TextBlock Name="LatencyValue" Classes="metric" />
+                        </StackPanel>
+                    </Grid>
+
+                    <Rectangle Height="1" Fill="{StaticResource Rule}" />
+
+                    <Grid ColumnDefinitions="*,*">
+                        <StackPanel Grid.Column="0" Spacing="5">
+                            <TextBlock Classes="label" Text="VS EXACT SCAN" />
+                            <TextBlock Name="SpeedupValue" Classes="mono" Foreground="{StaticResource Cyan}" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Spacing="5">
+                            <TextBlock Classes="label" Text="MISSED NEIGHBOURS" />
+                            <TextBlock Name="MissedValue" Classes="mono" />
+                        </StackPanel>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <Border Classes="inset">
+                <StackPanel Spacing="9">
+                    <TextBlock Classes="label" Text="INDEX" />
+                    <TextBlock Name="IndexLine" Classes="mono" FontSize="11" TextWrapping="Wrap" />
+                    <TextBlock Name="CellLine" Classes="monoMute" FontSize="11" TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- evidence -->
+        <Border Grid.Column="1" Classes="panel" Padding="0">
+            <Grid RowDefinitions="Auto,*,Auto">
+                <Border Grid.Row="0" Padding="20,16,20,14" BorderBrush="{StaticResource Rule}" BorderThickness="0,0,0,1">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Grid.Column="0" Classes="label" Text="VECTOR SPACE, FIRST TWO PRINCIPAL COMPONENTS" />
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="18">
+                            <StackPanel Orientation="Horizontal" Spacing="7">
+                                <Ellipse Width="7" Height="7" Fill="{StaticResource Amber}" VerticalAlignment="Center" />
+                                <TextBlock Classes="monoMute" FontSize="10" Text="returned" VerticalAlignment="Center" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="7">
+                                <Ellipse Width="7" Height="7" Stroke="{StaticResource Cyan}" StrokeThickness="1.2"
+                                         VerticalAlignment="Center" />
+                                <TextBlock Classes="monoMute" FontSize="10" Text="true neighbour" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <controls:ScatterPlot Grid.Row="1" Name="Plot" />
+
+                <Border Grid.Row="2" Padding="20,14" BorderBrush="{StaticResource Rule}" BorderThickness="0,1,0,0">
+                    <TextBlock Name="PlotNote" Classes="body" FontSize="12"
+                               Text="An amber dot with no ring around it is a result the index returned that is not actually among the true ten." />
+                </Border>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

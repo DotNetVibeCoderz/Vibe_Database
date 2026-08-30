@@ -1,0 +1,216 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!--
+        One shared vocabulary of surfaces and text roles. Views set almost no visual properties of
+        their own, so spacing and weight stay consistent across five very different demos.
+    -->
+
+    <!-- ─────────────────────────────────────────────────────── text roles -->
+
+    <Style Selector="TextBlock.display">
+        <Setter Property="FontFamily" Value="{StaticResource DisplayFont}" />
+        <Setter Property="FontSize" Value="30" />
+        <Setter Property="FontWeight" Value="Light" />
+        <Setter Property="Foreground" Value="{StaticResource Bone}" />
+        <Setter Property="LetterSpacing" Value="-1.2" />
+    </Style>
+
+    <Style Selector="TextBlock.metric">
+        <Setter Property="FontFamily" Value="{StaticResource DisplayFont}" />
+        <Setter Property="FontSize" Value="26" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Foreground" Value="{StaticResource Bone}" />
+        <Setter Property="LetterSpacing" Value="-0.8" />
+    </Style>
+
+    <!-- Column headers, not titles: they name a measurement, so they read as instrument labels. -->
+    <Style Selector="TextBlock.label">
+        <Setter Property="FontFamily" Value="{StaticResource DisplayFont}" />
+        <Setter Property="FontSize" Value="10" />
+        <Setter Property="FontWeight" Value="Normal" />
+        <Setter Property="Foreground" Value="{StaticResource Mute}" />
+        <Setter Property="LetterSpacing" Value="1.6" />
+    </Style>
+
+    <Style Selector="TextBlock.body">
+        <Setter Property="FontFamily" Value="{StaticResource BodyFont}" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="Foreground" Value="{StaticResource Mute}" />
+        <Setter Property="LineHeight" Value="20" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+
+    <Style Selector="TextBlock.strong">
+        <Setter Property="FontFamily" Value="{StaticResource BodyFont}" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="Foreground" Value="{StaticResource Bone}" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+
+    <Style Selector="TextBlock.mono">
+        <Setter Property="FontFamily" Value="{StaticResource DisplayFont}" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Foreground" Value="{StaticResource Bone}" />
+    </Style>
+
+    <Style Selector="TextBlock.monoMute">
+        <Setter Property="FontFamily" Value="{StaticResource DisplayFont}" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Foreground" Value="{StaticResource Mute}" />
+    </Style>
+
+    <!-- ────────────────────────────────────────────────────────── surfaces -->
+
+    <Style Selector="Border.panel">
+        <Setter Property="Background" Value="{StaticResource Slate}" />
+        <Setter Property="BorderBrush" Value="{StaticResource Rule}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="3" />
+        <Setter Property="Padding" Value="20" />
+    </Style>
+
+    <Style Selector="Border.inset">
+        <Setter Property="Background" Value="{StaticResource Ink}" />
+        <Setter Property="BorderBrush" Value="{StaticResource Rule}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="2" />
+        <Setter Property="Padding" Value="14" />
+    </Style>
+
+    <!-- ────────────────────────────────────────────────────────── controls -->
+
+    <Style Selector="Button">
+        <Setter Property="FontFamily" Value="{StaticResource DisplayFont}" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Background" Value="{StaticResource Raised}" />
+        <Setter Property="Foreground" Value="{StaticResource Bone}" />
+        <Setter Property="BorderBrush" Value="{StaticResource Rule}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="2" />
+        <Setter Property="Padding" Value="16,9" />
+        <Setter Property="Transitions">
+            <Transitions>
+                <BrushTransition Property="Background" Duration="0:0:0.12" />
+                <BrushTransition Property="BorderBrush" Duration="0:0:0.12" />
+            </Transitions>
+        </Setter>
+    </Style>
+
+    <Style Selector="Button:pointerover /template/ ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource Raised}" />
+        <Setter Property="BorderBrush" Value="{StaticResource Amber}" />
+        <Setter Property="TextElement.Foreground" Value="{StaticResource Bone}" />
+    </Style>
+
+    <Style Selector="Button:pressed /template/ ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource AmberDim}" />
+    </Style>
+
+    <Style Selector="Button.primary">
+        <Setter Property="Background" Value="{StaticResource AmberDim}" />
+        <Setter Property="BorderBrush" Value="{StaticResource Amber}" />
+        <Setter Property="Foreground" Value="{StaticResource Amber}" />
+    </Style>
+
+    <Style Selector="Button.primary:pointerover /template/ ContentPresenter">
+        <Setter Property="Background" Value="#5C4020" />
+        <Setter Property="BorderBrush" Value="{StaticResource Amber}" />
+        <Setter Property="TextElement.Foreground" Value="{StaticResource Amber}" />
+    </Style>
+
+    <Style Selector="Slider">
+        <Setter Property="Foreground" Value="{StaticResource Amber}" />
+        <Setter Property="MinHeight" Value="26" />
+    </Style>
+
+    <Style Selector="Slider /template/ Track#PART_Track RepeatButton#PART_DecreaseButton">
+        <Setter Property="Background" Value="{StaticResource Amber}" />
+    </Style>
+
+    <Style Selector="Slider /template/ Track#PART_Track RepeatButton#PART_IncreaseButton">
+        <Setter Property="Background" Value="{StaticResource Rule}" />
+    </Style>
+
+    <Style Selector="Slider /template/ Thumb">
+        <Setter Property="Background" Value="{StaticResource Bone}" />
+    </Style>
+
+    <Style Selector="TextBox">
+        <Setter Property="FontFamily" Value="{StaticResource BodyFont}" />
+        <Setter Property="FontSize" Value="14" />
+        <Setter Property="Background" Value="{StaticResource Ink}" />
+        <Setter Property="Foreground" Value="{StaticResource Bone}" />
+        <Setter Property="CaretBrush" Value="{StaticResource Amber}" />
+        <Setter Property="BorderBrush" Value="{StaticResource Rule}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="2" />
+        <Setter Property="Padding" Value="12,10" />
+        <Setter Property="SelectionBrush" Value="{StaticResource AmberDim}" />
+    </Style>
+
+    <Style Selector="TextBox:focus /template/ Border#PART_BorderElement">
+        <Setter Property="BorderBrush" Value="{StaticResource Amber}" />
+        <Setter Property="BorderThickness" Value="1" />
+    </Style>
+
+    <Style Selector="ComboBox">
+        <Setter Property="FontFamily" Value="{StaticResource DisplayFont}" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Background" Value="{StaticResource Ink}" />
+        <Setter Property="Foreground" Value="{StaticResource Bone}" />
+        <Setter Property="BorderBrush" Value="{StaticResource Rule}" />
+        <Setter Property="CornerRadius" Value="2" />
+        <Setter Property="Padding" Value="12,8" />
+    </Style>
+
+    <!-- Keyboard focus must stay visible: the whole app is drivable from the keyboard. -->
+    <Style Selector=":is(Control):focus-visible">
+        <Setter Property="FocusAdorner">
+            <FocusAdornerTemplate>
+                <Border BorderBrush="{StaticResource Amber}" BorderThickness="1" Margin="-3" CornerRadius="3" />
+            </FocusAdornerTemplate>
+        </Setter>
+    </Style>
+
+    <!-- ────────────────────────────────────────────────── demo rail buttons -->
+
+    <Style Selector="RadioButton.rail">
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Border Name="root"
+                        Background="Transparent"
+                        BorderBrush="Transparent"
+                        BorderThickness="2,0,0,0"
+                        Padding="20,13">
+                    <StackPanel Spacing="3">
+                        <TextBlock Name="title"
+                                   Text="{TemplateBinding Tag}"
+                                   FontFamily="{StaticResource DisplayFont}"
+                                   FontSize="13"
+                                   LetterSpacing="-0.3"
+                                   Foreground="{StaticResource Mute}" />
+                        <ContentPresenter Content="{TemplateBinding Content}"
+                                          TextElement.FontFamily="{StaticResource BodyFont}"
+                                          TextElement.FontSize="11"
+                                          TextElement.Foreground="#5C6377" />
+                    </StackPanel>
+                </Border>
+            </ControlTemplate>
+        </Setter>
+    </Style>
+
+    <Style Selector="RadioButton.rail:pointerover /template/ Border#root">
+        <Setter Property="Background" Value="{StaticResource Slate}" />
+    </Style>
+
+    <Style Selector="RadioButton.rail:checked /template/ Border#root">
+        <Setter Property="Background" Value="{StaticResource Slate}" />
+        <Setter Property="BorderBrush" Value="{StaticResource Amber}" />
+    </Style>
+
+    <Style Selector="RadioButton.rail:checked /template/ TextBlock#title">
+        <Setter Property="Foreground" Value="{StaticResource Bone}" />
+    </Style>
+
+</Styles>

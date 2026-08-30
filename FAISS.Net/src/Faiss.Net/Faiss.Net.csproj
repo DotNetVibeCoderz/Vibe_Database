@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Faiss.Net</RootNamespace>
+    <AssemblyName>Faiss.Net</AssemblyName>
+    <PackageId>FAISS.Net</PackageId>
+    <Description>High-performance .NET port of FAISS: SIMD-accelerated similarity search and clustering of dense vectors, with a Python-FAISS-compatible API.</Description>
+    <PackageTags>faiss;vector-search;ann;knn;simd;embeddings;hnsw;ivf;pq</PackageTags>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591;CS1573;CS0419</NoWarn>
+    <Optimize Condition="'$(Configuration)' == 'Release'">true</Optimize>
+  </PropertyGroup>
+
+</Project>
