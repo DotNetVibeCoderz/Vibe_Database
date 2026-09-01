@@ -1,0 +1,158 @@
+# FAISS.Net — publish to NuGet on a version tag.
+#
+# This file belongs at the ROOT of the Vibe_Database repository, not inside FAISS.Net/.
+# See .github/workflows/README.md.
+#
+# Tags are namespaced (`faissnet-v1.2.0`) rather than bare (`v1.2.0`) because Vibe_Database is a
+# monorepo: a bare version tag would be ambiguous about which project it releases, and would fire
+# every project's release workflow at once.
+#
+# Required repository secret:
+#   NUGET_API_KEY   an api key from nuget.org scoped to Gravicode.FaissNet* — glob-scoped, so the
+#                   same key covers both packages and nothing else.
+
+name: FAISS.Net Release
+
+on:
+  push:
+    tags:
+      - 'faissnet-v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g. 1.0.0). Must match Directory.Build.props.'
+        required: true
+        type: string
+      dry_run:
+        description: 'Build and pack, but do not push to NuGet'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write   # needed to create the GitHub release
+
+env:
+  PROJECT_DIR: FAISS.Net
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    # Gate the actual push behind a protected environment, so publishing to nuget.org needs a human
+    # approval even though pushing a tag does not. Create it under Settings > Environments.
+    environment: nuget
+
+    defaults:
+      run:
+        working-directory: FAISS.Net
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: FAISS.Net/global.json
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#faissnet-v}"
+          fi
+
+          if ! echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::'$VERSION' is not a semantic version. Tag as faissnet-v1.2.3."
+            exit 1
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Publishing version $VERSION"
+
+      # The tag and the checked-in version must agree. Without this guard it is entirely possible to
+      # ship a package whose repository says it is something else, and that is unfixable after the
+      # fact — NuGet versions are immutable.
+      #
+      # The version is read as an evaluated MSBuild property rather than scraped out of the XML, so
+      # it stays correct if the property ever moves file or becomes conditional.
+      - name: Verify the tag matches Directory.Build.props
+        run: |
+          DECLARED=$(dotnet msbuild src/Faiss.Net/Faiss.Net.csproj -getProperty:Version -v:q -nologo | tr -d '[:space:]')
+          TAGGED="${{ steps.version.outputs.version }}"
+          BASE="${TAGGED%%-*}"
+
+          if [ "$DECLARED" != "$BASE" ]; then
+            echo "::error::Directory.Build.props declares '$DECLARED' but the tag says '$BASE'."
+            echo "Update <Version> in Directory.Build.props and re-tag."
+            exit 1
+          fi
+          echo "Version $DECLARED confirmed."
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build -c Release --no-restore -warnaserror -p:Version=${{ steps.version.outputs.version }}
+
+      # A broken release is worse than a late one.
+      - name: Test
+        run: dotnet test -c Release --no-build
+
+      - name: Pack
+        run: dotnet pack -c Release --no-build -p:Version=${{ steps.version.outputs.version }}
+
+      - name: Upload packages as a build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: faissnet-${{ steps.version.outputs.version }}
+          path: FAISS.Net/artifacts/packages/*
+          retention-days: 90
+
+      - name: Push to NuGet
+        if: github.event_name == 'push' || inputs.dry_run == false
+        run: |
+          dotnet nuget push "artifacts/packages/*.nupkg" \
+            --api-key "${{ secrets.NUGET_API_KEY }}" \
+            --source https://api.nuget.org/v3/index.json \
+            --skip-duplicate
+
+      # Symbol packages are pushed separately: a failure here should not look like a failed release,
+      # because the libraries themselves are already published and immutable at this point.
+      - name: Push symbols to NuGet
+        if: github.event_name == 'push' || inputs.dry_run == false
+        continue-on-error: true
+        run: |
+          dotnet nuget push "artifacts/packages/*.snupkg" \
+            --api-key "${{ secrets.NUGET_API_KEY }}" \
+            --source https://api.nuget.org/v3/index.json \
+            --skip-duplicate
+
+      # Notes go through a file rather than an inline --notes string: multi-line markdown inside a
+      # YAML scalar that also carries ${{ }} substitutions is a reliable way to produce a release
+      # body with mangled line breaks.
+      - name: Create the GitHub release
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+          REPO: ${{ github.repository }}
+        run: |
+          cat > release-notes.md <<NOTES
+          Published to NuGet:
+
+          - [FAISS.Net ${VERSION}](https://www.nuget.org/packages/Gravicode.FaissNet/${VERSION})
+          - [FAISS.Net.Gpu ${VERSION}](https://www.nuget.org/packages/Gravicode.FaissNet.Gpu/${VERSION})
+
+          See [Progress.md](https://github.com/${REPO}/blob/main/FAISS.Net/Progress.md) for what
+          shipped, and [PLAN.md](https://github.com/${REPO}/blob/main/FAISS.Net/PLAN.md) for what
+          is next.
+          NOTES
+
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "FAISS.Net ${VERSION}" \
+            --notes-file release-notes.md \
+            artifacts/packages/*.nupkg

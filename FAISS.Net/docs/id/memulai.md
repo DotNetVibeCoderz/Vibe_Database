@@ -7,8 +7,8 @@
 ## Instalasi
 
 ```bash
-dotnet add package FAISS.Net
-dotnet add package FAISS.Net.Gpu   # opsional
+dotnet add package Gravicode.FaissNet
+dotnet add package Gravicode.FaissNet.Gpu   # opsional
 ```
 
 Menargetkan .NET 10. Satu assembly terkelola; tidak ada dependensi native yang perlu dipasang atau

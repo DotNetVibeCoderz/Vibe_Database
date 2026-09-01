@@ -3,8 +3,12 @@
   <PropertyGroup>
     <RootNamespace>Faiss.Net.Gpu</RootNamespace>
     <AssemblyName>Faiss.Net.Gpu</AssemblyName>
-    <PackageId>FAISS.Net.Gpu</PackageId>
-    <Description>GPU acceleration for FAISS.Net via ILGPU (CUDA, OpenCL, and a CPU fallback).</Description>
+    <PackageId>Gravicode.FaissNet.Gpu</PackageId>
+    <Title>FAISS.Net.Gpu — GPU acceleration for FAISS.Net</Title>
+    <Description>GPU acceleration for FAISS.Net via ILGPU. Drop-in IndexFlatL2Gpu and IndexFlatIPGpu running on CUDA or OpenCL, with a CPU accelerator fallback so the same code still runs on a machine without a GPU.</Description>
+    <PackageTags>faiss;vector-search;gpu;cuda;opencl;ilgpu;ann;knn;simd;embeddings</PackageTags>
+    <PackageReadmeFile>PACKAGE.md</PackageReadmeFile>
+    <PackageReleaseNotes>First release. GPU flat search with on-device top-k selection and automatic query chunking against a device-memory budget.</PackageReleaseNotes>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);CS1591;CS1573</NoWarn>
   </PropertyGroup>
@@ -15,6 +19,11 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Faiss.Net\Faiss.Net.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="PACKAGE.md" Pack="true" PackagePath="\" />
+    <None Include="..\..\LICENSE" Pack="true" PackagePath="\" />
   </ItemGroup>
 
 </Project>

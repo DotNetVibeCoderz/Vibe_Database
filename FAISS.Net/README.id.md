@@ -38,8 +38,8 @@ Yang Anda dapatkan:
 ## Instalasi
 
 ```bash
-dotnet add package FAISS.Net
-dotnet add package FAISS.Net.Gpu   # opsional, CUDA/OpenCL lewat ILGPU
+dotnet add package Gravicode.FaissNet
+dotnet add package Gravicode.FaissNet.Gpu   # opsional, CUDA/OpenCL lewat ILGPU
 ```
 
 Menargetkan **.NET 10**.
@@ -242,12 +242,30 @@ Disengaja, dan sebaiknya diketahui sebelum Anda memindahkan kode:
 
 ---
 
+## Merilis
+
+CI membangun dan menguji di Windows, Linux, dan macOS, serta mengemas kedua pustaka pada setiap
+commit. Penerbitan dipicu oleh tag:
+
+```bash
+# naikkan <Version> di Directory.Build.props dulu — workflow menolak menerbitkan bila keduanya beda
+git tag faissnet-v1.0.1
+git push origin faissnet-v1.0.1
+```
+
+Tag diberi awalan nama proyek karena proyek ini berada di dalam sebuah monorepo. Berkas workflow-nya
+sendiri harus diletakkan di akar repositori — lihat
+[.github/workflows/README.md](.github/workflows/README.md).
+
 ## Kontribusi
 
 Pengujian harus lulus dan benchmark tidak boleh mundur. Asersi recall berjalan di atas data ber-seed, sehingga kegagalan dapat direproduksi persis, bukan muncul sekali dalam sepuluh kali jalan.
 
 ```bash
+dotnet build -c Release -warnaserror
 dotnet test
+dotnet pack -c Release                       # paket muncul di artifacts/packages/
+python .github/scripts/check_docs.py .       # tautan valid, kedua bahasa selaras
 dotnet run -c Release --project benchmarks/Faiss.Net.Benchmarks -- micro
 ```
 

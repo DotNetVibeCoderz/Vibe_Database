@@ -1,0 +1,21 @@
+# Build output
+bin/
+obj/
+artifacts/
+
+# Benchmark output — generated, and large
+data/
+results-*.json
+COMPARISON.md
+BenchmarkDotNet.Artifacts/
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+
+# OS
+.DS_Store
+Thumbs.db

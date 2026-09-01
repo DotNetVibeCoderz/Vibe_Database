@@ -27,6 +27,9 @@ dotnet run -c Release --project samples/Faiss.Net.Gallery -- --capture docs/imag
 dotnet run -c Release --project benchmarks/Faiss.Net.Benchmarks -- gendata --out data
 dotnet run -c Release --project benchmarks/Faiss.Net.Benchmarks -- suite --data data --out results-dotnet.json
 dotnet run -c Release --project benchmarks/Faiss.Net.Benchmarks -- micro
+
+dotnet pack -c Release                          # -> artifacts/packages (FAISS.Net, FAISS.Net.Gpu)
+python .github/scripts/check_docs.py .          # link + EN/ID parity check, same as CI
 ```
 
 Anything performance-related must be a **Release** build. Debug numbers for SIMD code are off by an
@@ -96,6 +99,26 @@ These were each the source of a real bug during development.
 recall test is indistinguishable from a real regression. Serialization tests assert *byte-identical*
 results after reload, not merely similar ones. GPU tests run everywhere — ILGPU falls back to a CPU
 accelerator, so the kernels are still exercised.
+
+## Packaging and CI
+
+Two shippable packages: `FAISS.Net` and `FAISS.Net.Gpu`. Each carries its own `PACKAGE.md` rather
+than the repository README, because NuGet renders readmes on a page where relative links and images
+do not resolve — the package readmes use absolute URLs into the repository. Keep them in sync with
+the README when the feature list changes.
+
+This project lives at `Vibe_Database/FAISS.Net/` in a monorepo. Two consequences that are easy to
+get wrong:
+
+- **Workflows must sit at the repository root.** `.github/workflows/*.yml` here is a staging copy;
+  GitHub ignores workflows nested in a subdirectory. The files are already written for that layout
+  (path filters on `FAISS.Net/**`, `working-directory: FAISS.Net`).
+- **Release tags are namespaced** — `faissnet-v1.2.3`, not `v1.2.3`. A bare tag would be ambiguous
+  about which project it releases. The release workflow refuses to publish if the tag disagrees with
+  the version MSBuild evaluates.
+
+CI runs `-warnaserror`, so a new warning breaks the build. It also runs on macOS arm64, which
+exercises the NEON path in `VectorOps` that no other runner touches.
 
 ## Project tracking
 

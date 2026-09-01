@@ -38,8 +38,8 @@ What that buys you:
 ## Install
 
 ```bash
-dotnet add package FAISS.Net
-dotnet add package FAISS.Net.Gpu   # optional, ILGPU-backed CUDA/OpenCL
+dotnet add package Gravicode.FaissNet
+dotnet add package Gravicode.FaissNet.Gpu   # optional, ILGPU-backed CUDA/OpenCL
 ```
 
 Targets **.NET 10**.
@@ -241,12 +241,29 @@ Deliberate, and worth knowing before you port something:
 
 ---
 
+## Releasing
+
+CI builds and tests on Windows, Linux and macOS, and packs both libraries on every commit.
+Publishing is tag-driven:
+
+```bash
+# bump <Version> in Directory.Build.props first — the workflow refuses to publish if they disagree
+git tag faissnet-v1.0.1
+git push origin faissnet-v1.0.1
+```
+
+Tags are namespaced because this project lives inside a monorepo. The workflows themselves must sit
+at the repository root — see [.github/workflows/README.md](.github/workflows/README.md).
+
 ## Contributing
 
 Tests must pass and benchmarks must not regress. Recall assertions run on seeded data, so a failure reproduces exactly rather than appearing once in ten runs.
 
 ```bash
+dotnet build -c Release -warnaserror
 dotnet test
+dotnet pack -c Release                       # packages land in artifacts/packages/
+python .github/scripts/check_docs.py .       # links resolve, both languages in step
 dotnet run -c Release --project benchmarks/Faiss.Net.Benchmarks -- micro
 ```
 

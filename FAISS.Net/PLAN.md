@@ -11,7 +11,15 @@ filtered search does not.
 
 ## Now — v1.0
 
-Shipped. Ten index families, four metrics, GPU flat search, versioned persistence, memory-mapped
+Shipped and **published to nuget.org** as
+[`Gravicode.FaissNet`](https://www.nuget.org/packages/Gravicode.FaissNet) and
+[`Gravicode.FaissNet.Gpu`](https://www.nuget.org/packages/Gravicode.FaissNet.Gpu).
+
+The package ids carry the `Gravicode.` prefix because `FAISS.Net.Gpu` on nuget.org already belongs
+to an unrelated project. Assembly names and namespaces are unaffected — consumers still write
+`using Faiss.Net;`.
+
+ Ten index families, four metrics, GPU flat search, versioned persistence, memory-mapped
 indexes, a matched benchmark suite against Python FAISS, bilingual documentation, and a desktop
 gallery. 82 tests passing.
 
@@ -72,13 +80,16 @@ and is far easier to reason about.
 
 **Why.** Rebuilding to add one vector is the most common operational complaint about vector indexes.
 
-### Packaging and CI
+### ~~Packaging and CI~~ — done
 
-**The gap.** The projects carry NuGet metadata but nothing publishes them, and nothing runs the tests
-on a machine that is not this one.
+Shipped ahead of the rest of v1.1. `.github/workflows/faissnet-ci.yml` builds and tests on Windows,
+Linux and macOS — a real test rather than a formality, because the three runners exercise different
+SIMD dispatch paths — packs both libraries on every commit, and checks documentation links and
+English/Indonesian parity. `faissnet-release.yml` publishes to nuget.org from a `faissnet-v*` tag,
+refusing to run if the tag disagrees with the declared version.
 
-**The plan.** A GitHub Actions workflow: build and test on Windows, Linux and macOS (the SIMD
-dispatch paths differ, so this is a real test and not a formality), then pack and publish on a tag.
+Both workflows must be moved to the monorepo root to run; see
+[.github/workflows/README.md](.github/workflows/README.md).
 
 ---
 

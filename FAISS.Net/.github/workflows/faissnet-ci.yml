@@ -1,0 +1,134 @@
+# FAISS.Net — build, test and pack on every change.
+#
+# This file belongs at the ROOT of the Vibe_Database repository, not inside FAISS.Net/.
+# GitHub Actions only reads .github/workflows/ from the repository root; a workflow nested in a
+# subdirectory is silently ignored. See .github/workflows/README.md for the move.
+#
+# The matrix is not decoration. VectorOps dispatches on the widest SIMD register the hardware
+# reports, so the three runners exercise three genuinely different code paths: AVX2 or AVX-512 on
+# the x64 runners, and NEON on the arm64 macOS runner. A kernel that is correct on one is not
+# thereby correct on the others, which is exactly the bug class the dimension-sweep tests hunt for.
+
+name: FAISS.Net CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'FAISS.Net/**'
+      - '.github/workflows/faissnet-ci.yml'
+  pull_request:
+    paths:
+      - 'FAISS.Net/**'
+      - '.github/workflows/faissnet-ci.yml'
+  workflow_dispatch:
+
+# A new push to the same branch makes the in-flight run obsolete; cancel it rather than queueing.
+concurrency:
+  group: faissnet-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PROJECT_DIR: FAISS.Net
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    defaults:
+      run:
+        working-directory: FAISS.Net
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: FAISS.Net/global.json
+
+      - name: Report the SIMD path this runner will use
+        run: |
+          dotnet --info
+        continue-on-error: true
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build -c Release --no-restore -warnaserror
+
+      # Release, always. Debug numbers for SIMD code are off by an order of magnitude, and the
+      # recall assertions are tuned against optimized kernels.
+      - name: Test
+        run: >
+          dotnet test -c Release --no-build
+          --logger "trx;LogFileName=faissnet-${{ matrix.os }}.trx"
+          --results-directory "${{ github.workspace }}/test-results"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.os }}
+          path: test-results/
+          retention-days: 14
+
+  pack:
+    name: pack
+    needs: test
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: FAISS.Net
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: FAISS.Net/global.json
+
+      # Packing on every commit rather than only on a tag: a packaging mistake — a missing readme,
+      # a broken license expression, an unpackable project — is found here instead of at release.
+      - name: Pack
+        run: dotnet pack -c Release
+
+      - name: List package contents
+        run: |
+          for pkg in artifacts/packages/*.nupkg; do
+            echo "=== $pkg"
+            unzip -l "$pkg" | sed 's/^/    /'
+          done
+
+      - name: Upload packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: packages
+          path: FAISS.Net/artifacts/packages/*
+          retention-days: 14
+
+  docs:
+    name: docs
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The English and Indonesian documentation sets are meant to stay in step, and every internal
+      # link is meant to resolve. Both are easy to break in a hurry and tedious to notice by eye.
+      - name: Check links and language parity
+        run: python3 FAISS.Net/.github/scripts/check_docs.py FAISS.Net

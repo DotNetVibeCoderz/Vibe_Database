@@ -3,12 +3,20 @@
   <PropertyGroup>
     <RootNamespace>Faiss.Net</RootNamespace>
     <AssemblyName>Faiss.Net</AssemblyName>
-    <PackageId>FAISS.Net</PackageId>
-    <Description>High-performance .NET port of FAISS: SIMD-accelerated similarity search and clustering of dense vectors, with a Python-FAISS-compatible API.</Description>
-    <PackageTags>faiss;vector-search;ann;knn;simd;embeddings;hnsw;ivf;pq</PackageTags>
+    <PackageId>Gravicode.FaissNet</PackageId>
+    <Title>FAISS.Net — vector similarity search for .NET</Title>
+    <Description>High-performance similarity search and clustering of dense vectors. A from-scratch .NET port of FAISS — no native binaries, no P/Invoke — built on Span&lt;T&gt; and SIMD intrinsics, with an API shaped like Python FAISS. Flat, IVF, HNSW, PQ, scalar-quantized and binary indexes, with versioned persistence and memory-mapped search.</Description>
+    <PackageTags>faiss;vector-search;similarity-search;ann;knn;nearest-neighbor;simd;embeddings;hnsw;ivf;product-quantization;rag;semantic-search</PackageTags>
+    <PackageReadmeFile>PACKAGE.md</PackageReadmeFile>
+    <PackageReleaseNotes>First release. Ten index families, four metrics, versioned persistence, memory-mapped indexes, and a benchmark suite matched against Python FAISS.</PackageReleaseNotes>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);CS1591;CS1573;CS0419</NoWarn>
     <Optimize Condition="'$(Configuration)' == 'Release'">true</Optimize>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="PACKAGE.md" Pack="true" PackagePath="\" />
+    <None Include="..\..\LICENSE" Pack="true" PackagePath="\" />
+  </ItemGroup>
 
 </Project>

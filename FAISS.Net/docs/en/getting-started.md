@@ -7,8 +7,8 @@
 ## Install
 
 ```bash
-dotnet add package FAISS.Net
-dotnet add package FAISS.Net.Gpu   # optional
+dotnet add package Gravicode.FaissNet
+dotnet add package Gravicode.FaissNet.Gpu   # optional
 ```
 
 Targets .NET 10. One managed assembly; there is no native dependency to install or version-match.
