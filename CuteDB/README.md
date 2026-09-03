@@ -90,7 +90,7 @@ dotnet tool install -g CuteDB.Cli         # the cutedb command
 dotnet tool install -g CuteDB.Server      # the HTTP server, for the Python/Go/Node clients
 ```
 
-The published 2.0.0 package carries the native accelerator for `win-x64` only, because it was built on Windows. On every other platform CuteDB uses the managed scanner — identical semantics, 1.3–1.8× slower on large scans, nothing unavailable. To get the accelerator elsewhere, build it yourself with `native/build.sh`; the release workflow builds all six runtimes when a release is cut from CI.
+The package carries the native accelerator for all six runtimes — `win-x64`, `win-arm64`, `linux-x64`, `linux-arm64`, `osx-x64`, `osx-arm64`. The release workflow builds every one of them and fails rather than publishing a package that is missing any, so a package that exists has the runtime you need. Anywhere else, CuteDB uses the managed scanner: identical semantics, 1.3–1.8× slower on large scans, nothing unavailable.
 
 ---
 

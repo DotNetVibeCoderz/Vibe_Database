@@ -90,7 +90,7 @@ dotnet tool install -g CuteDB.Cli         # perintah cutedb
 dotnet tool install -g CuteDB.Server      # server HTTP, untuk klien Python/Go/Node
 ```
 
-Paket 2.0.0 yang diterbitkan membawa akselerator native untuk `win-x64` saja, karena dibangun di Windows. Di platform lain CuteDB memakai pemindai terkelola — semantiknya identik, 1,3–1,8× lebih lambat pada pemindaian besar, dan tidak ada fitur yang hilang. Untuk mendapatkan akselerator di platform lain, bangun sendiri dengan `native/build.sh`; alur rilis membangun keenam runtime kalau rilis dipotong dari CI.
+Paketnya membawa akselerator native untuk keenam runtime — `win-x64`, `win-arm64`, `linux-x64`, `linux-arm64`, `osx-x64`, `osx-arm64`. Alur rilis membangun semuanya dan lebih baik gagal daripada menerbitkan paket yang kehilangan salah satunya, jadi paket yang ada pasti membawa runtime yang Anda butuhkan. Di luar itu CuteDB memakai pemindai terkelola: semantiknya identik, 1,3–1,8× lebih lambat pada pemindaian besar, dan tidak ada fitur yang hilang.
 
 ---
 

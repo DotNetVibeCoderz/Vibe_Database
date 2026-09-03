@@ -48,10 +48,12 @@ garbage collector never traces — not a million live objects. An optional Rust 
 scans 1.3–1.8× faster and allocates 78× less; it is never required, and a parity suite holds it to
 identical answers.
 
-**Native accelerator in this build:** `win-x64` only. Everywhere else — Linux, macOS, Windows on
-ARM — CuteDB uses the managed scanner, which implements identical semantics and is what the test
-suite runs against on every platform. Nothing is unavailable without it; scans are 1.3–1.8× slower.
-Building the accelerator yourself is one command: `native/build.sh` (or `build.ps1`).
+**Native accelerator in this package:** `win-x64`, `win-arm64`, `linux-x64`, `linux-arm64`,
+`osx-x64` and `osx-arm64`. The release workflow builds all six and refuses to publish a package
+that is missing any of them, so the right one is there or the package does not exist. On a runtime
+not in that list CuteDB uses the managed scanner, which implements identical semantics and is what
+the test suite runs against on every platform — nothing is unavailable without the accelerator;
+scans are 1.3–1.8× slower.
 
 ## CuteQL
 
