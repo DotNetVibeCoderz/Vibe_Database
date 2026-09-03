@@ -1,6 +1,6 @@
 {
   "name": "cutedb",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Node.js client for CuteDB, the cute embedded document database.",
   "type": "module",
   "main": "./src/index.js",
@@ -8,17 +8,27 @@
   "exports": {
     ".": {
       "types": "./src/index.d.ts",
-      "import": "./src/index.js"
+      "default": "./src/index.js"
     }
   },
-  "files": ["src", "README.md"],
+  "files": [
+    "src",
+    "README.md"
+  ],
   "engines": {
     "node": ">=18"
   },
   "scripts": {
     "test": "node --test"
   },
-  "keywords": ["cutedb", "database", "document-database", "nosql", "json", "embedded"],
+  "keywords": [
+    "cutedb",
+    "database",
+    "document-database",
+    "nosql",
+    "json",
+    "embedded"
+  ],
   "author": "Gravicode Studios",
   "license": "MIT",
   "repository": {

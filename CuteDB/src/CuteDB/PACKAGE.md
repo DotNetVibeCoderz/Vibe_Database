@@ -48,6 +48,11 @@ garbage collector never traces — not a million live objects. An optional Rust 
 scans 1.3–1.8× faster and allocates 78× less; it is never required, and a parity suite holds it to
 identical answers.
 
+**Native accelerator in this build:** `win-x64` only. Everywhere else — Linux, macOS, Windows on
+ARM — CuteDB uses the managed scanner, which implements identical semantics and is what the test
+suite runs against on every platform. Nothing is unavailable without it; scans are 1.3–1.8× slower.
+Building the accelerator yourself is one command: `native/build.sh` (or `build.ps1`).
+
 ## CuteQL
 
 `SELECT`, `INSERT`, `UPDATE`, `DELETE`; `AND`/`OR`/`NOT`, `IN`, `LIKE`, `BETWEEN`, `IS NULL`,

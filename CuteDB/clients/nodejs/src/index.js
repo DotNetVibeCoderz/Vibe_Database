@@ -27,7 +27,7 @@
  */
 
 /** This client's version. */
-export const VERSION = "2.0.0";
+export const VERSION = "2.0.1";
 
 /**
  * Anything the server refused, or any transport failure.
