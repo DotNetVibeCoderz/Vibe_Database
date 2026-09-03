@@ -1,0 +1,53 @@
+<Project>
+
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+    <!--
+      Avalonia is pinned at 11.3.13 rather than the newest 11.3.x because
+      Avalonia.Controls.DataGrid — which the demo's advanced grid is built on — has no release
+      past 11.3.13 on that line. Keeping every Avalonia package on one version avoids mixing
+      assemblies that were never tested together.
+    -->
+    <AvaloniaVersion>11.3.13</AvaloniaVersion>
+    <!--
+      Pinned to 0.55.0 across all three Spectre packages because Spectre.Console.Cli — which the
+      command routing is built on — has no release past that, while Spectre.Console itself has
+      moved on to 0.57. Keeping them on one version avoids pairing a CLI host with a console
+      library it was never compiled against.
+    -->
+    <SpectreVersion>0.55.0</SpectreVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- CLI -->
+    <PackageVersion Include="Spectre.Console" Version="$(SpectreVersion)" />
+    <PackageVersion Include="Spectre.Console.Cli" Version="$(SpectreVersion)" />
+    <PackageVersion Include="Spectre.Console.Json" Version="$(SpectreVersion)" />
+
+    <!-- Tests and benchmarks -->
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageVersion Include="xunit" Version="2.9.3" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
+    <PackageVersion Include="BenchmarkDotNet" Version="0.15.8" />
+    <PackageVersion Include="LiteDB" Version="5.0.21" />
+    <PackageVersion Include="Newtonsoft.Json" Version="13.0.4" />
+
+    <!-- Avalonia demo and the offscreen screenshot renderer -->
+    <PackageVersion Include="Avalonia" Version="$(AvaloniaVersion)" />
+    <PackageVersion Include="Avalonia.Desktop" Version="$(AvaloniaVersion)" />
+    <PackageVersion Include="Avalonia.Themes.Fluent" Version="$(AvaloniaVersion)" />
+    <PackageVersion Include="Avalonia.Fonts.Inter" Version="$(AvaloniaVersion)" />
+    <PackageVersion Include="Avalonia.Controls.DataGrid" Version="$(AvaloniaVersion)" />
+    <PackageVersion Include="Avalonia.Diagnostics" Version="$(AvaloniaVersion)" />
+    <PackageVersion Include="Avalonia.Headless" Version="$(AvaloniaVersion)" />
+    <PackageVersion Include="Avalonia.Skia" Version="$(AvaloniaVersion)" />
+
+    <!--
+      Avalonia's Linux backend pulls in Tmds.DBus.Protocol, whose published versions carry an
+      advisory; the fixed version is pinned directly. Mirrors the same pin in FAISS.Net.
+    -->
+    <PackageVersion Include="Tmds.DBus.Protocol" Version="0.21.3" />
+  </ItemGroup>
+
+</Project>

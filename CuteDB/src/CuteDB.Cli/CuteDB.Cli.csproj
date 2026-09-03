@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>CuteDB.Cli</RootNamespace>
+    <!--
+      The assembly is NOT called "cutedb": that differs from the core library's "CuteDB" only by
+      case, and on Windows and macOS the two .dll files collide in one output directory. The
+      command people type is set by ToolCommandName below and is unaffected.
+    -->
+    <AssemblyName>CuteDB.Cli</AssemblyName>
+    <RollForward>latestMajor</RollForward>
+
+    <!-- Shipped as a global tool: `dotnet tool install -g CuteDB.Cli` puts `cutedb` on the PATH. -->
+    <IsPackable>true</IsPackable>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>cutedb</ToolCommandName>
+    <PackageId>CuteDB.Cli</PackageId>
+    <Title>CuteDB command line</Title>
+    <Description>The cutedb command line: an interactive CuteQL shell, import and export, index management, statistics and a built-in benchmark for CuteDB databases. Rendered with Spectre.Console.</Description>
+    <PackageReadmeFile>PACKAGE.md</PackageReadmeFile>
+    <PackageTags>$(PackageTags);cli;dotnet-tool;spectre.console</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="PACKAGE.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Spectre.Console" />
+    <PackageReference Include="Spectre.Console.Cli" />
+    <PackageReference Include="Spectre.Console.Json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../CuteDB/CuteDB.csproj" />
+    <ProjectReference Include="../../samples/CuteDB.Retail/CuteDB.Retail.csproj" />
+  </ItemGroup>
+
+</Project>

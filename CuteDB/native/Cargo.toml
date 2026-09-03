@@ -1,0 +1,14 @@
+[workspace]
+members = ["cutedb-core"]
+resolver = "2"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = "debuginfo"
+# Unwinding is kept on purpose: every FFI entry point wraps its body in catch_unwind so a bug in
+# here surfaces as an error code the managed side can fall back from, rather than aborting the
+# host process.
+panic = "unwind"
+

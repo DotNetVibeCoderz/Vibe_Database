@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <RootNamespace>CuteDB.Demo</RootNamespace>
+    <AssemblyName>CuteDB.Demo</AssemblyName>
+    <IsPackable>false</IsPackable>
+    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+
+    <!--
+      Compiled bindings are off because the views are driven from code-behind against a shared
+      workspace object rather than through a view-model graph. The demo's job is to be readable
+      alongside the code samples it shows, and a binding layer would put indirection between the
+      two.
+    -->
+    <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" />
+    <PackageReference Include="Avalonia.Desktop" />
+    <PackageReference Include="Avalonia.Themes.Fluent" />
+    <PackageReference Include="Avalonia.Fonts.Inter" />
+    <PackageReference Include="Avalonia.Controls.DataGrid" />
+    <PackageReference Include="Avalonia.Diagnostics" Condition="'$(Configuration)' == 'Debug'" />
+
+    <!-- Offscreen rendering, for the screenshots in the README and the docs. -->
+    <PackageReference Include="Avalonia.Headless" />
+    <PackageReference Include="Avalonia.Skia" />
+
+    <!--
+      Avalonia's Linux backend pulls in Tmds.DBus.Protocol, whose published versions carry an
+      advisory. The demo never touches DBus itself, but shipping a flagged transitive package is
+      not acceptable, so the fixed version is pinned directly. Mirrors the same pin in FAISS.Net.
+    -->
+    <PackageReference Include="Tmds.DBus.Protocol" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/CuteDB/CuteDB.csproj" />
+    <ProjectReference Include="../CuteDB.Retail/CuteDB.Retail.csproj" />
+  </ItemGroup>
+
+</Project>

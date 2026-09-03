@@ -1,0 +1,14 @@
+[package]
+name = "cutedb-core"
+version = "2.0.0"
+edition = "2021"
+rust-version = "1.75"
+description = "Native scan accelerator for CuteDB, the cute embedded document database."
+authors = ["Gravicode Studios <https://github.com/DotNetVibeCoderz>"]
+license = "MIT"
+repository = "https://github.com/DotNetVibeCoderz/Vibe_Database/tree/main/CuteDB"
+publish = false
+
+[lib]
+name = "cutedb_core"
+crate-type = ["cdylib", "staticlib"]

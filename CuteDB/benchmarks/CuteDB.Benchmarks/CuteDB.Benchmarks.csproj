@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>CuteDB.Benchmarks</RootNamespace>
+    <AssemblyName>CuteDB.Benchmarks</AssemblyName>
+    <IsPackable>false</IsPackable>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+
+    <!-- BenchmarkDotNet needs an optimised build to measure anything meaningful. -->
+    <Optimize>true</Optimize>
+    <DebugType>pdbonly</DebugType>
+    <ServerGarbageCollection>true</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BenchmarkDotNet" />
+
+    <!--
+      Two reference points, both present only here. LiteDB is the embedded document database most
+      .NET people would otherwise reach for; Newtonsoft is what CuteDB v1 used, so the comparison
+      shows what changed between versions rather than only what CuteDB does in isolation.
+    -->
+    <PackageReference Include="LiteDB" />
+    <PackageReference Include="Newtonsoft.Json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/CuteDB/CuteDB.csproj" />
+    <ProjectReference Include="../../samples/CuteDB.Retail/CuteDB.Retail.csproj" />
+  </ItemGroup>
+
+</Project>

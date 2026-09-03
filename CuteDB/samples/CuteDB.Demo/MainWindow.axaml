@@ -1,0 +1,125 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="CuteDB.Demo.MainWindow"
+        Title="Nusantara Retail · CuteDB"
+        Width="1440" Height="900"
+        MinWidth="1080" MinHeight="680"
+        Background="{StaticResource Paper}"
+        FontFamily="{StaticResource UiFont}">
+
+  <!--
+    Three columns: the section rail, the working area, and the till roll.
+
+    The tape on the right is the signature of this app. Every database demo shows a grid of rows;
+    what CuteDB has to demonstrate is the mechanism behind the rows — whether an answer came from
+    a scan, an accelerated scan or an index seek, and what that cost. Printing that as a receipt
+    that accumulates makes comparing two approaches something you can see rather than something
+    you have to remember.
+  -->
+  <Grid RowDefinitions="Auto,*">
+
+    <!-- ============================ header band ============================ -->
+    <Border Grid.Row="0" Classes="band" Padding="22,14">
+      <Grid ColumnDefinitions="Auto,*,Auto">
+
+        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
+          <TextBlock Text="NUSANTARA RETAIL"
+                     FontFamily="{StaticResource MonoFont}"
+                     FontSize="13" FontWeight="Bold" LetterSpacing="2.6"
+                     Foreground="{StaticResource OnTerminal}"
+                     VerticalAlignment="Center" />
+          <Border Width="1" Height="14" Background="{StaticResource OnTerminalDim}" Opacity="0.5" />
+          <TextBlock Text="24 gerai · Jawa, Bali, Sumatera, Sulawesi, Kalimantan"
+                     Classes="label on-terminal" VerticalAlignment="Center" />
+        </StackPanel>
+
+        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="18" VerticalAlignment="Center">
+          <TextBlock x:Name="DocumentCountLabel" Classes="label on-terminal" VerticalAlignment="Center" />
+          <TextBlock x:Name="EngineLabel" Classes="label on-terminal" VerticalAlignment="Center" />
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <!-- ============================ body ============================ -->
+    <Grid Grid.Row="1" ColumnDefinitions="212,*,Auto">
+
+      <!-- ══════════════════════ section rail ══════════════════════ -->
+      <Border Grid.Column="0" Background="{StaticResource WashSoft}" Padding="20,22">
+        <Grid RowDefinitions="Auto,*,Auto">
+
+          <StackPanel Grid.Row="0" Spacing="2">
+            <TextBlock Text="BAGIAN / SECTIONS" Classes="label" Margin="0,0,0,12" />
+            <StackPanel x:Name="NavHost" Spacing="0" />
+          </StackPanel>
+
+          <StackPanel Grid.Row="2" Spacing="10">
+            <Border Classes="rule" />
+            <TextBlock x:Name="LoadLabel" Classes="label" TextWrapping="Wrap" LineHeight="15" />
+            <Button x:Name="CodeToggle" Classes="quiet" HorizontalAlignment="Left"
+                    Content="KODE ▸" ToolTip.Tip="Show the C# behind this section (Ctrl+K)" />
+          </StackPanel>
+        </Grid>
+      </Border>
+
+      <!-- ══════════════════════ working area ══════════════════════ -->
+      <Grid Grid.Column="1" RowDefinitions="Auto,*,Auto">
+
+        <!-- Section title. Small print above the work, per the receipt hierarchy. -->
+        <StackPanel Grid.Row="0" Margin="28,22,28,0" Spacing="5">
+          <TextBlock x:Name="SectionLabel" Classes="label" />
+          <TextBlock x:Name="SectionBlurb" Classes="body muted" MaxWidth="760" HorizontalAlignment="Left" />
+        </StackPanel>
+
+        <ContentControl x:Name="ViewHost" Grid.Row="1" Margin="28,18,28,20" />
+
+        <!-- The code drawer, directly under the thing it explains. -->
+        <Border x:Name="CodeDrawer" Grid.Row="2" IsVisible="False"
+                Background="{StaticResource Terminal}" Padding="0" Margin="0,18,0,0">
+          <Grid RowDefinitions="Auto,*" Height="260">
+            <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="22,12,14,6">
+              <TextBlock Grid.Column="0" Text="KODE C# / THE CODE BEHIND THIS SECTION"
+                         Classes="label on-terminal" VerticalAlignment="Center" />
+              <Button Grid.Column="1" x:Name="CodeClose" Classes="quiet" Content="TUTUP ✕"
+                      Foreground="{StaticResource OnTerminalDim}" />
+            </Grid>
+            <ScrollViewer Grid.Row="1" Padding="22,0,22,16">
+              <SelectableTextBlock x:Name="CodeText"
+                                   FontFamily="{StaticResource MonoFont}"
+                                   FontSize="12"
+                                   LineHeight="18"
+                                   Foreground="{StaticResource OnTerminal}"
+                                   SelectionBrush="#3A5648" />
+            </ScrollViewer>
+          </Grid>
+        </Border>
+      </Grid>
+
+      <!-- ══════════════════════ the till roll ══════════════════════ -->
+      <Border Grid.Column="2" Classes="tape" Width="228">
+        <Grid RowDefinitions="Auto,*,Auto">
+
+          <StackPanel Grid.Row="0" Margin="18,20,18,10" Spacing="8">
+            <TextBlock Text="STRUK MESIN / TILL ROLL" Classes="label on-terminal" />
+            <TextBlock Text="Apa yang dikerjakan mesin untuk setiap kueri."
+                       FontFamily="{StaticResource UiFont}" FontSize="11"
+                       Foreground="{StaticResource OnTerminalDim}"
+                       TextWrapping="Wrap" LineHeight="15" />
+            <Border Classes="tear" Margin="0,4,0,0" />
+          </StackPanel>
+
+          <ScrollViewer Grid.Row="1" Padding="18,0" VerticalScrollBarVisibility="Auto">
+            <StackPanel x:Name="TapeHost" Spacing="0" />
+          </ScrollViewer>
+
+          <StackPanel Grid.Row="2" Margin="18,10,18,18" Spacing="6">
+            <Border Classes="tear" />
+            <TextBlock Text="GRAVICODE STUDIOS" Classes="label on-terminal" />
+            <TextBlock Text="dipimpin oleh Kang Fadhil"
+                       FontFamily="{StaticResource UiFont}" FontSize="10"
+                       Foreground="{StaticResource OnTerminalDim}" />
+          </StackPanel>
+        </Grid>
+      </Border>
+    </Grid>
+  </Grid>
+</Window>

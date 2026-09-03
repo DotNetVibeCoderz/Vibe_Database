@@ -1,0 +1,204 @@
+name: CuteDB release
+
+# Tag a release as cutedb-v2.0.0. The tag's version has to match Directory.Build.props, which is
+# checked before anything is built — a package published with the wrong version cannot be recalled.
+on:
+  push:
+    tags: ['cutedb-v*']
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: 'Build and check the packages without publishing'
+        type: boolean
+        default: true
+
+defaults:
+  run:
+    working-directory: CuteDB
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  # ---------------------------------------------------------------------------------------------
+  # Every platform the package ships a native library for. linux-arm64 and win-arm64 are
+  # cross-compiled; nothing runs them here, which is why the parity tests matter.
+  # ---------------------------------------------------------------------------------------------
+  native:
+    name: native (${{ matrix.rid }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { os: windows-latest, rid: win-x64,     target: x86_64-pc-windows-msvc }
+          - { os: windows-latest, rid: win-arm64,   target: aarch64-pc-windows-msvc }
+          - { os: ubuntu-latest,  rid: linux-x64,   target: x86_64-unknown-linux-gnu }
+          - { os: ubuntu-latest,  rid: linux-arm64, target: aarch64-unknown-linux-gnu }
+          - { os: macos-latest,   rid: osx-x64,     target: x86_64-apple-darwin }
+          - { os: macos-latest,   rid: osx-arm64,   target: aarch64-apple-darwin }
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install the cross linker
+        if: matrix.rid == 'linux-arm64'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+          mkdir -p ~/.cargo
+          cat >> ~/.cargo/config.toml <<'EOF'
+          [target.aarch64-unknown-linux-gnu]
+          linker = "aarch64-linux-gnu-gcc"
+          EOF
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: CuteDB/native
+
+      - name: Build
+        shell: bash
+        run: ./native/build.sh ${{ matrix.target }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ matrix.rid }}
+          path: CuteDB/native/artifacts/${{ matrix.rid }}/
+          if-no-files-found: error
+
+  publish:
+    name: publish
+    needs: native
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: CuteDB/global.json
+
+      - name: Check the tag against the version in the build
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          tag="${GITHUB_REF#refs/tags/cutedb-v}"
+          declared=$(grep -oPm1 '(?<=<Version>)[^<]+' Directory.Build.props)
+          echo "tag=$tag declared=$declared"
+          if [ "$tag" != "$declared" ]; then
+            echo "::error::Tag cutedb-v$tag does not match <Version>$declared</Version>."
+            exit 1
+          fi
+
+      - name: Download every accelerator build
+        uses: actions/download-artifact@v4
+        with:
+          pattern: native-*
+          path: CuteDB/native/artifacts/
+
+      - name: Flatten the artifact layout
+        working-directory: CuteDB/native/artifacts
+        run: |
+          for dir in native-*; do
+            [ -d "$dir" ] || continue
+            rid="${dir#native-}"
+            mkdir -p "$rid"
+            mv "$dir"/* "$rid"/ 2>/dev/null || true
+            rmdir "$dir" 2>/dev/null || true
+          done
+          ls -R
+
+      - name: Test before packing
+        run: |
+          dotnet build CuteDB.slnx -c Release
+          dotnet test tests/CuteDB.Tests -c Release --no-build
+
+      - name: Pack
+        run: dotnet pack CuteDB.slnx -c Release -o artifacts/packages
+
+      - name: Check every runtime made it into the package
+        # A package that silently shipped without its native libraries would look fine and be
+        # slower for everyone, so this fails loudly instead.
+        run: |
+          cd artifacts/packages
+          nupkg=$(ls CuteDB.2*.nupkg | head -1)
+          echo "checking $nupkg"
+          for rid in win-x64 win-arm64 linux-x64 linux-arm64 osx-x64 osx-arm64; do
+            if ! unzip -l "$nupkg" | grep -q "runtimes/$rid/native/"; then
+              echo "::error::$nupkg is missing runtimes/$rid/native"
+              exit 1
+            fi
+            echo "  $rid ok"
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages
+          path: CuteDB/artifacts/packages/*
+
+      - name: Publish to NuGet
+        if: startsWith(github.ref, 'refs/tags/') && github.event.inputs.dry-run != 'true'
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: |
+          if [ -z "$NUGET_API_KEY" ]; then
+            echo "::error::NUGET_API_KEY is not set."
+            exit 1
+          fi
+          dotnet nuget push "artifacts/packages/*.nupkg" \
+            --api-key "$NUGET_API_KEY" \
+            --source https://api.nuget.org/v3/index.json \
+            --skip-duplicate
+
+      - name: Draft the GitHub release
+        if: startsWith(github.ref, 'refs/tags/') && github.event.inputs.dry-run != 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: CuteDB/artifacts/packages/*.nupkg
+          generate_release_notes: true
+          draft: true
+
+  # ---------------------------------------------------------------------------------------------
+  # The three client libraries are versioned and released alongside the .NET packages, but pushing
+  # them needs credentials this repository may not hold, so it is a manual, opt-in step.
+  # ---------------------------------------------------------------------------------------------
+  clients:
+    name: clients (dry run)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: https://registry.npmjs.org
+
+      - name: Build the Python distribution
+        working-directory: CuteDB/clients/python
+        run: |
+          python -m pip install --upgrade build twine
+          python -m build
+          python -m twine check dist/*
+
+      - name: Check the npm package contents
+        working-directory: CuteDB/clients/nodejs
+        run: npm pack --dry-run
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: client-distributions
+          path: CuteDB/clients/python/dist/*
+
+      # The Go client needs no publishing step: `go get` resolves it straight from the tagged
+      # repository, which is why it has no version file of its own.

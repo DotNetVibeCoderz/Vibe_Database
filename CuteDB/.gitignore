@@ -1,0 +1,34 @@
+# Build output
+[Bb]in/
+[Oo]bj/
+artifacts/
+*.user
+*.suo
+
+# Rust
+native/target/
+native/artifacts/
+
+# BenchmarkDotNet
+BenchmarkDotNet.Artifacts/
+
+# Python
+__pycache__/
+*.egg-info/
+.pytest_cache/
+dist/
+build/
+
+# Node
+node_modules/
+package-lock.json
+
+# Databases written by running the samples or the tests
+*.cute
+*.cute.compact
+!samples/data/*.jdb
+
+# Editors
+.vs/
+.idea/
+.vscode/

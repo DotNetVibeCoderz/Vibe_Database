@@ -1,0 +1,87 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+  <!--
+    Design tokens for the CuteDB demo.
+
+    The direction is "the till roll": retail's own artifact is the printed receipt, so the app takes
+    its discipline from one — monospace figures, right-aligned totals, small-print labels above
+    large numbers, dashed tear rules. Every colour below is named for something in that world
+    rather than for its role, because the role is obvious from where it is used and the name is
+    what keeps the palette coherent when it grows.
+
+    Deliberately not a dark IDE and deliberately not warm cream: the ground is a cool, slightly
+    green paper grey — thermal stock that has been in a drawer — and there is no serif anywhere.
+  -->
+
+  <!-- ============================== colour ============================== -->
+
+  <!-- The ground. Cool rather than cream, so the pine and sage sit on it without going muddy. -->
+  <Color x:Key="PaperColor">#EDEEE9</Color>
+  <SolidColorBrush x:Key="Paper" Color="{StaticResource PaperColor}" />
+
+  <!-- Tint blocks, table banding, panel fills. One step down from Paper, never two. -->
+  <Color x:Key="WashColor">#DDE0D6</Color>
+  <SolidColorBrush x:Key="Wash" Color="{StaticResource WashColor}" />
+  <SolidColorBrush x:Key="WashSoft" Color="#E5E7DF" />
+
+  <!-- Text and the one heavy rule weight. Near-black with a green cast, not pure #000. -->
+  <Color x:Key="InkColor">#1A1C19</Color>
+  <SolidColorBrush x:Key="Ink" Color="{StaticResource InkColor}" />
+
+  <!-- The printed block: header band and the till roll. Deep pine, reads as saturated ink. -->
+  <Color x:Key="TerminalColor">#16281F</Color>
+  <SolidColorBrush x:Key="Terminal" Color="{StaticResource TerminalColor}" />
+  <SolidColorBrush x:Key="TerminalSoft" Color="#20372B" />
+
+  <!--
+    Rubber-stamp vermilion. Spent only where it means something: the figure that is the answer,
+    the active section, a destructive confirmation. If it appears three times on one screen, one
+    of them is wrong.
+  -->
+  <Color x:Key="StampColor">#C8482E</Color>
+  <SolidColorBrush x:Key="Stamp" Color="{StaticResource StampColor}" />
+  <SolidColorBrush x:Key="StampSoft" Color="#E8D5CE" />
+
+  <!-- Secondary text, meta, units, and the second series in a chart. -->
+  <Color x:Key="SenColor">#7A8A6F</Color>
+  <SolidColorBrush x:Key="Sen" Color="{StaticResource SenColor}" />
+  <SolidColorBrush x:Key="SenPale" Color="#A8B5A0" />
+
+  <!-- On the pine band. -->
+  <SolidColorBrush x:Key="OnTerminal" Color="#DCE4DA" />
+  <SolidColorBrush x:Key="OnTerminalDim" Color="#7E9186" />
+
+  <!-- ============================== type ============================== -->
+
+  <!--
+    Two faces doing three jobs. Inter carries the interface; a monospace stack carries every
+    figure, so columns of money line up without tabular-figure trickery, and carries the small
+    uppercase labels that give the receipt its voice.
+  -->
+  <FontFamily x:Key="UiFont">Inter, $Default</FontFamily>
+  <FontFamily x:Key="MonoFont">Cascadia Mono, Consolas, JetBrains Mono, Menlo, DejaVu Sans Mono, monospace</FontFamily>
+
+  <!--
+    The hierarchy inverts the usual dashboard: headings are small print and the numbers are large.
+    That is the receipt's own hierarchy — the total is the big thing, the label above it is not.
+  -->
+  <x:Double x:Key="LabelSize">10</x:Double>
+  <x:Double x:Key="BodySize">13</x:Double>
+  <x:Double x:Key="DataSize">12</x:Double>
+  <x:Double x:Key="FigureSize">30</x:Double>
+  <x:Double x:Key="FigureSmallSize">19</x:Double>
+
+  <!-- ============================== metrics ============================== -->
+
+  <Thickness x:Key="PanelPadding">18</Thickness>
+  <Thickness x:Key="TightPadding">12,10</Thickness>
+  <CornerRadius x:Key="PanelRadius">2</CornerRadius>
+
+  <!--
+    A single rule weight, used everywhere a boundary is needed. Hairlines at several weights are
+    what makes a layout read as broadsheet pastiche; one confident weight reads as a form.
+  -->
+  <Thickness x:Key="RuleWeight">1</Thickness>
+
+</ResourceDictionary>

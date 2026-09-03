@@ -1,0 +1,17 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/CuteDB/CuteDB.csproj" />
+    <Project Path="src/CuteDB.Cli/CuteDB.Cli.csproj" />
+    <Project Path="src/CuteDB.Server/CuteDB.Server.csproj" />
+  </Folder>
+  <Folder Name="/samples/">
+    <Project Path="samples/CuteDB.Retail/CuteDB.Retail.csproj" />
+    <Project Path="samples/CuteDB.Demo/CuteDB.Demo.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/CuteDB.Tests/CuteDB.Tests.csproj" />
+  </Folder>
+  <Folder Name="/benchmarks/">
+    <Project Path="benchmarks/CuteDB.Benchmarks/CuteDB.Benchmarks.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <RootNamespace>CuteDB.Server</RootNamespace>
+    <AssemblyName>CuteDB.Server</AssemblyName>
+    <IsPackable>true</IsPackable>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>cutedb-server</ToolCommandName>
+    <PackageId>CuteDB.Server</PackageId>
+    <Title>CuteDB HTTP server</Title>
+    <Description>A single-file HTTP server around a CuteDB database, so the Python, Go and Node.js clients — or anything that speaks JSON over HTTP — can use it. Optional API key, CORS, and an OpenAPI description at /openapi.json.</Description>
+    <PackageReadmeFile>PACKAGE.md</PackageReadmeFile>
+    <PackageTags>$(PackageTags);http;rest;server</PackageTags>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="PACKAGE.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../CuteDB/CuteDB.csproj" />
+  </ItemGroup>
+
+</Project>

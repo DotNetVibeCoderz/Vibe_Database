@@ -1,0 +1,72 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>CuteDB</RootNamespace>
+    <AssemblyName>CuteDB</AssemblyName>
+    <IsPackable>true</IsPackable>
+    <PackageId>CuteDB</PackageId>
+    <Title>CuteDB — the cute embedded document database for .NET</Title>
+    <Description>A fast, memory-efficient embedded document database for .NET 10. Stores real JSON — nested objects, arrays, mixed types — in a compact binary format, queries it with CuteQL (a small SQL dialect with first-class field paths), and persists through a crash-safe append-only log. Reading one nested field out of a stored document costs 155 ns because it never decodes the rest. Optional Rust accelerator for scans. No server required.</Description>
+    <PackageReadmeFile>PACKAGE.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="PACKAGE.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <!--
+    The tests reach into the storage layer on purpose: the parity suite compares row ids straight
+    out of the slot table, and several storage tests assert on slab accounting that has no reason
+    to be part of the public surface.
+  -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="CuteDB.Tests" />
+    <InternalsVisibleTo Include="CuteDB.Benchmarks" />
+  </ItemGroup>
+
+  <!--
+    The native accelerator ships inside the package under runtimes/<rid>/native so that consumers
+    get it automatically on the three desktop platforms, and is simply absent everywhere else —
+    CuteDB falls back to the managed scanner when the library cannot be loaded. The files are
+    produced by native/build.ps1 (or the CI matrix) into native/artifacts.
+  -->
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)../../native/artifacts/win-x64/cutedb_core.dll"
+          Pack="true" PackagePath="runtimes/win-x64/native/" Condition="Exists('$(MSBuildThisFileDirectory)../../native/artifacts/win-x64/cutedb_core.dll')" />
+    <None Include="$(MSBuildThisFileDirectory)../../native/artifacts/win-arm64/cutedb_core.dll"
+          Pack="true" PackagePath="runtimes/win-arm64/native/" Condition="Exists('$(MSBuildThisFileDirectory)../../native/artifacts/win-arm64/cutedb_core.dll')" />
+    <None Include="$(MSBuildThisFileDirectory)../../native/artifacts/linux-x64/libcutedb_core.so"
+          Pack="true" PackagePath="runtimes/linux-x64/native/" Condition="Exists('$(MSBuildThisFileDirectory)../../native/artifacts/linux-x64/libcutedb_core.so')" />
+    <None Include="$(MSBuildThisFileDirectory)../../native/artifacts/linux-arm64/libcutedb_core.so"
+          Pack="true" PackagePath="runtimes/linux-arm64/native/" Condition="Exists('$(MSBuildThisFileDirectory)../../native/artifacts/linux-arm64/libcutedb_core.so')" />
+    <None Include="$(MSBuildThisFileDirectory)../../native/artifacts/osx-x64/libcutedb_core.dylib"
+          Pack="true" PackagePath="runtimes/osx-x64/native/" Condition="Exists('$(MSBuildThisFileDirectory)../../native/artifacts/osx-x64/libcutedb_core.dylib')" />
+    <None Include="$(MSBuildThisFileDirectory)../../native/artifacts/osx-arm64/libcutedb_core.dylib"
+          Pack="true" PackagePath="runtimes/osx-arm64/native/" Condition="Exists('$(MSBuildThisFileDirectory)../../native/artifacts/osx-arm64/libcutedb_core.dylib')" />
+  </ItemGroup>
+
+  <!--
+    For local development and for the tests, benchmarks and demo that reference this project
+    directly, copy the native library built for *this* machine next to the output. Only the
+    current RID is copied: two RIDs would contribute the same file name and collide.
+  -->
+  <PropertyGroup>
+    <CuteDbNativeRid Condition="'$(CuteDbNativeRid)' == ''">$(NETCoreSdkPortableRuntimeIdentifier)</CuteDbNativeRid>
+    <CuteDbNativeDir>$(MSBuildThisFileDirectory)../../native/artifacts/$(CuteDbNativeRid)/</CuteDbNativeDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      A glob rather than three explicit names: MSBuild treats a named-but-absent copy item as an
+      error, and only one of the three ever exists on a given platform. build.ps1 stages nothing
+      else into this directory.
+    -->
+    <None Include="$(CuteDbNativeDir)*cutedb_core.*" Condition="Exists('$(CuteDbNativeDir)')">
+      <Link>%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Pack>false</Pack>
+      <Visible>false</Visible>
+    </None>
+  </ItemGroup>
+
+</Project>

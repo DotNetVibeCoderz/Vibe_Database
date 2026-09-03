@@ -1,0 +1,31 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "cutedb"
+version = "2.0.0"
+description = "Python client for CuteDB, the cute embedded document database."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Gravicode Studios" }]
+keywords = ["cutedb", "database", "document-database", "nosql", "json"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Database :: Front-Ends",
+]
+
+# No runtime dependencies on purpose: the client is stdlib-only, so adding it to a project never
+# drags anything else in.
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/DotNetVibeCoderz/Vibe_Database/tree/main/CuteDB"
+Source = "https://github.com/DotNetVibeCoderz/Vibe_Database/tree/main/CuteDB/clients/python"
+
+[tool.hatch.build.targets.wheel]
+packages = ["cutedb"]

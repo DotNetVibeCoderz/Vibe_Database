@@ -1,0 +1,77 @@
+<Project>
+
+  <!--
+    CuteDB — shared build properties.
+
+    Built by Gravicode Studios, led by Kang Fadhil.
+    https://github.com/DotNetVibeCoderz/Vibe_Database/tree/main/CuteDB
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!--
+      The storage engine reads and writes its binary document format through Span<byte> and raw
+      pointers, and the native accelerator is reached by P/Invoke, so unsafe code is required
+      throughout rather than in one isolated corner.
+    -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <ServerGarbageCollection>true</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+
+  <!--
+    Package identity, matching the sibling FAISS.Net project so the monorepo ships a consistent
+    set of packages.
+
+    RepositoryUrl points at this project's directory inside the Vibe_Database monorepo rather than
+    at the repository root, because that is the page a reader should land on. Note that this is a
+    browse URL, not a clone URL — tooling that tries to `git clone` RepositoryUrl will not work
+    with it. RepositoryBranch is set so the branch is still recorded unambiguously.
+  -->
+  <PropertyGroup>
+    <Product>CuteDB</Product>
+    <Company>Gravicode Studios</Company>
+    <Authors>Gravicode Studios, Kang Fadhil</Authors>
+    <Copyright>Copyright (c) 2026 Gravicode Studios</Copyright>
+    <Version>2.0.0</Version>
+
+    <PackageProjectUrl>https://github.com/DotNetVibeCoderz/Vibe_Database/tree/main/CuteDB</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/DotNetVibeCoderz/Vibe_Database/tree/main/CuteDB</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <RepositoryBranch>main</RepositoryBranch>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+    <PackageTags>database;embedded;nosql;json;document-database;sql;cuteql;cutedb;gravicode</PackageTags>
+  </PropertyGroup>
+
+  <!--
+    Packing. Every package carries its own PACKAGE.md rather than the repository README, because
+    NuGet renders the readme on a page where relative links and images do not resolve — the
+    package readmes use absolute URLs into the repository instead.
+
+    Symbols ship as .snupkg so a consumer can step into the library. Deterministic builds are on
+    everywhere; ContinuousIntegrationBuild is set only in CI, where paths must be normalized.
+  -->
+  <PropertyGroup>
+    <PackageOutputPath>$(MSBuildThisFileDirectory)artifacts/packages</PackageOutputPath>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <Deterministic>true</Deterministic>
+    <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+  <!-- Samples, tests and benchmarks opt back out individually. -->
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+</Project>

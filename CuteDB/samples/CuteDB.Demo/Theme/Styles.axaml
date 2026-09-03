@@ -1,0 +1,327 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+  <!--
+    Component styles for the CuteDB demo, built from Theme/Tokens.axaml.
+
+    Everything here is a selector on a style class rather than on a control type, so a Border with
+    no class stays a plain Border. Classes are named for what the thing is in the interface —
+    "panel", "figure", "tape" — not for how it is drawn.
+  -->
+
+  <Design.PreviewWith>
+    <Border Padding="24" Background="{StaticResource Paper}">
+      <StackPanel Spacing="16" Width="320">
+        <TextBlock Classes="label" Text="PENDAPATAN / REVENUE" />
+        <TextBlock Classes="figure" Text="33.9 M" />
+        <TextBlock Classes="body" Text="Across every outlet in the last twelve months." />
+        <Button Classes="primary" Content="Run query" />
+        <Button Content="Reset" />
+      </StackPanel>
+    </Border>
+  </Design.PreviewWith>
+
+  <!-- ============================== text ============================== -->
+
+  <!--
+    The small-print label. Uppercase and letterspaced, sitting above the figure it names, the way
+    a receipt sets its column headers. This is the workhorse of the whole interface.
+  -->
+  <Style Selector="TextBlock.label">
+    <Setter Property="FontFamily" Value="{StaticResource MonoFont}" />
+    <Setter Property="FontSize" Value="{StaticResource LabelSize}" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Foreground" Value="{StaticResource Sen}" />
+    <Setter Property="LetterSpacing" Value="1.4" />
+    <Setter Property="TextWrapping" Value="NoWrap" />
+  </Style>
+
+  <Style Selector="TextBlock.label.on-terminal">
+    <Setter Property="Foreground" Value="{StaticResource OnTerminalDim}" />
+  </Style>
+
+  <!-- The number that is the answer. Monospace so a column of them aligns. -->
+  <Style Selector="TextBlock.figure">
+    <Setter Property="FontFamily" Value="{StaticResource MonoFont}" />
+    <Setter Property="FontSize" Value="{StaticResource FigureSize}" />
+    <Setter Property="FontWeight" Value="Medium" />
+    <Setter Property="Foreground" Value="{StaticResource Ink}" />
+    <Setter Property="LetterSpacing" Value="-0.6" />
+  </Style>
+
+  <Style Selector="TextBlock.figure.accent">
+    <Setter Property="Foreground" Value="{StaticResource Stamp}" />
+  </Style>
+
+  <Style Selector="TextBlock.figure.small">
+    <Setter Property="FontSize" Value="{StaticResource FigureSmallSize}" />
+  </Style>
+
+  <Style Selector="TextBlock.body">
+    <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
+    <Setter Property="FontSize" Value="{StaticResource BodySize}" />
+    <Setter Property="Foreground" Value="{StaticResource Ink}" />
+    <Setter Property="LineHeight" Value="19" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+  </Style>
+
+  <Style Selector="TextBlock.body.muted">
+    <Setter Property="Foreground" Value="{StaticResource Sen}" />
+  </Style>
+
+  <Style Selector="TextBlock.mono">
+    <Setter Property="FontFamily" Value="{StaticResource MonoFont}" />
+    <Setter Property="FontSize" Value="{StaticResource DataSize}" />
+    <Setter Property="Foreground" Value="{StaticResource Ink}" />
+  </Style>
+
+  <Style Selector="TextBlock.mono.dim">
+    <Setter Property="Foreground" Value="{StaticResource Sen}" />
+  </Style>
+
+  <!-- ============================== surfaces ============================== -->
+
+  <Style Selector="Border.panel">
+    <Setter Property="Background" Value="{StaticResource Paper}" />
+    <Setter Property="BorderBrush" Value="{StaticResource Wash}" />
+    <Setter Property="BorderThickness" Value="{StaticResource RuleWeight}" />
+    <Setter Property="CornerRadius" Value="{StaticResource PanelRadius}" />
+    <Setter Property="Padding" Value="{StaticResource PanelPadding}" />
+  </Style>
+
+  <Style Selector="Border.panel.filled">
+    <Setter Property="Background" Value="{StaticResource WashSoft}" />
+    <Setter Property="BorderThickness" Value="0" />
+  </Style>
+
+  <Style Selector="Border.band">
+    <Setter Property="Background" Value="{StaticResource Terminal}" />
+  </Style>
+
+  <!--
+    The tear rule. A dashed line is the one piece of receipt vocabulary that is purely visual, and
+    it earns its place by separating entries on the tape the way a perforation does.
+  -->
+  <Style Selector="Border.tear">
+    <Setter Property="BorderBrush" Value="{StaticResource OnTerminalDim}" />
+    <Setter Property="BorderThickness" Value="0,1,0,0" />
+    <Setter Property="Opacity" Value="0.35" />
+    <Setter Property="Margin" Value="0,8" />
+  </Style>
+
+  <Style Selector="Border.rule">
+    <Setter Property="Background" Value="{StaticResource Wash}" />
+    <Setter Property="Height" Value="1" />
+  </Style>
+
+  <!-- ============================== controls ============================== -->
+
+  <Style Selector="Button">
+    <Setter Property="FontFamily" Value="{StaticResource MonoFont}" />
+    <Setter Property="FontSize" Value="11" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Foreground" Value="{StaticResource Ink}" />
+    <Setter Property="BorderBrush" Value="{StaticResource Ink}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="2" />
+    <Setter Property="Padding" Value="14,8" />
+    <Setter Property="Cursor" Value="Hand" />
+  </Style>
+
+  <Style Selector="Button:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource Wash}" />
+    <Setter Property="BorderBrush" Value="{StaticResource Ink}" />
+  </Style>
+
+  <Style Selector="Button:pressed /template/ ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource Ink}" />
+    <Setter Property="TextBlock.Foreground" Value="{StaticResource Paper}" />
+  </Style>
+
+  <Style Selector="Button:disabled /template/ ContentPresenter">
+    <Setter Property="Opacity" Value="0.35" />
+  </Style>
+
+  <Style Selector="Button.primary">
+    <Setter Property="Background" Value="{StaticResource Stamp}" />
+    <Setter Property="Foreground" Value="{StaticResource Paper}" />
+    <Setter Property="BorderBrush" Value="{StaticResource Stamp}" />
+  </Style>
+
+  <Style Selector="Button.primary /template/ ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource Stamp}" />
+  </Style>
+
+  <Style Selector="Button.primary:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="#B03D26" />
+    <Setter Property="BorderBrush" Value="#B03D26" />
+  </Style>
+
+  <Style Selector="Button.quiet">
+    <Setter Property="BorderBrush" Value="Transparent" />
+    <Setter Property="Foreground" Value="{StaticResource Sen}" />
+    <Setter Property="Padding" Value="8,6" />
+  </Style>
+
+  <!-- The left rail. A section is a row of small caps with a stamp bar when it is the one you are on. -->
+  <Style Selector="RadioButton.nav">
+    <Setter Property="FontFamily" Value="{StaticResource MonoFont}" />
+    <Setter Property="FontSize" Value="11" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Foreground" Value="{StaticResource Sen}" />
+    <Setter Property="Cursor" Value="Hand" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="Margin" Value="0,1" />
+  </Style>
+
+  <!--
+    A template with no bullet. The rail marks the current section with the stamp bar down its left
+    edge, so the default radio circle would be a second, weaker answer to the same question.
+  -->
+  <Style Selector="RadioButton.nav">
+    <Setter Property="Template">
+      <ControlTemplate>
+        <ContentPresenter Name="PART_ContentPresenter"
+                          Background="Transparent"
+                          Content="{TemplateBinding Content}"
+                          HorizontalContentAlignment="Left"
+                          VerticalContentAlignment="Center" />
+      </ControlTemplate>
+    </Setter>
+  </Style>
+
+  <Style Selector="TextBox">
+    <Setter Property="FontFamily" Value="{StaticResource MonoFont}" />
+    <Setter Property="FontSize" Value="{StaticResource DataSize}" />
+    <Setter Property="Background" Value="{StaticResource Paper}" />
+    <Setter Property="Foreground" Value="{StaticResource Ink}" />
+    <Setter Property="BorderBrush" Value="{StaticResource Wash}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="2" />
+    <Setter Property="Padding" Value="10,8" />
+    <Setter Property="SelectionBrush" Value="{StaticResource StampSoft}" />
+    <Setter Property="CaretBrush" Value="{StaticResource Stamp}" />
+  </Style>
+
+  <Style Selector="TextBox:focus /template/ Border#PART_BorderElement">
+    <Setter Property="BorderBrush" Value="{StaticResource Ink}" />
+    <Setter Property="BorderThickness" Value="1" />
+  </Style>
+
+  <Style Selector="TextBox.code">
+    <Setter Property="Background" Value="{StaticResource WashSoft}" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="AcceptsReturn" Value="True" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+    <Setter Property="FontSize" Value="12" />
+  </Style>
+
+  <Style Selector="ComboBox">
+    <Setter Property="FontFamily" Value="{StaticResource MonoFont}" />
+    <Setter Property="FontSize" Value="11" />
+    <Setter Property="Background" Value="{StaticResource Paper}" />
+    <Setter Property="BorderBrush" Value="{StaticResource Wash}" />
+    <Setter Property="CornerRadius" Value="2" />
+    <Setter Property="MinHeight" Value="32" />
+  </Style>
+
+  <Style Selector="ProgressBar">
+    <Setter Property="Foreground" Value="{StaticResource Stamp}" />
+    <Setter Property="Background" Value="{StaticResource Wash}" />
+    <Setter Property="Height" Value="4" />
+    <Setter Property="CornerRadius" Value="0" />
+  </Style>
+
+  <Style Selector="ScrollBar">
+    <Setter Property="Background" Value="Transparent" />
+  </Style>
+
+  <!-- ============================== data grid ============================== -->
+
+  <!--
+    The grid is set as a ledger: monospace throughout, banded with the tint rather than ruled, and
+    with column headers in the same small caps as every other label in the app.
+  -->
+  <Style Selector="DataGrid">
+    <Setter Property="Background" Value="{StaticResource Paper}" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="GridLinesVisibility" Value="None" />
+    <Setter Property="RowBackground" Value="{StaticResource Paper}" />
+    <Setter Property="HeadersVisibility" Value="Column" />
+    <Setter Property="FontFamily" Value="{StaticResource MonoFont}" />
+    <Setter Property="FontSize" Value="{StaticResource DataSize}" />
+    <Setter Property="RowHeight" Value="28" />
+    <Setter Property="CanUserResizeColumns" Value="True" />
+    <Setter Property="CanUserReorderColumns" Value="True" />
+  </Style>
+
+  <Style Selector="DataGridColumnHeader">
+    <Setter Property="Background" Value="{StaticResource Paper}" />
+    <Setter Property="Foreground" Value="{StaticResource Sen}" />
+    <Setter Property="FontFamily" Value="{StaticResource MonoFont}" />
+    <Setter Property="FontSize" Value="{StaticResource LabelSize}" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Padding" Value="10,8" />
+    <Setter Property="BorderBrush" Value="{StaticResource Ink}" />
+    <Setter Property="BorderThickness" Value="0,0,0,1" />
+    <Setter Property="SeparatorBrush" Value="Transparent" />
+  </Style>
+
+  <Style Selector="DataGridCell">
+    <Setter Property="Foreground" Value="{StaticResource Ink}" />
+    <Setter Property="Padding" Value="10,0" />
+    <Setter Property="BorderThickness" Value="0" />
+  </Style>
+
+  <Style Selector="DataGridRow:nth-child(2n)">
+    <Setter Property="Background" Value="{StaticResource WashSoft}" />
+  </Style>
+
+  <Style Selector="DataGridRow:selected /template/ Rectangle#BackgroundRectangle">
+    <Setter Property="Fill" Value="{StaticResource StampSoft}" />
+    <Setter Property="Opacity" Value="1" />
+  </Style>
+
+  <!-- ============================== the till roll ============================== -->
+
+  <!--
+    The signature element: a receipt tape down the right edge that prints what the engine did after
+    every query. Entries feed in from the top, which is the one place motion earns its keep here —
+    it is the paper advancing.
+  -->
+  <Style Selector="Border.tape">
+    <Setter Property="Background" Value="{StaticResource Terminal}" />
+  </Style>
+
+  <Style Selector="Border.tape-entry">
+    <Setter Property="Padding" Value="0,6" />
+    <Setter Property="RenderTransform" Value="translateY(0)" />
+    <Setter Property="Transitions">
+      <Transitions>
+        <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.14" Easing="CubicEaseOut" />
+        <DoubleTransition Property="Opacity" Duration="0:0:0.14" />
+      </Transitions>
+    </Setter>
+  </Style>
+
+  <Style Selector="Border.tape-entry.feeding">
+    <Setter Property="RenderTransform" Value="translateY(-10px)" />
+    <Setter Property="Opacity" Value="0" />
+  </Style>
+
+  <Style Selector="TextBlock.tape">
+    <Setter Property="FontFamily" Value="{StaticResource MonoFont}" />
+    <Setter Property="FontSize" Value="11" />
+    <Setter Property="Foreground" Value="{StaticResource OnTerminal}" />
+  </Style>
+
+  <Style Selector="TextBlock.tape.dim">
+    <Setter Property="Foreground" Value="{StaticResource OnTerminalDim}" />
+  </Style>
+
+  <Style Selector="TextBlock.tape.stamp">
+    <Setter Property="Foreground" Value="#E8825F" />
+  </Style>
+
+</Styles>

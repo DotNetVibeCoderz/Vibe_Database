@@ -1,0 +1,259 @@
+name: CuteDB CI
+
+# Only CuteDB's own paths, because this lives in a monorepo alongside FAISS.Net and MemSharp and a
+# change to one project should not spend twenty minutes rebuilding the others.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'CuteDB/**'
+      - '.github/workflows/cutedb-ci.yml'
+  pull_request:
+    paths:
+      - 'CuteDB/**'
+      - '.github/workflows/cutedb-ci.yml'
+  workflow_dispatch:
+
+defaults:
+  run:
+    working-directory: CuteDB
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+
+jobs:
+  # ---------------------------------------------------------------------------------------------
+  # The Rust accelerator, built first so the .NET job can test against it. It is optional at
+  # runtime, but a CI run that never loads it would let the parity suite pass vacuously.
+  # ---------------------------------------------------------------------------------------------
+  native:
+    name: native (${{ matrix.rid }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, rid: win-x64,    target: x86_64-pc-windows-msvc }
+          - { os: ubuntu-latest,  rid: linux-x64,  target: x86_64-unknown-linux-gnu }
+          - { os: macos-latest,   rid: osx-arm64,  target: aarch64-apple-darwin }
+          - { os: macos-latest,   rid: osx-x64,    target: x86_64-apple-darwin }
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: CuteDB/native
+
+      - name: Format
+        working-directory: CuteDB/native
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        working-directory: CuteDB/native
+        run: cargo clippy --all-targets --target ${{ matrix.target }} -- -D warnings
+
+      - name: Test
+        working-directory: CuteDB/native
+        # Cross-compiled targets cannot run their own tests; the host target covers them.
+        if: matrix.rid != 'osx-x64'
+        run: cargo test --release --target ${{ matrix.target }}
+
+      - name: Build
+        shell: bash
+        run: ./native/build.sh ${{ matrix.target }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ matrix.rid }}
+          path: CuteDB/native/artifacts/${{ matrix.rid }}/
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------------------------
+  # The .NET solution, on all three platforms. Runs twice on each: once with the accelerator and
+  # once without, because "the managed path still works" is a promise the README makes.
+  # ---------------------------------------------------------------------------------------------
+  dotnet:
+    name: dotnet (${{ matrix.os }})
+    needs: native
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, rid: win-x64 }
+          - { os: ubuntu-latest,  rid: linux-x64 }
+          - { os: macos-latest,   rid: osx-arm64 }
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: CuteDB/global.json
+
+      - name: Download the accelerator
+        uses: actions/download-artifact@v4
+        with:
+          name: native-${{ matrix.rid }}
+          path: CuteDB/native/artifacts/${{ matrix.rid }}/
+
+      - name: Restore
+        run: dotnet restore CuteDB.slnx
+
+      - name: Build
+        run: dotnet build CuteDB.slnx -c Release --no-restore
+
+      - name: Test with the native scanner
+        run: dotnet test tests/CuteDB.Tests -c Release --no-build --logger "console;verbosity=normal"
+
+      - name: Test without it
+        # The managed engine has to give identical answers on its own. Turning the accelerator off
+        # is the only way to prove the fallback is real rather than theoretical.
+        env:
+          CUTEDB_DISABLE_NATIVE: '1'
+        run: dotnet test tests/CuteDB.Tests -c Release --no-build --filter "FullyQualifiedName!~NativeParityTests"
+
+      - name: Render the demo screenshots
+        # Headless, so it works with no display. This is also the only check that every view in the
+        # demo actually builds and lays out.
+        run: dotnet run --project samples/CuteDB.Demo -c Release --no-build -- --screenshot artifacts/screenshots
+
+      - uses: actions/upload-artifact@v4
+        if: matrix.os == 'ubuntu-latest'
+        with:
+          name: screenshots
+          path: CuteDB/artifacts/screenshots/
+
+  # ---------------------------------------------------------------------------------------------
+  # The three client libraries. Each has unit tests that stub the transport, and then all three run
+  # against a real server so the wire format is checked rather than assumed.
+  # ---------------------------------------------------------------------------------------------
+  clients:
+    name: clients
+    needs: native
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: CuteDB/global.json
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache-dependency-path: CuteDB/clients/go/go.mod
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Download the accelerator
+        uses: actions/download-artifact@v4
+        with:
+          name: native-linux-x64
+          path: CuteDB/native/artifacts/linux-x64/
+
+      - name: Python unit tests
+        working-directory: CuteDB/clients/python
+        run: python -m unittest discover -s tests -v
+
+      - name: Go vet and unit tests
+        working-directory: CuteDB/clients/go
+        run: |
+          go vet ./...
+          go test ./... -v
+
+      - name: Node unit tests
+        working-directory: CuteDB/clients/nodejs
+        run: npm test
+
+      - name: Build and seed a database
+        run: |
+          dotnet build src/CuteDB.Cli -c Release
+          dotnet build src/CuteDB.Server -c Release
+          dotnet run --project src/CuteDB.Cli -c Release --no-build -- \
+            seed /tmp/ci.cute --scale tiny --quiet
+
+      - name: Start the server
+        run: |
+          dotnet run --project src/CuteDB.Server -c Release --no-build -- \
+            /tmp/ci.cute --port 8420 --quiet &
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:8420/health > /dev/null; then
+              echo "server is up"; exit 0
+            fi
+            sleep 1
+          done
+          echo "server did not start"; exit 1
+
+      - name: End-to-end, all three clients
+        run: ./.github/scripts/client-smoke.sh
+
+  # ---------------------------------------------------------------------------------------------
+  # Packing is checked on every run, so a packaging break is found on the PR that caused it rather
+  # than on release day.
+  # ---------------------------------------------------------------------------------------------
+  pack:
+    name: pack
+    needs: [native, dotnet]
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: CuteDB/global.json
+
+      - name: Download every accelerator build
+        uses: actions/download-artifact@v4
+        with:
+          pattern: native-*
+          path: CuteDB/native/artifacts/
+          merge-multiple: false
+
+      - name: Flatten the artifact layout
+        # download-artifact nests each one under its artifact name; the csproj expects
+        # native/artifacts/<rid>/.
+        working-directory: CuteDB/native/artifacts
+        run: |
+          for dir in native-*; do
+            [ -d "$dir" ] || continue
+            rid="${dir#native-}"
+            mkdir -p "$rid"
+            mv "$dir"/* "$rid"/ 2>/dev/null || true
+            rmdir "$dir" 2>/dev/null || true
+          done
+          ls -R
+
+      - name: Pack
+        run: dotnet pack CuteDB.slnx -c Release -o artifacts/packages
+
+      - name: Show what is in the package
+        run: |
+          cd artifacts/packages
+          ls -la
+          for nupkg in CuteDB.2*.nupkg; do
+            echo "--- $nupkg ---"
+            unzip -l "$nupkg" | grep -E 'runtimes|lib/' || true
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages
+          path: CuteDB/artifacts/packages/*.nupkg
