@@ -1,0 +1,7 @@
+<Solution>
+  <Project Path="src/MemSharp.Core/MemSharp.Core.csproj" />
+  <Project Path="src/MemSharp.Cli/MemSharp.Cli.csproj" />
+  <Project Path="tests/MemSharp.Tests/MemSharp.Tests.csproj" />
+  <Project Path="benchmarks/MemSharp.Benchmarks/MemSharp.Benchmarks.csproj" />
+  <Project Path="samples/MemSharp.TradingDemo/MemSharp.TradingDemo.csproj" />
+</Solution>

@@ -1,0 +1,75 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:vm="using:MemSharp.TradingDemo.ViewModels"
+        xmlns:views="using:MemSharp.TradingDemo.Views"
+        mc:Ignorable="d" d:DesignWidth="1440" d:DesignHeight="900"
+        x:Class="MemSharp.TradingDemo.Views.MainWindow"
+        x:DataType="vm:MainViewModel"
+        Title="MemSharp - Trading Demo"
+        Width="1440" Height="900" MinWidth="1120" MinHeight="720"
+        Background="{StaticResource Ink}"
+        FontFamily="{StaticResource UiFont}">
+
+  <Grid ColumnDefinitions="204,*">
+
+    <!-- Left rail. A rail rather than tabs: this is a terminal, and terminals put navigation down
+         the side where it does not compete with the data for vertical space. -->
+    <DockPanel Grid.Column="0" Background="{StaticResource Panel}">
+
+      <StackPanel DockPanel.Dock="Top" Margin="20,22,20,20" Spacing="3">
+        <StackPanel Orientation="Horizontal" Spacing="9">
+          <Border Width="9" Height="9" CornerRadius="2" Background="{StaticResource Amber}"
+                  VerticalAlignment="Center" />
+          <TextBlock Text="MemSharp" FontSize="16" FontWeight="Bold"
+                     Foreground="{StaticResource TextBright}" LetterSpacing="-0.3" />
+        </StackPanel>
+        <TextBlock Text="trading demo" Classes="caption" FontSize="10.5" Margin="18,0,0,0" />
+      </StackPanel>
+
+      <Border DockPanel.Dock="Top" Height="1" Background="{StaticResource RuleFaint}" Margin="0,0,0,10" />
+
+      <StackPanel DockPanel.Dock="Top" Spacing="0">
+        <RadioButton Classes="rail" GroupName="page" Content="Trading desk"
+                     IsChecked="{Binding IsDesk, Mode=OneWay}" Command="{Binding ShowDeskCommand}" />
+        <RadioButton Classes="rail" GroupName="page" Content="Playground"
+                     IsChecked="{Binding IsPlayground, Mode=OneWay}" Command="{Binding ShowPlaygroundCommand}" />
+        <RadioButton Classes="rail" GroupName="page" Content="About"
+                     IsChecked="{Binding IsAbout, Mode=OneWay}" Command="{Binding ShowAboutCommand}" />
+      </StackPanel>
+
+      <!-- Attribution sits at the foot of the rail, where a terminal puts its build stamp. -->
+      <StackPanel DockPanel.Dock="Bottom" Margin="20,0,20,20" Spacing="2">
+        <Border Height="1" Background="{StaticResource RuleFaint}" Margin="0,0,0,12" />
+        <TextBlock Text="Gravicode Studios" Classes="caption" FontSize="10.5"
+                   Foreground="{StaticResource Muted}" />
+        <TextBlock Text="led by Kang Fadhil" Classes="caption" FontSize="10"
+                   Foreground="{StaticResource MutedDim}" />
+      </StackPanel>
+
+      <Panel />
+    </DockPanel>
+
+    <!-- Page host -->
+    <Panel Grid.Column="1" Margin="10">
+      <ContentControl IsVisible="{Binding IsDesk}" Content="{Binding Desk}">
+        <ContentControl.ContentTemplate>
+          <DataTemplate DataType="vm:TradingDeskViewModel">
+            <views:TradingDeskView />
+          </DataTemplate>
+        </ContentControl.ContentTemplate>
+      </ContentControl>
+
+      <ContentControl IsVisible="{Binding IsPlayground}" Content="{Binding Playground}">
+        <ContentControl.ContentTemplate>
+          <DataTemplate DataType="vm:PlaygroundViewModel">
+            <views:PlaygroundView />
+          </DataTemplate>
+        </ContentControl.ContentTemplate>
+      </ContentControl>
+
+      <views:AboutView IsVisible="{Binding IsAbout}" />
+    </Panel>
+  </Grid>
+</Window>

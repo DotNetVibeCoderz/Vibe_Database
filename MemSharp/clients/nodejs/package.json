@@ -1,0 +1,39 @@
+{
+  "name": "memsharp",
+  "version": "1.0.0",
+  "description": "Node.js client for MemSharp, an in-memory database for .NET that speaks RESP.",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node test/client.test.js"
+  },
+  "keywords": [
+    "memsharp",
+    "redis",
+    "resp",
+    "in-memory",
+    "database",
+    "cache"
+  ],
+  "author": "Gravicode Studios",
+  "contributors": [
+    "Kang Fadhil"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/DotNetVibeCoderz/Vibe_Database",
+    "directory": "MemSharp/clients/nodejs"
+  },
+  "homepage": "https://github.com/DotNetVibeCoderz/Vibe_Database/tree/main/MemSharp",
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "src/",
+    "README.md"
+  ],
+  "dependencies": {}
+}

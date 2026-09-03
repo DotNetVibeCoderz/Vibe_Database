@@ -1,0 +1,45 @@
+{
+  "note": "redis-benchmark (Redis's own C client) driving both servers on the same machine. Using one client for both is what makes this a server-vs-server comparison; the MemSharp .NET client is roughly 2x slower at driving *either* server and would have measured itself instead.",
+  "machine": {
+    "cpu": "AMD Ryzen, 8 cores",
+    "os": "Windows 11 Pro 26200"
+  },
+  "redis_version": "5.0.14.1 (tporadowski Windows port)",
+  "memsharp_version": "1.0.0",
+  "tool": "redis-benchmark -c 8",
+  "captured": "2026-09-03",
+  "no_pipeline": {
+    "operations": 150000,
+    "redis": {
+      "SET": 60024,
+      "GET": 63640,
+      "INCR": 61805,
+      "LPUSH": 55208,
+      "SADD": 61325
+    },
+    "memsharp": {
+      "SET": 47985,
+      "GET": 44300,
+      "INCR": 46339,
+      "LPUSH": 45914,
+      "SADD": 37239
+    }
+  },
+  "pipeline_16": {
+    "operations": 400000,
+    "redis": {
+      "SET": 505689,
+      "GET": 584795,
+      "INCR": 598802,
+      "LPUSH": 440529,
+      "SADD": 529101
+    },
+    "memsharp": {
+      "SET": 625000,
+      "GET": 653595,
+      "INCR": 668896,
+      "LPUSH": 562588,
+      "SADD": 554017
+    }
+  }
+}

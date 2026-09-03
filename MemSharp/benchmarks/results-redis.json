@@ -1,0 +1,81 @@
+{
+  "machine": "PC-CODER",
+  "processors": 8,
+  "runtime": "10.0.11",
+  "os": "Microsoft Windows 10.0.26200",
+  "architecture": "X64",
+  "label": "redis",
+  "target": "127.0.0.1:6399",
+  "mode": "tcp",
+  "pipeline": 0,
+  "threads": 8,
+  "timestamp": "2026-09-03T16:13:16.6585528+00:00",
+  "results": [
+    {
+      "Name": "SET",
+      "Operations": 60000,
+      "elapsedSeconds": 1.5990933,
+      "opsPerSecond": 37521.26283063033,
+      "meanMicros": 26.651555000000002,
+      "p50Micros": 201.1,
+      "p99Micros": 439.7,
+      "p999Micros": 990.9,
+      "maxMicros": 2568.9
+    },
+    {
+      "Name": "GET",
+      "Operations": 60000,
+      "elapsedSeconds": 1.3448725,
+      "opsPerSecond": 44613.89462569872,
+      "meanMicros": 22.41454166666667,
+      "p50Micros": 163.3,
+      "p99Micros": 390.9,
+      "p999Micros": 626.9,
+      "maxMicros": 1726.2
+    },
+    {
+      "Name": "INCR",
+      "Operations": 60000,
+      "elapsedSeconds": 1.534876,
+      "opsPerSecond": 39091.10573101671,
+      "meanMicros": 25.581266666666668,
+      "p50Micros": 184.1,
+      "p99Micros": 412,
+      "p999Micros": 841.8,
+      "maxMicros": 7347
+    },
+    {
+      "Name": "LPUSH",
+      "Operations": 60000,
+      "elapsedSeconds": 1.5226686,
+      "opsPerSecond": 39404.503383073636,
+      "meanMicros": 25.37781,
+      "p50Micros": 181.1,
+      "p99Micros": 455.5,
+      "p999Micros": 805.8,
+      "maxMicros": 12114.2
+    },
+    {
+      "Name": "ZADD",
+      "Operations": 60000,
+      "elapsedSeconds": 1.7332518,
+      "opsPerSecond": 34617.012946416675,
+      "meanMicros": 28.88753,
+      "p50Micros": 204.2,
+      "p99Micros": 538.6,
+      "p999Micros": 1194.1,
+      "maxMicros": 11006.1
+    },
+    {
+      "Name": "PING",
+      "Operations": 60000,
+      "elapsedSeconds": 1.4126253,
+      "opsPerSecond": 42474.10831449784,
+      "meanMicros": 23.543755,
+      "p50Micros": 170.2,
+      "p99Micros": 426.4,
+      "p999Micros": 702.7,
+      "maxMicros": 3640.4
+    }
+  ]
+}

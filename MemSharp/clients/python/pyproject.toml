@@ -1,0 +1,33 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "memsharp"
+version = "1.0.0"
+description = "Python client for MemSharp, an in-memory database for .NET that speaks RESP."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [{ name = "Gravicode Studios" }]
+maintainers = [{ name = "Kang Fadhil" }]
+keywords = ["memsharp", "redis", "resp", "in-memory", "database", "cache"]
+
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Topic :: Database",
+]
+
+# No dependencies on purpose: RESP is simple enough that a client which drags in a dependency tree
+# costs its users more than it saves them.
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/DotNetVibeCoderz/Vibe_Database/tree/main/MemSharp"
+Repository = "https://github.com/DotNetVibeCoderz/Vibe_Database/tree/main/MemSharp"
+
+[tool.hatch.build.targets.wheel]
+packages = ["memsharp"]

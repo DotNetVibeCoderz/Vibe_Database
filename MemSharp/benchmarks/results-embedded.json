@@ -1,0 +1,189 @@
+{
+  "machine": "PC-CODER",
+  "processors": 8,
+  "runtime": "10.0.11",
+  "os": "Microsoft Windows 10.0.26200",
+  "architecture": "X64",
+  "mode": "embedded",
+  "pipeline": 0,
+  "threads": 8,
+  "timestamp": "2026-09-03T08:34:55.615923+00:00",
+  "results": [
+    {
+      "Name": "SET",
+      "Operations": 300000,
+      "elapsedSeconds": 0.1864102,
+      "opsPerSecond": 1609353.9945775499,
+      "meanMicros": 0.6213673333333334,
+      "p50Micros": 1,
+      "p99Micros": 4.9,
+      "p999Micros": 255.1,
+      "maxMicros": 22352.1
+    },
+    {
+      "Name": "GET",
+      "Operations": 300000,
+      "elapsedSeconds": 0.1174727,
+      "opsPerSecond": 2553784.836817405,
+      "meanMicros": 0.39157566666666666,
+      "p50Micros": 1.9,
+      "p99Micros": 3.3,
+      "p999Micros": 12.7,
+      "maxMicros": 19551.7
+    },
+    {
+      "Name": "INCR",
+      "Operations": 300000,
+      "elapsedSeconds": 0.1800651,
+      "opsPerSecond": 1666064.106814702,
+      "meanMicros": 0.600217,
+      "p50Micros": 1.1,
+      "p99Micros": 10.8,
+      "p999Micros": 785.1,
+      "maxMicros": 3149.4
+    },
+    {
+      "Name": "MGET-16",
+      "Operations": 300000,
+      "elapsedSeconds": 0.9910691,
+      "opsPerSecond": 302703.4139193725,
+      "meanMicros": 3.303563666666667,
+      "p50Micros": 10.3,
+      "p99Micros": 23,
+      "p999Micros": 498.2,
+      "maxMicros": 460505.4
+    },
+    {
+      "Name": "LPUSH",
+      "Operations": 300000,
+      "elapsedSeconds": 0.0479693,
+      "opsPerSecond": 6253999.954137334,
+      "meanMicros": 0.1598976666666667,
+      "p50Micros": 0.8,
+      "p99Micros": 2.1,
+      "p999Micros": 4.2,
+      "maxMicros": 26657.2
+    },
+    {
+      "Name": "LRANGE-100",
+      "Operations": 300000,
+      "elapsedSeconds": 1.4796645,
+      "opsPerSecond": 202748.66363287083,
+      "meanMicros": 4.932215,
+      "p50Micros": 0.9,
+      "p99Micros": 9.6,
+      "p999Micros": 22.7,
+      "maxMicros": 742434.9
+    },
+    {
+      "Name": "HSET",
+      "Operations": 300000,
+      "elapsedSeconds": 0.0529881,
+      "opsPerSecond": 5661648.558827359,
+      "meanMicros": 0.176627,
+      "p50Micros": 0.6,
+      "p99Micros": 1.6,
+      "p999Micros": 4.4,
+      "maxMicros": 5436.4
+    },
+    {
+      "Name": "HGET",
+      "Operations": 300000,
+      "elapsedSeconds": 0.0337288,
+      "opsPerSecond": 8894475.937477764,
+      "meanMicros": 0.11242933333333334,
+      "p50Micros": 0.5,
+      "p99Micros": 1.2,
+      "p999Micros": 2.4,
+      "maxMicros": 638.2
+    },
+    {
+      "Name": "SADD",
+      "Operations": 300000,
+      "elapsedSeconds": 0.0524891,
+      "opsPerSecond": 5715472.3552127965,
+      "meanMicros": 0.17496366666666666,
+      "p50Micros": 0.8,
+      "p99Micros": 1.9,
+      "p999Micros": 4.7,
+      "maxMicros": 31281.5
+    },
+    {
+      "Name": "ZADD",
+      "Operations": 300000,
+      "elapsedSeconds": 0.1839957,
+      "opsPerSecond": 1630472.8860511412,
+      "meanMicros": 0.6133190000000001,
+      "p50Micros": 3.6,
+      "p99Micros": 8,
+      "p999Micros": 20.1,
+      "maxMicros": 32079.3
+    },
+    {
+      "Name": "ZRANGEBYSCORE",
+      "Operations": 300000,
+      "elapsedSeconds": 0.6533092,
+      "opsPerSecond": 459200.6357785869,
+      "meanMicros": 2.177697333333333,
+      "p50Micros": 8.8,
+      "p99Micros": 20,
+      "p999Micros": 47.3,
+      "maxMicros": 148938.2
+    },
+    {
+      "Name": "XADD",
+      "Operations": 300000,
+      "elapsedSeconds": 0.0619874,
+      "opsPerSecond": 4839693.227978589,
+      "meanMicros": 0.20662466666666668,
+      "p50Micros": 1,
+      "p99Micros": 2.5,
+      "p999Micros": 10.5,
+      "maxMicros": 21022.4
+    },
+    {
+      "Name": "TS.ADD",
+      "Operations": 300000,
+      "elapsedSeconds": 0.0712797,
+      "opsPerSecond": 4208771.9224407505,
+      "meanMicros": 0.23759899999999998,
+      "p50Micros": 1.2,
+      "p99Micros": 2.8,
+      "p999Micros": 5.1,
+      "maxMicros": 25123.6
+    },
+    {
+      "Name": "PUBLISH",
+      "Operations": 300000,
+      "elapsedSeconds": 0.0730768,
+      "opsPerSecond": 4105270.072033806,
+      "meanMicros": 0.24358933333333335,
+      "p50Micros": 0.7,
+      "p99Micros": 9.2,
+      "p999Micros": 305.7,
+      "maxMicros": 1761.6
+    },
+    {
+      "Name": "KEYS-glob",
+      "Operations": 2000,
+      "elapsedSeconds": 18.7204333,
+      "opsPerSecond": 106.83513399233125,
+      "meanMicros": 9360.21665,
+      "p50Micros": 8911.6,
+      "p99Micros": 16106.6,
+      "p999Micros": 19797.2,
+      "maxMicros": 21811
+    },
+    {
+      "Name": "SQL-select",
+      "Operations": 2000,
+      "elapsedSeconds": 14.38097,
+      "opsPerSecond": 139.07267729506424,
+      "meanMicros": 7190.485,
+      "p50Micros": 6894.8,
+      "p99Micros": 10940.6,
+      "p999Micros": 13127.9,
+      "maxMicros": 19384.2
+    }
+  ]
+}

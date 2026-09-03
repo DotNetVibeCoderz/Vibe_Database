@@ -1,0 +1,127 @@
+<!--
+  The playground.
+
+  Catalogue on the left, then the code, then what the code produced. The order is deliberate: the
+  snippet sits above its result so the page reads as cause then effect, and the two are close enough
+  that a reader can check one against the other without scrolling.
+-->
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:MemSharp.TradingDemo.ViewModels"
+             mc:Ignorable="d" d:DesignWidth="1440" d:DesignHeight="900"
+             x:Class="MemSharp.TradingDemo.Views.PlaygroundView"
+             x:DataType="vm:PlaygroundViewModel">
+
+  <Grid ColumnDefinitions="286,*">
+
+    <!-- catalogue -->
+    <Border Grid.Column="0" Classes="panel" Margin="0,0,10,0">
+      <DockPanel>
+        <StackPanel DockPanel.Dock="Top" Margin="16,15,16,12" Spacing="3">
+          <TextBlock Classes="eyebrow" Text="PLAYGROUND" />
+          <TextBlock Classes="caption" TextWrapping="Wrap"
+                     Text="Every demo runs against a live database when you select it." />
+        </StackPanel>
+        <Border DockPanel.Dock="Top" Height="1" Background="{StaticResource RuleFaint}" />
+
+        <ListBox ItemsSource="{Binding Demos}"
+                 SelectedItem="{Binding SelectedDemo}"
+                 Background="Transparent" BorderThickness="0" Padding="0,4">
+          <ListBox.Styles>
+            <!-- Item chrome lives here rather than on a class, because Classes is not a settable
+                 AvaloniaProperty - a Setter cannot assign it. -->
+            <Style Selector="ListBoxItem">
+              <Setter Property="Padding" Value="0" />
+              <Setter Property="Margin" Value="0" />
+              <Setter Property="Background" Value="Transparent" />
+              <Setter Property="Cursor" Value="Hand" />
+            </Style>
+            <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
+              <Setter Property="Background" Value="{StaticResource PanelRaised}" />
+            </Style>
+            <Style Selector="ListBoxItem:pointerover /template/ ContentPresenter">
+              <Setter Property="Background" Value="{StaticResource PanelRaised}" />
+            </Style>
+          </ListBox.Styles>
+          <ListBox.ItemTemplate>
+            <DataTemplate x:DataType="vm:DemoViewModel">
+              <StackPanel Margin="16,8" Spacing="2">
+                <TextBlock Text="{Binding Group}" Classes="eyebrow" FontSize="9"
+                           Foreground="{StaticResource MutedDim}" />
+                <TextBlock Text="{Binding Title}"
+                           FontFamily="{StaticResource UiFont}" FontSize="12.5" FontWeight="Medium"
+                           Foreground="{StaticResource Text}" />
+              </StackPanel>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </DockPanel>
+    </Border>
+
+    <!-- detail -->
+    <ScrollViewer Grid.Column="1" HorizontalScrollBarVisibility="Disabled">
+      <StackPanel Spacing="10" DataContext="{Binding SelectedDemo}" x:DataType="vm:DemoViewModel">
+
+        <Border Classes="panel">
+          <StackPanel Margin="20,17" Spacing="6">
+            <TextBlock Text="{Binding Group}" Classes="eyebrow" />
+            <TextBlock Text="{Binding Title}" Classes="h1" />
+            <TextBlock Text="{Binding Summary}" Classes="body" TextWrapping="Wrap" MaxWidth="720"
+                       HorizontalAlignment="Left" />
+          </StackPanel>
+        </Border>
+
+        <Border Classes="panel">
+          <DockPanel Margin="0">
+            <Grid DockPanel.Dock="Top" ColumnDefinitions="Auto,*,Auto" Margin="20,14,16,10">
+              <TextBlock Grid.Column="0" Classes="eyebrow" Text="C#" VerticalAlignment="Center" />
+              <Button Grid.Column="2" Classes="primary" Content="Run again"
+                      Command="{Binding RunCommand}" />
+            </Grid>
+
+            <Border Background="{StaticResource Ink}" CornerRadius="0,0,5,5" Padding="20,16">
+              <SelectableTextBlock Text="{Binding Code}" Classes="code"
+                                   TextWrapping="NoWrap" />
+            </Border>
+          </DockPanel>
+        </Border>
+
+        <Border Classes="panel">
+          <DockPanel Margin="0,0,0,14">
+            <Grid DockPanel.Dock="Top" ColumnDefinitions="Auto,*,Auto" Margin="20,14,20,10">
+              <TextBlock Grid.Column="0" Classes="eyebrow" Text="RESULT" VerticalAlignment="Center" />
+              <TextBlock Grid.Column="2" Text="{Binding Timing}" Classes="num" FontSize="11"
+                         Foreground="{StaticResource Amber}" VerticalAlignment="Center" />
+            </Grid>
+            <Border DockPanel.Dock="Top" Height="1" Background="{StaticResource RuleFaint}" Margin="0,0,0,6" />
+
+            <!-- An error is a legitimate outcome here: the type-safety demo exists to produce one. -->
+            <Border IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}"
+                    Background="{StaticResource AskFaint}" CornerRadius="4" Margin="20,4,20,0" Padding="14,10">
+              <TextBlock Text="{Binding Error}" Classes="code" FontSize="11.5"
+                         Foreground="{StaticResource Ask}" TextWrapping="Wrap" />
+            </Border>
+
+            <ItemsControl ItemsSource="{Binding Rows}" Margin="20,2,20,0">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:ResultRow">
+                  <Grid ColumnDefinitions="2.2*,2.6*,2*" Margin="0,3" ColumnSpacing="16">
+                    <TextBlock Grid.Column="0" Text="{Binding A}" Classes="num" FontSize="11.5"
+                               Foreground="{StaticResource Text}" TextTrimming="CharacterEllipsis" />
+                    <TextBlock Grid.Column="1" Text="{Binding B}" Classes="num" FontSize="11.5"
+                               Foreground="{StaticResource TextBright}" TextTrimming="CharacterEllipsis" />
+                    <TextBlock Grid.Column="2" Text="{Binding C}" Classes="num" FontSize="11"
+                               Foreground="{StaticResource Muted}" TextTrimming="CharacterEllipsis" />
+                  </Grid>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </DockPanel>
+        </Border>
+
+      </StackPanel>
+    </ScrollViewer>
+  </Grid>
+</UserControl>

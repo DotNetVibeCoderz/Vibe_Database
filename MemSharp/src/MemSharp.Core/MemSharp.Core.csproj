@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <AssemblyName>MemSharp</AssemblyName>
+    <RootNamespace>MemSharp</RootNamespace>
+    <PackageId>MemSharp</PackageId>
+    <Title>MemSharp</Title>
+    <Description>A fast, embeddable in-memory database for .NET: sharded key/value storage with strings, lists, hashes, sets, sorted sets, streams and time series, TTLs, pub/sub, snapshot and append-only persistence, a SQL-like keyspace query layer, and a RESP server. No dependencies.</Description>
+    <PackageReadmeFile>PACKAGE.md</PackageReadmeFile>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <IsPackable>true</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="PACKAGE.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="MemSharp.Tests" />
+    <InternalsVisibleTo Include="MemSharp.Benchmarks" />
+  </ItemGroup>
+
+</Project>

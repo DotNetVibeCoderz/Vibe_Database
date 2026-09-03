@@ -1,0 +1,226 @@
+<!--
+  The trading desk.
+
+  Three columns, in the order a trader's eye moves: what am I watching, where is the book, what just
+  printed. The throughput readout sits above the chart rather than in a corner, because on this page
+  the write rate is the headline - it is the thing the demo exists to show.
+-->
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:MemSharp.TradingDemo.ViewModels"
+             xmlns:controls="using:MemSharp.TradingDemo.Controls"
+             mc:Ignorable="d" d:DesignWidth="1440" d:DesignHeight="900"
+             x:Class="MemSharp.TradingDemo.Views.TradingDeskView"
+             x:DataType="vm:TradingDeskViewModel">
+
+  <Grid ColumnDefinitions="268,*,300" Margin="0">
+
+    <!-- ================= watchlist ================= -->
+    <Border Grid.Column="0" Classes="panel" Margin="0,0,10,0">
+      <DockPanel>
+        <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="14,13,14,10">
+          <TextBlock Grid.Column="0" Classes="eyebrow" Text="WATCHLIST" VerticalAlignment="Center" />
+          <TextBlock Grid.Column="1" Classes="caption" Text="{Binding ShardText}" VerticalAlignment="Center" />
+        </Grid>
+
+        <Border DockPanel.Dock="Top" Height="1" Background="{StaticResource RuleFaint}" />
+
+        <ListBox ItemsSource="{Binding Symbols}"
+                 SelectedItem="{Binding SelectedSymbol}"
+                 Background="Transparent"
+                 BorderThickness="0"
+                 Padding="0">
+          <ListBox.Styles>
+            <!-- Item chrome lives here rather than on a class, because Classes is not a settable
+                 AvaloniaProperty - a Setter cannot assign it. -->
+            <Style Selector="ListBoxItem">
+              <Setter Property="Padding" Value="0" />
+              <Setter Property="Margin" Value="0" />
+              <Setter Property="Background" Value="Transparent" />
+              <Setter Property="Cursor" Value="Hand" />
+            </Style>
+            <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
+              <Setter Property="Background" Value="{StaticResource PanelRaised}" />
+            </Style>
+            <Style Selector="ListBoxItem:pointerover /template/ ContentPresenter">
+              <Setter Property="Background" Value="{StaticResource PanelRaised}" />
+            </Style>
+          </ListBox.Styles>
+          <ListBox.ItemTemplate>
+            <DataTemplate x:DataType="vm:SymbolViewModel">
+              <Grid ColumnDefinitions="*,52,Auto" Margin="14,9" ColumnSpacing="8">
+                <StackPanel Grid.Column="0" Spacing="1">
+                  <TextBlock Text="{Binding Symbol}"
+                             FontFamily="{StaticResource UiFont}" FontSize="12.5" FontWeight="SemiBold"
+                             Foreground="{StaticResource TextBright}" />
+                  <TextBlock Text="{Binding VolumeText, StringFormat='vol {0}'}" Classes="caption" FontSize="10" />
+                </StackPanel>
+
+                <controls:Sparkline Grid.Column="1" Height="24"
+                                    Values="{Binding Spark}"
+                                    LineColor="{Binding TrendColor}"
+                                    VerticalAlignment="Center" />
+
+                <StackPanel Grid.Column="2" Spacing="1" HorizontalAlignment="Right">
+                  <TextBlock Text="{Binding LastText}" Classes="num" FontSize="12.5"
+                             HorizontalAlignment="Right" Foreground="{StaticResource TextBright}" />
+                  <TextBlock Text="{Binding ChangeText}" Classes="num" FontSize="10.5"
+                             HorizontalAlignment="Right" Foreground="{Binding TrendBrush}" />
+                </StackPanel>
+              </Grid>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </DockPanel>
+    </Border>
+
+    <!-- ================= centre: throughput, then chart beside the ladder ================= -->
+    <Grid Grid.Column="1" RowDefinitions="Auto,*" RowSpacing="10">
+
+      <!-- The headline. The write rate gets the largest type on the page because it is the claim
+           the whole demo is making. -->
+      <Border Grid.Row="0" Classes="panel">
+        <Grid ColumnDefinitions="Auto,1,*,Auto" Margin="18,14">
+
+          <StackPanel Grid.Column="0" Spacing="1" MinWidth="230">
+            <TextBlock Classes="eyebrow" Text="LIVE WRITE THROUGHPUT" />
+            <StackPanel Orientation="Horizontal" Spacing="9">
+              <TextBlock Text="{Binding WriteRate}" Classes="numLarge" FontSize="34"
+                         Foreground="{StaticResource Amber}" />
+              <TextBlock Text="{Binding WriteRateUnit}" Classes="caption" VerticalAlignment="Bottom" Margin="0,0,0,7" />
+            </StackPanel>
+            <TextBlock Text="{Binding WorkerText}" Classes="caption" FontSize="10.5" />
+          </StackPanel>
+
+          <Border Grid.Column="1" Width="1" Background="{StaticResource RuleFaint}" Margin="20,4" />
+
+          <UniformGrid Grid.Column="2" Columns="4" VerticalAlignment="Center">
+            <StackPanel Spacing="2">
+              <TextBlock Classes="eyebrow" Text="WRITES" />
+              <TextBlock Text="{Binding TotalWrites}" Classes="num" FontSize="17" Foreground="{StaticResource TextBright}" />
+            </StackPanel>
+            <StackPanel Spacing="2">
+              <TextBlock Classes="eyebrow" Text="PRINTS" />
+              <TextBlock Text="{Binding TotalTrades}" Classes="num" FontSize="17" Foreground="{StaticResource TextBright}" />
+            </StackPanel>
+            <StackPanel Spacing="2">
+              <TextBlock Classes="eyebrow" Text="KEYS" />
+              <TextBlock Text="{Binding KeyCount}" Classes="num" FontSize="17" Foreground="{StaticResource TextBright}" />
+            </StackPanel>
+            <StackPanel Spacing="2">
+              <TextBlock Classes="eyebrow" Text="SESSION" />
+              <TextBlock Text="{Binding Elapsed}" Classes="num" FontSize="17" Foreground="{StaticResource TextBright}" />
+            </StackPanel>
+          </UniformGrid>
+
+          <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+            <Button Classes="primary" Content="Open market"
+                    Command="{Binding StartCommand}" IsVisible="{Binding !IsRunning}" />
+            <Button Classes="ghost" Content="Halt"
+                    Command="{Binding StopCommand}" IsVisible="{Binding IsRunning}" />
+          </StackPanel>
+        </Grid>
+      </Border>
+
+      <Grid Grid.Row="1" ColumnDefinitions="*,296" ColumnSpacing="10">
+
+      <!-- chart -->
+      <Border Grid.Column="0" Classes="panel">
+        <DockPanel Margin="16,13,16,12">
+          <Grid DockPanel.Dock="Top" ColumnDefinitions="Auto,Auto,*,Auto" Margin="0,0,0,10">
+            <TextBlock Grid.Column="0" Text="{Binding SelectedSymbol.Symbol}" Classes="h2" VerticalAlignment="Center" />
+            <TextBlock Grid.Column="1" Text="{Binding SelectedSymbol.Name}" Classes="caption"
+                       Margin="10,0,0,0" VerticalAlignment="Center" />
+
+            <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+              <TextBlock Text="{Binding SelectedSymbol.LastText}" Classes="num" FontSize="18"
+                         Foreground="{StaticResource TextBright}" />
+              <TextBlock Text="{Binding SelectedSymbol.ChangeText}" Classes="num" FontSize="13"
+                         Foreground="{Binding SelectedSymbol.TrendBrush}" VerticalAlignment="Center" />
+            </StackPanel>
+          </Grid>
+
+          <controls:PriceChart Values="{Binding Candles}" LineColor="{Binding ChartColor}" MinHeight="150" />
+        </DockPanel>
+      </Border>
+
+      <!-- ladder: the signature element, given a full column so the whole book fits -->
+      <Border Grid.Column="1" Classes="panel">
+        <DockPanel Margin="16,13,16,14">
+          <Grid DockPanel.Dock="Top" ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,9">
+            <TextBlock Grid.Column="0" Classes="eyebrow" Text="ORDER BOOK" VerticalAlignment="Center" />
+            <TextBlock Grid.Column="2" Classes="caption" FontSize="10"
+                       Text="sorted sets" VerticalAlignment="Center" />
+          </Grid>
+
+          <Grid DockPanel.Dock="Top" ColumnDefinitions="*,88,*" Margin="0,0,0,4">
+            <TextBlock Grid.Column="0" Classes="eyebrow" Text="BID SIZE" HorizontalAlignment="Right" Margin="0,0,8,0" />
+            <TextBlock Grid.Column="1" Classes="eyebrow" Text="PRICE" HorizontalAlignment="Center" />
+            <TextBlock Grid.Column="2" Classes="eyebrow" Text="ASK SIZE" HorizontalAlignment="Left" Margin="8,0,0,0" />
+          </Grid>
+
+          <controls:DepthLadder Bids="{Binding Bids}" Asks="{Binding Asks}"
+                                PriceDecimals="{Binding SelectedSymbol.PriceDecimals}"
+                                VerticalAlignment="Top" />
+        </DockPanel>
+      </Border>
+
+      </Grid>
+    </Grid>
+
+    <!-- ================= tape and blotter ================= -->
+    <Grid Grid.Column="2" RowDefinitions="*,Auto" RowSpacing="10" Margin="10,0,0,0">
+
+      <Border Grid.Row="0" Classes="panel">
+        <DockPanel>
+          <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="14,13,14,10">
+            <TextBlock Grid.Column="0" Classes="eyebrow" Text="TAPE" VerticalAlignment="Center" />
+            <TextBlock Grid.Column="1" Classes="caption" FontSize="10" Text="XREVRANGE" VerticalAlignment="Center" />
+          </Grid>
+          <Border DockPanel.Dock="Top" Height="1" Background="{StaticResource RuleFaint}" />
+
+          <ItemsControl ItemsSource="{Binding Tape}" Margin="0,4,0,8">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:TapeRowViewModel">
+                <Grid ColumnDefinitions="34,*,Auto,54" Margin="14,3" ColumnSpacing="8">
+                  <TextBlock Grid.Column="0" Text="{Binding Side}" Classes="num" FontSize="10"
+                             Foreground="{Binding SideBrush}" VerticalAlignment="Center" />
+                  <TextBlock Grid.Column="1" Text="{Binding Symbol}" Classes="num" FontSize="11"
+                             Foreground="{StaticResource Muted}" VerticalAlignment="Center" />
+                  <TextBlock Grid.Column="2" Text="{Binding Price}" Classes="num" FontSize="11.5"
+                             Foreground="{StaticResource TextBright}" VerticalAlignment="Center" />
+                  <TextBlock Grid.Column="3" Text="{Binding Quantity}" Classes="num" FontSize="10.5"
+                             Foreground="{StaticResource Muted}" HorizontalAlignment="Right" VerticalAlignment="Center" />
+                </Grid>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </DockPanel>
+      </Border>
+
+      <Border Grid.Row="1" Classes="panel">
+        <DockPanel Margin="0,0,0,10">
+          <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="14,13,14,10">
+            <TextBlock Grid.Column="0" Classes="eyebrow" Text="POSITIONS &#183; DESK JAKARTA" VerticalAlignment="Center" />
+          </Grid>
+          <Border DockPanel.Dock="Top" Height="1" Background="{StaticResource RuleFaint}" Margin="0,0,0,6" />
+
+          <ItemsControl ItemsSource="{Binding Positions}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:PositionViewModel">
+                <Grid ColumnDefinitions="*,Auto" Margin="14,3">
+                  <TextBlock Grid.Column="0" Text="{Binding Symbol}" Classes="num" FontSize="11.5"
+                             Foreground="{StaticResource Text}" />
+                  <TextBlock Grid.Column="1" Text="{Binding Quantity}" Classes="num" FontSize="11.5"
+                             Foreground="{Binding QuantityBrush}" />
+                </Grid>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </DockPanel>
+      </Border>
+    </Grid>
+  </Grid>
+</UserControl>

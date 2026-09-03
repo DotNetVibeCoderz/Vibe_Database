@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <!--
+      Not "memsharp": the library's assembly is MemSharp.dll, and on a case-insensitive filesystem a
+      CLI assembly called memsharp.dll lands on top of it in the output directory. The result is a
+      TypeLoadException at startup rather than a build error, so the name is deliberate.
+      Users still type `memsharp` - that comes from ToolCommandName below.
+    -->
+    <AssemblyName>MemSharp.Cli</AssemblyName>
+    <RootNamespace>MemSharp.Cli</RootNamespace>
+    <IsPackable>true</IsPackable>
+
+    <PackageId>MemSharp.Cli</PackageId>
+    <Title>MemSharp CLI</Title>
+    <Description>Command-line tools for MemSharp: an interactive REPL, a server host, a keyspace browser, a benchmark and snapshot inspection. Install with `dotnet tool install -g MemSharp.Cli`.</Description>
+    <PackageReadmeFile>PACKAGE.md</PackageReadmeFile>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>memsharp</ToolCommandName>
+    <PackageTags>redis;cli;in-memory;database;repl;dotnet-tool</PackageTags>
+
+    <!--
+      Invariant globalization is inherited from Directory.Build.props, but Spectre renders tables and
+      progress bars with box-drawing characters that need a UTF-8 console on Windows. Program.cs sets
+      the output encoding at startup rather than relying on the terminal's code page.
+    -->
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Spectre.Console" />
+    <PackageReference Include="Spectre.Console.Cli" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\MemSharp.Core\MemSharp.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="PACKAGE.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+
+</Project>

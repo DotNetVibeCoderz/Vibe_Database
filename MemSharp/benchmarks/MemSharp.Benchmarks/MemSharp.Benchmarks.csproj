@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>MemSharp.Benchmarks</AssemblyName>
+    <RootNamespace>MemSharp.Benchmarks</RootNamespace>
+    <IsPackable>false</IsPackable>
+
+    <!--
+      BenchmarkDotNet spawns a separate process per benchmark and needs to see the optimised code, so
+      a Debug run is refused rather than silently reporting numbers an order of magnitude out.
+    -->
+    <Optimize>true</Optimize>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BenchmarkDotNet" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\MemSharp.Core\MemSharp.Core.csproj" />
+  </ItemGroup>
+
+</Project>

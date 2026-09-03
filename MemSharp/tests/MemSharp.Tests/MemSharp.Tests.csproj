@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <AssemblyName>MemSharp.Tests</AssemblyName>
+    <RootNamespace>MemSharp.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <!--
+    Microsoft.Testing.Platform, not VSTest. The .NET 10 SDK dropped VSTest support for MTP-based
+    runners, and xunit.v3 is one - without this `dotnet test` fails before a single test runs.
+  -->
+  <PropertyGroup>
+    <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
+    <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\MemSharp.Core\MemSharp.Core.csproj" />
+  </ItemGroup>
+
+</Project>

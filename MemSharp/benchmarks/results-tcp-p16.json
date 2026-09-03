@@ -1,0 +1,81 @@
+{
+  "machine": "PC-CODER",
+  "processors": 8,
+  "runtime": "10.0.11",
+  "os": "Microsoft Windows 10.0.26200",
+  "architecture": "X64",
+  "label": "memsharp-p16",
+  "target": "memsharp",
+  "mode": "tcp",
+  "pipeline": 16,
+  "threads": 8,
+  "timestamp": "2026-09-03T16:13:57.2380356+00:00",
+  "results": [
+    {
+      "Name": "SET",
+      "Operations": 200000,
+      "elapsedSeconds": 0.5641933,
+      "opsPerSecond": 354488.4350806718,
+      "meanMicros": 2.8209665000000004,
+      "p50Micros": 268,
+      "p99Micros": 1482.3,
+      "p999Micros": 19415.5,
+      "maxMicros": 33104.9
+    },
+    {
+      "Name": "GET",
+      "Operations": 200000,
+      "elapsedSeconds": 0.513563,
+      "opsPerSecond": 389436.15486318135,
+      "meanMicros": 2.567815,
+      "p50Micros": 294.8,
+      "p99Micros": 618.9,
+      "p999Micros": 3120.2,
+      "maxMicros": 12795.6
+    },
+    {
+      "Name": "INCR",
+      "Operations": 200000,
+      "elapsedSeconds": 0.4762357,
+      "opsPerSecond": 419960.11638774665,
+      "meanMicros": 2.3811785,
+      "p50Micros": 268.4,
+      "p99Micros": 1060,
+      "p999Micros": 2404.8,
+      "maxMicros": 5732.6
+    },
+    {
+      "Name": "LPUSH",
+      "Operations": 200000,
+      "elapsedSeconds": 0.5187872,
+      "opsPerSecond": 385514.52310311433,
+      "meanMicros": 2.5939360000000002,
+      "p50Micros": 279.4,
+      "p99Micros": 532.5,
+      "p999Micros": 11980.1,
+      "maxMicros": 17689.9
+    },
+    {
+      "Name": "ZADD",
+      "Operations": 200000,
+      "elapsedSeconds": 0.5861935,
+      "opsPerSecond": 341184.2676522343,
+      "meanMicros": 2.9309675,
+      "p50Micros": 301.4,
+      "p99Micros": 796.8,
+      "p999Micros": 22913.4,
+      "maxMicros": 36605
+    },
+    {
+      "Name": "PING",
+      "Operations": 200000,
+      "elapsedSeconds": 0.2660406,
+      "opsPerSecond": 751764.9561758619,
+      "meanMicros": 1.3302029999999998,
+      "p50Micros": 140.7,
+      "p99Micros": 233.3,
+      "p999Micros": 3226.7,
+      "maxMicros": 20299.9
+    }
+  ]
+}

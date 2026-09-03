@@ -1,0 +1,167 @@
+<!--
+  Control styles. Kept apart from Palette.axaml because a ResourceDictionary holds resources and a
+  Styles document holds styles - Avalonia will not accept one inside the other.
+-->
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+  <Styles.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <ResourceInclude Source="avares://MemSharp.TradingDemo/Palette.axaml" />
+      </ResourceDictionary.MergedDictionaries>
+    </ResourceDictionary>
+  </Styles.Resources>
+
+
+
+    <!-- Section eyebrow: the small caps label above every panel. -->
+    <Style Selector=":is(TextBlock).eyebrow">
+      <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
+      <Setter Property="FontSize" Value="10" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{StaticResource Muted}" />
+      <Setter Property="LetterSpacing" Value="1.4" />
+    </Style>
+
+    <Style Selector=":is(TextBlock).h1">
+      <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
+      <Setter Property="FontSize" Value="22" />
+      <Setter Property="FontWeight" Value="Bold" />
+      <Setter Property="Foreground" Value="{StaticResource TextBright}" />
+      <Setter Property="LetterSpacing" Value="-0.4" />
+    </Style>
+
+    <Style Selector=":is(TextBlock).h2">
+      <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
+      <Setter Property="FontSize" Value="15" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{StaticResource TextBright}" />
+    </Style>
+
+    <Style Selector=":is(TextBlock).body">
+      <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
+      <Setter Property="FontSize" Value="12.5" />
+      <Setter Property="Foreground" Value="{StaticResource Text}" />
+      <Setter Property="LineHeight" Value="19" />
+    </Style>
+
+    <Style Selector=":is(TextBlock).caption">
+      <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="Foreground" Value="{StaticResource Muted}" />
+    </Style>
+
+    <!-- Every figure in the app. Tabular so columns of numbers stay in column.
+         `:is(TextBlock)` rather than `TextBlock` so the selectors also reach
+         SelectableTextBlock, which an exact-type selector would miss. -->
+    <Style Selector=":is(TextBlock).num">
+      <Setter Property="FontFamily" Value="{StaticResource MonoFont}" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Foreground" Value="{StaticResource Text}" />
+    </Style>
+
+    <Style Selector=":is(TextBlock).numLarge">
+      <Setter Property="FontFamily" Value="{StaticResource MonoFont}" />
+      <Setter Property="FontSize" Value="26" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{StaticResource TextBright}" />
+    </Style>
+
+    <Style Selector=":is(TextBlock).code">
+      <Setter Property="FontFamily" Value="{StaticResource MonoFont}" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Foreground" Value="{StaticResource Text}" />
+      <Setter Property="LineHeight" Value="18" />
+    </Style>
+
+    <!-- Panels -->
+    <Style Selector="Border.panel">
+      <Setter Property="Background" Value="{StaticResource Panel}" />
+      <Setter Property="BorderBrush" Value="{StaticResource RuleFaint}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="6" />
+    </Style>
+
+    <!-- Left rail -->
+    <Style Selector="RadioButton.rail">
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Border Name="rail" Background="Transparent" Padding="14,9" CornerRadius="5" Margin="6,1">
+            <Grid ColumnDefinitions="3,Auto,*">
+              <Border Name="mark" Grid.Column="0" Width="3" CornerRadius="2"
+                      Background="Transparent" Margin="-8,2,10,2" />
+              <ContentPresenter Grid.Column="2" Content="{TemplateBinding Content}"
+                                VerticalAlignment="Center" />
+            </Grid>
+          </Border>
+        </ControlTemplate>
+      </Setter>
+      <Setter Property="Foreground" Value="{StaticResource Muted}" />
+      <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
+      <Setter Property="FontSize" Value="12.5" />
+      <Setter Property="FontWeight" Value="Medium" />
+      <Setter Property="Cursor" Value="Hand" />
+    </Style>
+
+    <Style Selector="RadioButton.rail:pointerover /template/ Border#rail">
+      <Setter Property="Background" Value="{StaticResource PanelRaised}" />
+    </Style>
+
+    <Style Selector="RadioButton.rail:checked /template/ Border#rail">
+      <Setter Property="Background" Value="{StaticResource PanelRaised}" />
+    </Style>
+
+    <Style Selector="RadioButton.rail:checked /template/ Border#mark">
+      <Setter Property="Background" Value="{StaticResource Amber}" />
+    </Style>
+
+    <Style Selector="RadioButton.rail:checked">
+      <Setter Property="Foreground" Value="{StaticResource TextBright}" />
+    </Style>
+
+    <!-- Buttons -->
+    <Style Selector="Button.primary">
+      <Setter Property="Background" Value="{StaticResource Amber}" />
+      <Setter Property="Foreground" Value="#1A1204" />
+      <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Padding" Value="16,8" />
+      <Setter Property="CornerRadius" Value="5" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Cursor" Value="Hand" />
+    </Style>
+
+    <Style Selector="Button.primary:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="#FFBE52" />
+      <Setter Property="Foreground" Value="#1A1204" />
+    </Style>
+
+    <Style Selector="Button.ghost">
+      <Setter Property="Background" Value="{StaticResource PanelRaised}" />
+      <Setter Property="Foreground" Value="{StaticResource Text}" />
+      <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="FontWeight" Value="Medium" />
+      <Setter Property="Padding" Value="14,8" />
+      <Setter Property="CornerRadius" Value="5" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="BorderBrush" Value="{StaticResource Rule}" />
+      <Setter Property="Cursor" Value="Hand" />
+    </Style>
+
+    <Style Selector="Button.ghost:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="{StaticResource PanelHover}" />
+      <Setter Property="Foreground" Value="{StaticResource TextBright}" />
+    </Style>
+
+    <Style Selector="ScrollViewer">
+      <Setter Property="Background" Value="Transparent" />
+    </Style>
+
+    <Style Selector="Slider">
+      <Setter Property="Foreground" Value="{StaticResource Amber}" />
+    </Style>
+
+</Styles>

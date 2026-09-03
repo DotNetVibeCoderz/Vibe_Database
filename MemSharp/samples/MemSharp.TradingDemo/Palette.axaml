@@ -1,0 +1,42 @@
+<!--
+  The demo's visual language.
+
+  A trading desk at night rather than a hacker terminal: the ground is a deep navy-slate, not black,
+  and the accents are the two colours a trader actually reads (bid green, ask coral) plus the amber
+  that identifies MemSharp across the CLI and the docs. Nothing else gets a colour, so the two that
+  carry meaning always win the eye.
+
+  Numbers are set in Inter with tabular figures. In a ladder where the digits must line up column by
+  column, proportional figures make a price look like it is moving when only its glyph widths
+  changed.
+-->
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+  <!-- Surfaces, darkest to lightest -->
+  <Color x:Key="InkColor">#0B111C</Color>
+  <SolidColorBrush x:Key="Ink" Color="#0B111C" />
+  <SolidColorBrush x:Key="Panel" Color="#131C2B" />
+  <SolidColorBrush x:Key="PanelRaised" Color="#1A2536" />
+  <SolidColorBrush x:Key="PanelHover" Color="#22304A" />
+  <SolidColorBrush x:Key="Rule" Color="#24314A" />
+  <SolidColorBrush x:Key="RuleFaint" Color="#1B2739" />
+
+  <!-- Text -->
+  <SolidColorBrush x:Key="Text" Color="#CBD6E8" />
+  <SolidColorBrush x:Key="TextBright" Color="#EDF3FB" />
+  <SolidColorBrush x:Key="Muted" Color="#6D7E9B" />
+  <SolidColorBrush x:Key="MutedDim" Color="#4A586F" />
+
+  <!-- The three meaning-bearing colours -->
+  <SolidColorBrush x:Key="Bid" Color="#35C08A" />
+  <SolidColorBrush x:Key="BidFaint" Color="#1B4A3A" />
+  <SolidColorBrush x:Key="Ask" Color="#E8615A" />
+  <SolidColorBrush x:Key="AskFaint" Color="#4E2530" />
+  <SolidColorBrush x:Key="Amber" Color="#F0A830" />
+  <SolidColorBrush x:Key="AmberFaint" Color="#4A3617" />
+
+  <FontFamily x:Key="UiFont">avares://Avalonia.Fonts.Inter/Assets#Inter</FontFamily>
+  <FontFamily x:Key="MonoFont">Cascadia Mono,Consolas,SF Mono,Menlo,DejaVu Sans Mono,monospace</FontFamily>
+
+</ResourceDictionary>

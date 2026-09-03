@@ -1,0 +1,210 @@
+# MemSharp - build, test and pack on every change.
+#
+# This file belongs at the ROOT of the Vibe_Database repository, not inside MemSharp/.
+# GitHub Actions only reads .github/workflows/ from the repository root; a workflow nested in a
+# subdirectory is silently ignored. See .github/workflows/README.md for the move.
+
+name: MemSharp CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'MemSharp/**'
+      - '.github/workflows/memsharp-ci.yml'
+  pull_request:
+    paths:
+      - 'MemSharp/**'
+      - '.github/workflows/memsharp-ci.yml'
+  workflow_dispatch:
+
+# A new push to the same branch makes the in-flight run obsolete; cancel it rather than queueing.
+concurrency:
+  group: memsharp-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PROJECT_DIR: MemSharp
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+  TESTINGPLATFORM_TELEMETRY_OPTOUT: 1
+
+jobs:
+  # The engine is the thing every other job depends on, so it is tested on all three platforms.
+  # Sharding, the expiry sweeper and the pipelines-based server all interact with the OS scheduler
+  # and its socket stack, and a race that never fires on Windows fires readily on Linux.
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    defaults:
+      run:
+        working-directory: MemSharp
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: MemSharp/global.json
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build -c Release --no-restore
+
+      # No --nologo here: the SDK forwards unrecognised arguments to the test runner, and
+      # Microsoft.Testing.Platform rejects it with "Unknown option" before running a single test.
+      - name: Test
+        run: dotnet test tests/MemSharp.Tests/MemSharp.Tests.csproj -c Release --no-build
+
+  # The desktop sample is Windows-only in CI: Avalonia's headless renderer needs Skia's native
+  # dependencies, and installing them on three runners to compile one sample is not worth the time.
+  sample:
+    name: sample and screenshots
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: MemSharp
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: MemSharp/global.json
+
+      - name: Build the trading demo
+        run: dotnet build samples/MemSharp.TradingDemo -c Release
+
+      # Rendering the screenshots in CI proves they can still be regenerated from the current code,
+      # which is what keeps the images in the README from drifting away from the interface.
+      - name: Render screenshots
+        run: dotnet run -c Release --project samples/MemSharp.TradingDemo -- --capture artifacts/screenshots
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: MemSharp/artifacts/screenshots/*.png
+          if-no-files-found: error
+
+  # Every client speaks to a real server rather than a mock, because the only thing worth testing in
+  # a protocol client is that its bytes match what the server actually sends back.
+  clients:
+    name: client SDKs
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: MemSharp
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: MemSharp/global.json
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache-dependency-path: MemSharp/clients/go/go.sum
+
+      - name: Build the CLI
+        run: dotnet build src/MemSharp.Cli -c Release
+
+      - name: Start a server
+        run: |
+          nohup dotnet run -c Release --no-build --project src/MemSharp.Cli \
+            -- serve --port 6391 --quiet > server.log 2>&1 &
+
+          # Poll rather than sleep: a fixed wait is either too short on a cold runner or wasted time
+          # on a warm one.
+          for i in $(seq 1 60); do
+            if (echo > /dev/tcp/127.0.0.1/6391) 2>/dev/null; then
+              echo "server up after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+
+          echo "server did not start"
+          cat server.log
+          exit 1
+
+      - name: Python client
+        run: python clients/python/test_client.py
+        env:
+          MEMSHARP_TEST_PORT: 6391
+
+      - name: Node.js client
+        run: node clients/nodejs/test/client.test.js
+        env:
+          MEMSHARP_TEST_PORT: 6391
+
+      - name: Go client
+        run: go vet ./... && go test ./...
+        working-directory: MemSharp/clients/go
+        env:
+          MEMSHARP_TEST_ADDRESS: 127.0.0.1:6391
+
+  # Packaging mistakes - a missing readme, a broken license expression, a project that should not
+  # have been packable - are cheap to find here and expensive to find at release time, when NuGet
+  # versions are already immutable.
+  pack:
+    name: pack
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: MemSharp
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: MemSharp/global.json
+
+      - name: Pack
+        run: dotnet pack -c Release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nupkg
+          path: |
+            MemSharp/artifacts/packages/*.nupkg
+            MemSharp/artifacts/packages/*.snupkg
+          if-no-files-found: error
+
+  docs:
+    name: docs
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: MemSharp
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Check links and language parity
+        run: python .github/scripts/check_docs.py .

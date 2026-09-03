@@ -1,0 +1,81 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignWidth="1440" d:DesignHeight="900"
+             x:Class="MemSharp.TradingDemo.Views.AboutView">
+
+  <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+    <StackPanel Spacing="10" MaxWidth="880" HorizontalAlignment="Left">
+
+      <Border Classes="panel">
+        <StackPanel Margin="26,24" Spacing="10">
+          <TextBlock Classes="eyebrow" Text="MEMSHARP TRADING DEMO" />
+          <TextBlock Classes="h1" FontSize="28" Text="Every number on this screen came out of the database." />
+          <TextBlock Classes="body" TextWrapping="Wrap" MaxWidth="700"
+                     Text="Nothing here is mocked. A market simulator writes quotes, prints and positions into a live MemSharp database from every core but one, and the interface reads them back sixty times a second. The order book is a sorted set. The tape is a stream. The chart is a time series aggregated inside the engine. The throughput figure is measured, not asserted." />
+        </StackPanel>
+      </Border>
+
+      <Border Classes="panel">
+        <StackPanel Margin="26,22" Spacing="14">
+          <TextBlock Classes="eyebrow" Text="WHAT MAPS TO WHAT" />
+
+          <Grid ColumnDefinitions="200,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto"
+                ColumnSpacing="24" RowSpacing="9">
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="Order book" Classes="num" FontSize="12"
+                       Foreground="{StaticResource Amber}" />
+            <TextBlock Grid.Row="0" Grid.Column="1" Classes="body" TextWrapping="Wrap"
+                       Text="A sorted set per side, scored by price. Reading the top of book is a seek plus a short walk, not a sort." />
+
+            <TextBlock Grid.Row="1" Grid.Column="0" Text="Tape" Classes="num" FontSize="12"
+                       Foreground="{StaticResource Amber}" />
+            <TextBlock Grid.Row="1" Grid.Column="1" Classes="body" TextWrapping="Wrap"
+                       Text="A capped stream. Ids are strictly increasing even when several prints land in the same millisecond, and trimming the head costs the same whether the ledger holds a thousand entries or a million." />
+
+            <TextBlock Grid.Row="2" Grid.Column="0" Text="Chart" Classes="num" FontSize="12"
+                       Foreground="{StaticResource Amber}" />
+            <TextBlock Grid.Row="2" Grid.Column="1" Classes="body" TextWrapping="Wrap"
+                       Text="A time series of two primitive arrays with a fixed retention window, folded into buckets by the engine so the interface never copies twenty thousand samples to draw ninety points." />
+
+            <TextBlock Grid.Row="3" Grid.Column="0" Text="Quotes and positions" Classes="num" FontSize="12"
+                       Foreground="{StaticResource Amber}" />
+            <TextBlock Grid.Row="3" Grid.Column="1" Classes="body" TextWrapping="Wrap"
+                       Text="Hashes, updated field by field. Position arithmetic is atomic, so a net quantity is never half-written however many desks are trading at once." />
+
+            <TextBlock Grid.Row="4" Grid.Column="0" Text="Fills" Classes="num" FontSize="12"
+                       Foreground="{StaticResource Amber}" />
+            <TextBlock Grid.Row="4" Grid.Column="1" Classes="body" TextWrapping="Wrap"
+                       Text="Published to a channel per instrument. A subscription is disposable, so it cannot outlive the thing that opened it." />
+
+            <TextBlock Grid.Row="5" Grid.Column="0" Text="Keyspace" Classes="num" FontSize="12"
+                       Foreground="{StaticResource Amber}" />
+            <TextBlock Grid.Row="5" Grid.Column="1" Classes="body" TextWrapping="Wrap"
+                       Text="Split across independently locked shards. Instruments are partitioned across the writer threads, so two writers never contend for the same key." />
+          </Grid>
+        </StackPanel>
+      </Border>
+
+      <Border Classes="panel">
+        <StackPanel Margin="26,22" Spacing="9">
+          <TextBlock Classes="eyebrow" Text="HONEST LIMITS" />
+          <TextBlock Classes="body" TextWrapping="Wrap" MaxWidth="700"
+                     Text="The write rate you see is for this machine, for these key shapes, with the interface running alongside. It is a demonstration, not a benchmark result - `memsharp bench` measures without a renderer competing for cores, and the documented figures come from there." />
+          <TextBlock Classes="body" TextWrapping="Wrap" MaxWidth="700"
+                     Text="The market is a random walk with mild mean reversion. It is shaped to exercise the database, not to model anything a real desk would trade on." />
+        </StackPanel>
+      </Border>
+
+      <Border Classes="panel">
+        <StackPanel Margin="26,22" Spacing="6">
+          <TextBlock Classes="eyebrow" Text="BUILT BY" />
+          <TextBlock Classes="h2" FontSize="18" Text="Gravicode Studios" />
+          <TextBlock Classes="body" Text="Led by Kang Fadhil" />
+          <TextBlock Classes="caption" Margin="0,8,0,0"
+                     Text="github.com/DotNetVibeCoderz/Vibe_Database/tree/main/MemSharp" />
+        </StackPanel>
+      </Border>
+
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>
