@@ -53,7 +53,16 @@ jobs:
       - name: Resolve and check the version
         id: resolve
         run: |
-          declared=$(grep -oP '(?<=<Version>)[^<]+' Directory.Build.props | head -1)
+          # POSIX sed, not `grep -oP`: -P needs a PCRE-enabled grep and a compatible locale, and
+          # when either is missing it prints nothing, leaving `declared` empty. The comparison below
+          # would then fail for a reason its error message does not explain, so the symptom would be
+          # a release that can never succeed. The emptiness check makes that failure legible.
+          declared=$(sed -n 's/.*<Version>\([^<]*\)<\/Version>.*/\1/p' Directory.Build.props | head -1)
+
+          if [ -z "$declared" ]; then
+            echo "::error::could not read <Version> from MemSharp/Directory.Build.props"
+            exit 1
+          fi
 
           if [ "${{ github.event_name }}" = "push" ]; then
             tagged="${GITHUB_REF_NAME#memsharp-v}"

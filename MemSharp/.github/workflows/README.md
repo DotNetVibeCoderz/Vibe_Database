@@ -89,8 +89,14 @@ without publishing — the way to rehearse a release.
 
 | | |
 |---|---|
-| Secret `NUGET_API_KEY` | An API key from nuget.org, glob-scoped to `MemSharp*` so it covers both packages and nothing else |
-| Environment `nuget` | Create under **Settings → Environments** with required reviewers. Publishing then needs a human approval even though pushing a tag does not |
+| Secret `NUGET_API_KEY` | An API key from nuget.org, glob-scoped to `MemSharp*` so it covers both packages and nothing else. **Already set on this repository.** |
+| Environment `nuget` | Create under **Settings → Environments** and add required reviewers |
+
+**The approval gate is only real if you create that environment yourself.** A workflow that names an
+environment which does not exist does not fail - the environment is created on first use, with no
+protection rules on it. The `publish` job would then run straight through, and the human approval the
+table above describes would silently not happen. Create it with reviewers before the first release,
+or treat a tag push as the approval.
 
 Both packages are published together: `MemSharp` and `MemSharp.Cli`. The README tells users to
 install the CLI, so shipping only the library would leave that instruction broken.
