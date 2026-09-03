@@ -1,0 +1,286 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+  <!--
+    Styles for CuteDB Browser. Everything here is keyed off a class name rather than a control
+    type wherever a bare type selector would fight the Fluent theme, because a workbench has
+    several kinds of button on screen at once and they must not all inherit the same padding.
+  -->
+
+  <Style Selector="Window">
+    <Setter Property="Background" Value="{StaticResource Nila}" />
+    <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
+    <Setter Property="FontSize" Value="{StaticResource BodySize}" />
+  </Style>
+
+  <Style Selector="TextBlock">
+    <Setter Property="Foreground" Value="{StaticResource Lilin}" />
+    <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
+  </Style>
+
+  <!--
+    The plate label. Small, uppercase, widely tracked — the engraved strip above a panel on a piece
+    of equipment. It is the only place letter-spacing is used, which is what keeps it legible as a
+    signal rather than as decoration.
+  -->
+  <Style Selector="TextBlock.plate">
+    <Setter Property="FontFamily" Value="{StaticResource MonoFont}" />
+    <Setter Property="FontSize" Value="{StaticResource PlateSize}" />
+    <Setter Property="Foreground" Value="{StaticResource LilinFaint}" />
+    <Setter Property="LetterSpacing" Value="1.4" />
+  </Style>
+
+  <Style Selector="TextBlock.plate.lit">
+    <Setter Property="Foreground" Value="{StaticResource Kunyit}" />
+  </Style>
+
+  <Style Selector="TextBlock.mono">
+    <Setter Property="FontFamily" Value="{StaticResource MonoFont}" />
+    <Setter Property="FontSize" Value="{StaticResource DataSize}" />
+  </Style>
+
+  <Style Selector="TextBlock.dim">
+    <Setter Property="Foreground" Value="{StaticResource LilinDim}" />
+  </Style>
+
+  <Style Selector="TextBlock.figure">
+    <Setter Property="FontFamily" Value="{StaticResource MonoFont}" />
+    <Setter Property="FontSize" Value="{StaticResource FigureSize}" />
+    <Setter Property="Foreground" Value="{StaticResource Kunyit}" />
+  </Style>
+
+  <!-- ============================== buttons ============================== -->
+
+  <Style Selector="Button.tool">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Foreground" Value="{StaticResource Lilin}" />
+    <Setter Property="BorderBrush" Value="{StaticResource Rule}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="2" />
+    <Setter Property="Padding" Value="10,5" />
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="MinHeight" Value="0" />
+  </Style>
+
+  <Style Selector="Button.tool:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource NilaRaised}" />
+    <Setter Property="BorderBrush" Value="{StaticResource Rule}" />
+    <Setter Property="TextBlock.Foreground" Value="{StaticResource Lilin}" />
+  </Style>
+
+  <Style Selector="Button.tool:disabled /template/ ContentPresenter">
+    <Setter Property="TextBlock.Foreground" Value="{StaticResource LilinFaint}" />
+  </Style>
+
+  <!-- Run. The one filled button on the toolbar, because it is the one verb the app is for. -->
+  <Style Selector="Button.run">
+    <Setter Property="Background" Value="{StaticResource Kunyit}" />
+    <Setter Property="Foreground" Value="#1A1408" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="CornerRadius" Value="2" />
+    <Setter Property="Padding" Value="14,5" />
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="MinHeight" Value="0" />
+  </Style>
+
+  <Style Selector="Button.run:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="#F2B854" />
+    <Setter Property="TextBlock.Foreground" Value="#1A1408" />
+  </Style>
+
+  <Style Selector="Button.run:disabled /template/ ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource KunyitSoft}" />
+    <Setter Property="TextBlock.Foreground" Value="{StaticResource LilinFaint}" />
+  </Style>
+
+  <!-- A flat glyph button: tab close, panel collapse, chat clear. -->
+  <Style Selector="Button.glyph">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Foreground" Value="{StaticResource LilinDim}" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Padding" Value="6,2" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="MinWidth" Value="0" />
+    <Setter Property="FontSize" Value="12" />
+  </Style>
+
+  <Style Selector="Button.glyph:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource NilaRaised}" />
+    <Setter Property="TextBlock.Foreground" Value="{StaticResource Lilin}" />
+  </Style>
+
+  <!-- ============================== inputs ============================== -->
+
+  <Style Selector="TextBox">
+    <Setter Property="Background" Value="{StaticResource NilaSunk}" />
+    <Setter Property="Foreground" Value="{StaticResource Lilin}" />
+    <Setter Property="CaretBrush" Value="{StaticResource Kunyit}" />
+    <Setter Property="BorderBrush" Value="{StaticResource Rule}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="2" />
+    <Setter Property="SelectionBrush" Value="{StaticResource KunyitSoft}" />
+    <Setter Property="Padding" Value="8,6" />
+    <Setter Property="MinHeight" Value="0" />
+  </Style>
+
+  <Style Selector="TextBox:focus /template/ Border#PART_BorderElement">
+    <Setter Property="BorderBrush" Value="{StaticResource Kunyit}" />
+    <Setter Property="Background" Value="{StaticResource NilaSunk}" />
+  </Style>
+
+  <Style Selector="TextBox:pointerover /template/ Border#PART_BorderElement">
+    <Setter Property="Background" Value="{StaticResource NilaSunk}" />
+    <Setter Property="BorderBrush" Value="{StaticResource Rule}" />
+  </Style>
+
+  <Style Selector="ComboBox">
+    <Setter Property="Background" Value="{StaticResource NilaSunk}" />
+    <Setter Property="Foreground" Value="{StaticResource Lilin}" />
+    <Setter Property="BorderBrush" Value="{StaticResource Rule}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="2" />
+    <Setter Property="Padding" Value="8,4" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="FontSize" Value="12" />
+  </Style>
+
+  <Style Selector="ComboBox /template/ Border#Background">
+    <Setter Property="Background" Value="{StaticResource NilaSunk}" />
+  </Style>
+
+  <Style Selector="CheckBox">
+    <Setter Property="Foreground" Value="{StaticResource LilinDim}" />
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="MinHeight" Value="0" />
+  </Style>
+
+  <!-- ============================== menu ============================== -->
+
+  <Style Selector="Menu">
+    <Setter Property="Background" Value="Transparent" />
+  </Style>
+
+  <Style Selector="MenuItem">
+    <Setter Property="Foreground" Value="{StaticResource Lilin}" />
+    <Setter Property="FontSize" Value="12" />
+  </Style>
+
+  <!-- ============================== tabs ============================== -->
+
+  <!--
+    The tab strip is the only place besides Run and the plan band where kunyit appears, and it
+    appears as a rule under the active tab rather than as a fill: the tab you are in is a position,
+    not a button. Left as it came, Fluent paints this its own blue, which belongs to no palette
+    here.
+  -->
+  <Style Selector="TabControl">
+    <Setter Property="Background" Value="{StaticResource Nila}" />
+    <Setter Property="Padding" Value="0" />
+  </Style>
+
+  <Style Selector="TabItem">
+    <Setter Property="Background" Value="{StaticResource NilaPanel}" />
+    <Setter Property="Foreground" Value="{StaticResource LilinDim}" />
+    <Setter Property="FontSize" Value="11" />
+    <Setter Property="Padding" Value="12,7" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="BorderThickness" Value="0,0,1,0" />
+    <Setter Property="BorderBrush" Value="{StaticResource Rule}" />
+  </Style>
+
+  <Style Selector="TabItem:selected">
+    <Setter Property="Background" Value="{StaticResource Nila}" />
+    <Setter Property="Foreground" Value="{StaticResource Lilin}" />
+  </Style>
+
+  <Style Selector="TabItem /template/ Border#PART_LayoutRoot">
+    <Setter Property="Background" Value="{StaticResource NilaPanel}" />
+    <Setter Property="BorderBrush" Value="{StaticResource Rule}" />
+    <Setter Property="BorderThickness" Value="0,0,1,1" />
+    <Setter Property="CornerRadius" Value="0" />
+  </Style>
+
+  <Style Selector="TabItem:selected /template/ Border#PART_LayoutRoot">
+    <Setter Property="Background" Value="{StaticResource Nila}" />
+    <Setter Property="BorderBrush" Value="{StaticResource Kunyit}" />
+    <Setter Property="BorderThickness" Value="0,2,1,0" />
+  </Style>
+
+  <Style Selector="TabItem:pointerover /template/ Border#PART_LayoutRoot">
+    <Setter Property="Background" Value="{StaticResource NilaRaised}" />
+  </Style>
+
+  <!-- Fluent draws the selection indicator as a separate pipe, not as a border. -->
+  <Style Selector="TabItem /template/ Border#PART_SelectedPipe">
+    <Setter Property="Background" Value="{StaticResource Kunyit}" />
+  </Style>
+
+  <Style Selector="TabItem /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="TextBlock.Foreground" Value="{StaticResource LilinDim}" />
+  </Style>
+
+  <Style Selector="TabItem:selected /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="TextBlock.Foreground" Value="{StaticResource Lilin}" />
+  </Style>
+
+  <!-- ============================== data grid ============================== -->
+
+  <!--
+    The grid is where the answer lives, so it gets the monospace face and nothing else: no banding,
+    no gridlines in both directions, no hover highlight competing with selection. Rows are
+    separated by the same rule as everything else.
+  -->
+  <Style Selector="DataGrid">
+    <Setter Property="Background" Value="{StaticResource Nila}" />
+    <Setter Property="Foreground" Value="{StaticResource Lilin}" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="GridLinesVisibility" Value="Horizontal" />
+    <Setter Property="HorizontalGridLinesBrush" Value="{StaticResource RuleFaint}" />
+    <Setter Property="RowBackground" Value="Transparent" />
+    <Setter Property="FontFamily" Value="{StaticResource MonoFont}" />
+    <Setter Property="FontSize" Value="{StaticResource DataSize}" />
+    <Setter Property="RowHeight" Value="26" />
+    <Setter Property="ColumnHeaderHeight" Value="28" />
+  </Style>
+
+  <Style Selector="DataGridColumnHeader">
+    <Setter Property="Background" Value="{StaticResource NilaPanel}" />
+    <Setter Property="Foreground" Value="{StaticResource LilinFaint}" />
+    <Setter Property="FontFamily" Value="{StaticResource MonoFont}" />
+    <Setter Property="FontSize" Value="{StaticResource PlateSize}" />
+    <Setter Property="SeparatorBrush" Value="{StaticResource Rule}" />
+    <Setter Property="Padding" Value="10,0" />
+  </Style>
+
+  <Style Selector="DataGridRow:selected /template/ Rectangle#BackgroundRectangle">
+    <Setter Property="Fill" Value="{StaticResource NilaRaised}" />
+    <Setter Property="Opacity" Value="1" />
+  </Style>
+
+  <Style Selector="DataGridCell">
+    <Setter Property="Foreground" Value="{StaticResource Lilin}" />
+    <Setter Property="Padding" Value="10,0" />
+  </Style>
+
+  <!-- ============================== scrollbars ============================== -->
+
+  <Style Selector="ScrollBar">
+    <Setter Property="Background" Value="Transparent" />
+  </Style>
+
+  <Style Selector="ScrollBar /template/ Thumb">
+    <Setter Property="Background" Value="{StaticResource Rule}" />
+  </Style>
+
+  <!-- ============================== splitters ============================== -->
+
+  <Style Selector="GridSplitter">
+    <Setter Property="Background" Value="{StaticResource Rule}" />
+  </Style>
+
+  <Style Selector="GridSplitter:pointerover">
+    <Setter Property="Background" Value="{StaticResource Kunyit}" />
+  </Style>
+
+</Styles>

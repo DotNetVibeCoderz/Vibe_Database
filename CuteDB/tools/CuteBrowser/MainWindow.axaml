@@ -1,0 +1,17 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="CuteDB.Browser.MainWindow"
+        Title="CuteDB Browser"
+        Width="1440"
+        Height="900"
+        MinWidth="960"
+        MinHeight="600"
+        WindowStartupLocation="CenterScreen">
+
+  <!--
+    The window is a shell; everything inside it is built in MainWindow.axaml.cs, the same way the
+    demo app next door does it. There is no hand-written InitializeComponent here on purpose:
+    declaring one suppresses the generated method and every x:Name field stays null.
+  -->
+
+</Window>

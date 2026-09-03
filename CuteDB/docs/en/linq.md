@@ -389,4 +389,5 @@ orders.Save(order);          // insert or replace, by the key property
 
 - [CuteQL reference](cuteql.md) — the dialect, and the three places it differs from SQL
 - [Getting started](getting-started.md)
+- [CuteDB Browser](browser.md) — a LINQ tab that prints the CuteQL, and an assistant that writes it
 - [Architecture](architecture.md) — why a scan is fast enough that this is a reasonable design

@@ -391,4 +391,5 @@ orders.Save(order);          // insert atau replace, berdasarkan properti kunci
 
 - [Referensi CuteQL](cuteql.md) — dialeknya, dan tiga tempat ia berbeda dari SQL
 - [Memulai](memulai.md)
+- [CuteDB Browser](browser.md) — tab LINQ yang mencetak CuteQL-nya, dan asisten yang menuliskannya
 - [Arsitektur](arsitektur.md) — kenapa scan cukup cepat sehingga desain ini masuk akal

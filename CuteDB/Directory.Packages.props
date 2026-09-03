@@ -44,6 +44,25 @@
     <PackageVersion Include="Avalonia.Skia" Version="$(AvaloniaVersion)" />
 
     <!--
+      CuteBrowser. AvaloniaEdit is on 11.3.0 rather than 11.4.x because it has to be built against
+      the same Avalonia line as everything else here; mixing an editor compiled for 11.4 into an
+      11.3 app is how a text control starts throwing on layout.
+    -->
+    <PackageVersion Include="Avalonia.AvaloniaEdit" Version="11.3.0" />
+    <PackageVersion Include="AvaloniaEdit.TextMate" Version="11.3.0" />
+
+    <!--
+      The AI assistant. Semantic Kernel supplies the kernel, the function-calling loop and the
+      OpenAI connector; the Anthropic service is written here rather than taken from the alpha
+      connector, and Gemini and Ollama are reached through their OpenAI-compatible endpoints.
+    -->
+    <PackageVersion Include="Microsoft.SemanticKernel" Version="1.80.0" />
+    <PackageVersion Include="System.Configuration.ConfigurationManager" Version="10.0.0" />
+
+    <!-- The LINQ tab is a C# script, so it needs a C# compiler. -->
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp.Scripting" Version="4.14.0" />
+
+    <!--
       Avalonia's Linux backend pulls in Tmds.DBus.Protocol, whose published versions carry an
       advisory; the fixed version is pinned directly. Mirrors the same pin in FAISS.Net.
     -->

@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!--
+  Syntax highlighting for CuteQL.
+
+  The colours are the theme's own: turmeric for keywords, jade for strings, and the dim cream for
+  everything structural. Field paths get their own rule and their own colour, because a path into a
+  subdocument is the thing that distinguishes CuteQL from SQL and the thing a person most needs to
+  see at a glance — `address.city` should not read as an ordinary identifier.
+-->
+<SyntaxDefinition name="CuteQL" xmlns="http://icsharpcode.net/sharpdevelop/syntaxdefinition/2008">
+
+  <Color name="Keyword"   foreground="#E9A83C" fontWeight="bold" />
+  <Color name="Function"  foreground="#7FB4E8" />
+  <Color name="String"    foreground="#8ED1AE" />
+  <Color name="Number"    foreground="#D9A6E8" />
+  <Color name="Comment"   foreground="#68738F" fontStyle="italic" />
+  <Color name="Path"      foreground="#EAE4D6" />
+  <Color name="Parameter" foreground="#E0906A" />
+  <Color name="Constant"  foreground="#D26941" fontWeight="bold" />
+
+  <RuleSet ignoreCase="true">
+
+    <Span color="Comment" begin="--" />
+    <Span color="Comment" multiline="true" begin="/\*" end="\*/" />
+
+    <!-- A single-quoted string, with '' as the escaped quote. -->
+    <Span color="String" multiline="false">
+      <Begin>'</Begin>
+      <End>'</End>
+      <RuleSet>
+        <Span begin="''" end="" />
+      </RuleSet>
+    </Span>
+
+    <Keywords color="Keyword">
+      <Word>SELECT</Word>
+      <Word>FROM</Word>
+      <Word>WHERE</Word>
+      <Word>GROUP</Word>
+      <Word>HAVING</Word>
+      <Word>ORDER</Word>
+      <Word>BY</Word>
+      <Word>LIMIT</Word>
+      <Word>OFFSET</Word>
+      <Word>DISTINCT</Word>
+      <Word>AS</Word>
+      <Word>ASC</Word>
+      <Word>DESC</Word>
+      <Word>INSERT</Word>
+      <Word>INTO</Word>
+      <Word>VALUES</Word>
+      <Word>UPDATE</Word>
+      <Word>SET</Word>
+      <Word>DELETE</Word>
+      <Word>EXPLAIN</Word>
+      <Word>AND</Word>
+      <Word>OR</Word>
+      <Word>NOT</Word>
+      <Word>IN</Word>
+      <Word>LIKE</Word>
+      <Word>BETWEEN</Word>
+      <Word>IS</Word>
+    </Keywords>
+
+    <!-- NULL and MISSING are different questions; both are lit so the difference is visible. -->
+    <Keywords color="Constant">
+      <Word>NULL</Word>
+      <Word>MISSING</Word>
+      <Word>TRUE</Word>
+      <Word>FALSE</Word>
+    </Keywords>
+
+    <Keywords color="Function">
+      <Word>COUNT</Word>
+      <Word>SUM</Word>
+      <Word>AVG</Word>
+      <Word>MIN</Word>
+      <Word>MAX</Word>
+      <Word>UPPER</Word>
+      <Word>LOWER</Word>
+      <Word>TRIM</Word>
+      <Word>LTRIM</Word>
+      <Word>RTRIM</Word>
+      <Word>LENGTH</Word>
+      <Word>SUBSTR</Word>
+      <Word>REPLACE</Word>
+      <Word>CONCAT</Word>
+      <Word>STARTSWITH</Word>
+      <Word>ENDSWITH</Word>
+      <Word>CONTAINS</Word>
+      <Word>ABS</Word>
+      <Word>ROUND</Word>
+      <Word>FLOOR</Word>
+      <Word>CEIL</Word>
+      <Word>SQRT</Word>
+      <Word>POW</Word>
+      <Word>MOD</Word>
+      <Word>YEAR</Word>
+      <Word>MONTH</Word>
+      <Word>DAY</Word>
+      <Word>HOUR</Word>
+      <Word>DATE_PART</Word>
+      <Word>DATE_TRUNC</Word>
+      <Word>NOW</Word>
+      <Word>COALESCE</Word>
+      <Word>IFNULL</Word>
+      <Word>TYPEOF</Word>
+      <Word>ARRAY_LENGTH</Word>
+      <Word>TO_STRING</Word>
+      <Word>TO_NUMBER</Word>
+    </Keywords>
+
+    <!-- @name, a bound parameter. -->
+    <Rule color="Parameter">@[A-Za-z_][A-Za-z0-9_]*</Rule>
+
+    <!-- A field path: two or more segments, or one with a [] projection. -->
+    <Rule color="Path">\b[A-Za-z_][A-Za-z0-9_]*(\[\])?(\.[A-Za-z_][A-Za-z0-9_]*(\[\])?)+\b</Rule>
+
+    <Rule color="Number">\b0[xX][0-9a-fA-F]+|(\b\d+(\.[0-9]+)?|\.[0-9]+)([eE][+-]?[0-9]+)?\b</Rule>
+
+  </RuleSet>
+
+</SyntaxDefinition>

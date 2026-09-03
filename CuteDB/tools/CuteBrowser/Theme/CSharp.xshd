@@ -1,0 +1,186 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!--
+  C# highlighting for the LINQ tab, in the app's own palette.
+
+  AvaloniaEdit ships a C# definition, but it was drawn for a light editor: its string literals are a
+  dark red that all but disappears on the indigo ground, and a query tab is mostly string literals
+  and field names. This is the same grammar, recoloured — and deliberately shorter, because a LINQ
+  tab is a fragment rather than a source file and the long tail of C# keywords is not what a person
+  is reading here.
+-->
+<SyntaxDefinition name="CuteCSharp" xmlns="http://icsharpcode.net/sharpdevelop/syntaxdefinition/2008">
+
+  <Color name="Keyword"     foreground="#E9A83C" fontWeight="bold" />
+  <Color name="Type"        foreground="#7FB4E8" />
+  <Color name="Linq"        foreground="#D9A6E8" fontWeight="bold" />
+  <Color name="String"      foreground="#8ED1AE" />
+  <Color name="Number"      foreground="#D9A6E8" />
+  <Color name="Comment"     foreground="#68738F" fontStyle="italic" />
+  <Color name="Preprocessor" foreground="#C4643A" />
+
+  <RuleSet>
+
+    <Span color="Comment" begin="//" />
+    <Span color="Comment" multiline="true" begin="/\*" end="\*/" />
+    <Span color="Preprocessor" begin="^\s*#" />
+
+    <!-- A verbatim string: @"…", where "" is the escaped quote. -->
+    <Span color="String" multiline="true">
+      <Begin>@"</Begin>
+      <End>"</End>
+      <RuleSet>
+        <Span begin='""' end="" />
+      </RuleSet>
+    </Span>
+
+    <Span color="String">
+      <Begin>"</Begin>
+      <End>"</End>
+      <RuleSet>
+        <Span begin="\\" end="." />
+      </RuleSet>
+    </Span>
+
+    <Span color="String">
+      <Begin>'</Begin>
+      <End>'</End>
+      <RuleSet>
+        <Span begin="\\" end="." />
+      </RuleSet>
+    </Span>
+
+    <Keywords color="Keyword">
+      <Word>public</Word>
+      <Word>private</Word>
+      <Word>protected</Word>
+      <Word>internal</Word>
+      <Word>static</Word>
+      <Word>readonly</Word>
+      <Word>const</Word>
+      <Word>sealed</Word>
+      <Word>abstract</Word>
+      <Word>override</Word>
+      <Word>virtual</Word>
+      <Word>partial</Word>
+      <Word>class</Word>
+      <Word>struct</Word>
+      <Word>record</Word>
+      <Word>interface</Word>
+      <Word>enum</Word>
+      <Word>namespace</Word>
+      <Word>using</Word>
+      <Word>new</Word>
+      <Word>return</Word>
+      <Word>if</Word>
+      <Word>else</Word>
+      <Word>switch</Word>
+      <Word>case</Word>
+      <Word>default</Word>
+      <Word>for</Word>
+      <Word>foreach</Word>
+      <Word>in</Word>
+      <Word>while</Word>
+      <Word>do</Word>
+      <Word>break</Word>
+      <Word>continue</Word>
+      <Word>try</Word>
+      <Word>catch</Word>
+      <Word>finally</Word>
+      <Word>throw</Word>
+      <Word>get</Word>
+      <Word>set</Word>
+      <Word>init</Word>
+      <Word>var</Word>
+      <Word>null</Word>
+      <Word>true</Word>
+      <Word>false</Word>
+      <Word>this</Word>
+      <Word>base</Word>
+      <Word>is</Word>
+      <Word>as</Word>
+      <Word>async</Word>
+      <Word>await</Word>
+      <Word>from</Word>
+      <Word>where</Word>
+      <Word>select</Word>
+      <Word>group</Word>
+      <Word>by</Word>
+      <Word>into</Word>
+      <Word>orderby</Word>
+      <Word>ascending</Word>
+      <Word>descending</Word>
+      <Word>let</Word>
+      <Word>join</Word>
+      <Word>on</Word>
+      <Word>equals</Word>
+    </Keywords>
+
+    <Keywords color="Type">
+      <Word>bool</Word>
+      <Word>byte</Word>
+      <Word>char</Word>
+      <Word>decimal</Word>
+      <Word>double</Word>
+      <Word>float</Word>
+      <Word>int</Word>
+      <Word>long</Word>
+      <Word>object</Word>
+      <Word>short</Word>
+      <Word>string</Word>
+      <Word>void</Word>
+      <Word>DateTime</Word>
+      <Word>Guid</Word>
+      <Word>TimeSpan</Word>
+      <Word>List</Word>
+      <Word>Dictionary</Word>
+      <Word>IQueryable</Word>
+      <Word>IEnumerable</Word>
+      <Word>CuteId</Word>
+      <Word>CuteValue</Word>
+      <Word>CuteDocument</Word>
+      <Word>CuteDatabase</Word>
+    </Keywords>
+
+    <!-- The query operators, lit so the shape of a chain reads at a glance. -->
+    <Keywords color="Linq">
+      <Word>Where</Word>
+      <Word>Select</Word>
+      <Word>SelectMany</Word>
+      <Word>OrderBy</Word>
+      <Word>OrderByDescending</Word>
+      <Word>ThenBy</Word>
+      <Word>ThenByDescending</Word>
+      <Word>GroupBy</Word>
+      <Word>Take</Word>
+      <Word>Skip</Word>
+      <Word>Distinct</Word>
+      <Word>Reverse</Word>
+      <Word>First</Word>
+      <Word>FirstOrDefault</Word>
+      <Word>Single</Word>
+      <Word>SingleOrDefault</Word>
+      <Word>Last</Word>
+      <Word>LastOrDefault</Word>
+      <Word>ElementAt</Word>
+      <Word>Any</Word>
+      <Word>All</Word>
+      <Word>Count</Word>
+      <Word>LongCount</Word>
+      <Word>Sum</Word>
+      <Word>Average</Word>
+      <Word>Min</Word>
+      <Word>Max</Word>
+      <Word>Contains</Word>
+      <Word>ToList</Word>
+      <Word>ToArray</Word>
+      <Word>ToCuteQL</Word>
+      <Word>ExplainCuteQL</Word>
+      <Word>ToListWithDiagnostics</Word>
+      <Word>Query</Word>
+    </Keywords>
+
+    <Rule color="Number">\b0[xX][0-9a-fA-F_]+|(\b\d[\d_]*(\.[0-9_]+)?|\.[0-9_]+)([eE][+-]?[0-9]+)?[mdfulMDFUL]?\b</Rule>
+
+  </RuleSet>
+
+</SyntaxDefinition>

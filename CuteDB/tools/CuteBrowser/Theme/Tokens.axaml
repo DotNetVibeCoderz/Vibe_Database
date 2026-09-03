@@ -1,0 +1,96 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+  <!--
+    Design tokens for CuteDB Browser.
+    Dibuat oleh Gravicode Studios, dipimpin oleh Kang Fadhil.
+
+    The direction is "nila dan kunyit" — indigo and turmeric, the two dyes a batik workshop starts
+    from. CuteDB is Indonesian software and its demo already took the receipt tape; a workbench you
+    sit in front of for hours wants a dark ground, and the obvious dark ground is a neutral IDE grey
+    with one acid accent. Indigo is a colour with a source: deep, slightly violet, and it lets the
+    turmeric read as hot rather than merely bright.
+
+    Colours are named for the dye rather than the role, because the role is obvious from where the
+    brush is used and the name is what keeps the palette coherent as it grows.
+
+    Kunyit is rationed. It marks exactly three things: the query that is running, the figure that is
+    the answer, and the tab you are in. Anywhere it appears for a fourth reason, the fourth is wrong.
+  -->
+
+  <!-- ============================== colour ============================== -->
+
+  <!-- The ground. Indigo, not charcoal — cool and slightly violet under the cream. -->
+  <Color x:Key="NilaColor">#131A2C</Color>
+  <SolidColorBrush x:Key="Nila" Color="{StaticResource NilaColor}" />
+
+  <!-- Panels: explorer, chat, logs. One step up from the ground, never two. -->
+  <SolidColorBrush x:Key="NilaPanel" Color="#1A2238" />
+
+  <!-- Hover, selection, the raised chip. -->
+  <SolidColorBrush x:Key="NilaRaised" Color="#232D48" />
+  <SolidColorBrush x:Key="NilaSunk" Color="#0E1424" />
+
+  <!-- The one rule weight's colour. Every boundary in the app is this. -->
+  <SolidColorBrush x:Key="Rule" Color="#2E3A5C" />
+  <SolidColorBrush x:Key="RuleFaint" Color="#212B45" />
+
+  <!-- Wax resist: the cream the dye does not reach. Primary text. -->
+  <Color x:Key="LilinColor">#EAE4D6</Color>
+  <SolidColorBrush x:Key="Lilin" Color="{StaticResource LilinColor}" />
+  <SolidColorBrush x:Key="LilinDim" Color="#94A0BE" />
+  <SolidColorBrush x:Key="LilinFaint" Color="#68738F" />
+
+  <!-- Turmeric. The running query, the answer, the active tab. Rationed. -->
+  <Color x:Key="KunyitColor">#E9A83C</Color>
+  <SolidColorBrush x:Key="Kunyit" Color="{StaticResource KunyitColor}" />
+  <SolidColorBrush x:Key="KunyitSoft" Color="#4A3A1E" />
+
+  <!-- Soga, the brown-red bark dye. Errors and destructive confirmations only. -->
+  <Color x:Key="SogaColor">#D26941</Color>
+  <SolidColorBrush x:Key="Soga" Color="{StaticResource SogaColor}" />
+  <SolidColorBrush x:Key="SogaSoft" Color="#3A2119" />
+
+  <!-- Jade. Success, and nothing else. -->
+  <SolidColorBrush x:Key="Pucuk" Color="#57A98C" />
+
+  <!--
+    Fluent resolves its own accent through these keys, and a control that reaches for one directly
+    — the tab strip's selection pipe, a focus ring — paints Windows blue no matter what the styles
+    say. Overriding the keys is the only way to reach them, so the palette holds everywhere.
+  -->
+  <SolidColorBrush x:Key="SystemAccentColorBrush" Color="{StaticResource KunyitColor}" />
+  <SolidColorBrush x:Key="SystemControlHighlightAccentBrush" Color="{StaticResource KunyitColor}" />
+  <SolidColorBrush x:Key="TabItemHeaderSelectedPipeFill" Color="{StaticResource KunyitColor}" />
+  <SolidColorBrush x:Key="TabViewSelectedItemBorderBrush" Color="{StaticResource KunyitColor}" />
+  <Color x:Key="SystemAccentColor">#E9A83C</Color>
+  <Color x:Key="SystemAccentColorLight1">#F2B854</Color>
+  <Color x:Key="SystemAccentColorDark1">#C98C2A</Color>
+
+  <!-- ============================== type ============================== -->
+
+  <!--
+    Two faces doing three jobs. Inter carries the interface. A monospace stack carries every
+    figure, every path, every line of CuteQL and C# — and the small uppercase plate labels, which
+    is what gives the panel headers their engraved voice without importing a third family.
+  -->
+  <FontFamily x:Key="UiFont">Inter, $Default</FontFamily>
+  <FontFamily x:Key="MonoFont">Cascadia Mono, Consolas, JetBrains Mono, Menlo, DejaVu Sans Mono, monospace</FontFamily>
+
+  <x:Double x:Key="PlateSize">10</x:Double>
+  <x:Double x:Key="BodySize">13</x:Double>
+  <x:Double x:Key="DataSize">12</x:Double>
+  <x:Double x:Key="EditorSize">13.5</x:Double>
+  <x:Double x:Key="FigureSize">21</x:Double>
+
+  <!-- ============================== metrics ============================== -->
+
+  <Thickness x:Key="PanelPadding">14</Thickness>
+  <Thickness x:Key="TightPadding">10,7</Thickness>
+  <CornerRadius x:Key="ChipRadius">2</CornerRadius>
+
+  <!-- One rule weight everywhere a boundary is needed. Hairlines at several weights read as
+       pastiche; one confident weight reads as an instrument panel. -->
+  <Thickness x:Key="RuleWeight">1</Thickness>
+
+</ResourceDictionary>

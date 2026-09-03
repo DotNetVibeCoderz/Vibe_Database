@@ -195,6 +195,39 @@ if (db.DiscardedBytesOnOpen > 0)
 
 ---
 
+## CuteDB Browser
+
+`tools/CuteBrowser` is a desktop workbench: browse a database, write CuteQL or LINQ, and see what
+the engine actually did to answer it.
+
+![CuteDB Browser](docs/images/browser/01-workbench.png)
+
+```bash
+dotnet run --project tools/CuteBrowser
+```
+
+The strip between the editor and the grid is the point of it. It prints what the engine did —
+`COLLECTION SCAN · examined 50,000 · matched 4,182 · returned 12 · 38.50 ms · native` — and draws a
+rule whose filled fraction is matched over examined. A sliver means the engine looked at fifty
+thousand documents to hand back twelve, which is what an index is for.
+
+<table>
+<tr>
+<td width="50%"><img src="docs/images/browser/03-linq.png" alt="A LINQ tab" /><br /><b>LINQ tabs</b> — a C# script with the database in scope, and the CuteQL it translated to printed above the grid.</td>
+<td width="50%"><img src="docs/images/browser/04-jack.png" alt="Jack, the assistant" /><br /><b>Jack — The Code Bender</b> — reads the schema before writing anything, validates what he writes, and hands every query to a tab with one click.</td>
+</tr>
+</table>
+
+Jack runs on OpenAI, Azure OpenAI, Claude, Gemini, Ollama, or anything else that speaks OpenAI's
+API, through Semantic Kernel. He can read the collections, describe their real field paths, preview
+and explain a query, search the web, and do arithmetic — but he cannot run a write; that always
+passes through you.
+
+Install scripts for Windows, Linux and macOS are in `tools/CuteBrowser/scripts`. Full guide:
+[docs/en/browser.md](docs/en/browser.md).
+
+---
+
 ## The command line
 
 ```bash
@@ -289,6 +322,7 @@ If none of those apply, CuteDB is a good fit and will be considerably faster tha
 | Getting started | [getting-started.md](docs/en/getting-started.md) | [memulai.md](docs/id/memulai.md) |
 | CuteQL reference | [cuteql.md](docs/en/cuteql.md) | [cuteql.md](docs/id/cuteql.md) |
 | LINQ | [linq.md](docs/en/linq.md) | [linq.md](docs/id/linq.md) |
+| CuteDB Browser | [browser.md](docs/en/browser.md) | [browser.md](docs/id/browser.md) |
 | Architecture | [architecture.md](docs/en/architecture.md) | [arsitektur.md](docs/id/arsitektur.md) |
 | Performance | [performance.md](docs/en/performance.md) | [performa.md](docs/id/performa.md) |
 | Command line | [cli.md](docs/en/cli.md) | [cli.md](docs/id/cli.md) |

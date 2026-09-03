@@ -15,6 +15,7 @@ client libraries for Python, Go and Node.js.
 src/CuteDB          the engine — no package dependencies, on purpose
 src/CuteDB.Cli      `cutedb` dotnet tool (Spectre.Console)
 src/CuteDB.Server   HTTP API, so the non-.NET clients have something to talk to
+tools/CuteBrowser   Avalonia workbench + "Jack" (Semantic Kernel); the only project with a UI AI
 native/cutedb-core  Rust scan accelerator, C ABI
 clients/{python,go,nodejs}
 samples/CuteDB.Retail  shared sample dataset, referenced by CLI, demo and benchmarks
@@ -35,6 +36,10 @@ cd native && cargo test --release && cargo clippy --all-targets -- -D warnings
 
 dotnet run --project samples/CuteDB.Demo                                    # the demo
 dotnet run --project samples/CuteDB.Demo -- --screenshot docs/images        # regenerate screenshots
+
+dotnet run --project tools/CuteBrowser                                      # the browser
+dotnet run --project tools/CuteBrowser -- --screenshot docs/images/browser  # its screenshots
+CuteBrowser --ask "which city sold most?"                                   # one Jack turn, no window
 dotnet run -c Release --project benchmarks/CuteDB.Benchmarks -- --filter '*Scan*'
 
 dotnet run --project src/CuteDB.Cli -- seed /tmp/x.cute --scale demo
@@ -111,4 +116,13 @@ agreement is unaffordable — a stored decimal against a double — Rust returns
   than the managed scanner it exists to beat. The VM's operand stack is a fixed array; `LIKE` runs
   over UTF-8 bytes for ASCII.
 - Avalonia is pinned to 11.3.13 because `Avalonia.Controls.DataGrid` has no later 11.3.x release.
-  Spectre is pinned to 0.55.0 because `Spectre.Console.Cli` stops there.
+  Spectre is pinned to 0.55.0 because `Spectre.Console.Cli` stops there. AvaloniaEdit is on 11.3.0
+  for the same reason the rest of Avalonia is.
+- **AvaloniaEdit needs its own theme included.** Without
+  `avares://AvaloniaEdit/Themes/Fluent/AvaloniaEdit.xaml` in `App.axaml`, `TextEditor` has no
+  control template and renders *nothing* — no text, no margin, no caret. It looks like a load
+  failure, not a styling one.
+- **A C# script's last expression is its result.** A LINQ tab that puts `public class …` after the
+  query fails with CS1002. Declarations first, query last.
+- **Reasoning models reject a non-default `temperature`.** `JackAgent` retries without one when the
+  refusal names it, rather than carrying a list of which models those are.

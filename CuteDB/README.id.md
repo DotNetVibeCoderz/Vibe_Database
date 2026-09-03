@@ -196,6 +196,39 @@ if (db.DiscardedBytesOnOpen > 0)
 
 ---
 
+## CuteDB Browser
+
+`tools/CuteBrowser` adalah meja kerja desktop: menjelajahi basis data, menulis CuteQL atau LINQ, dan
+melihat apa yang sebenarnya dikerjakan mesin untuk menjawabnya.
+
+![CuteDB Browser](docs/images/browser/01-workbench.png)
+
+```bash
+dotnet run --project tools/CuteBrowser
+```
+
+Strip di antara editor dan grid adalah intinya. Ia mencetak apa yang dikerjakan mesin —
+`COLLECTION SCAN · examined 50,000 · matched 4,182 · returned 12 · 38.50 ms · native` — dan menggambar
+garis yang bagian terisinya adalah matched dibagi examined. Sepotong kecil berarti mesin memeriksa
+lima puluh ribu dokumen untuk mengembalikan dua belas, dan untuk itulah indeks ada.
+
+<table>
+<tr>
+<td width="50%"><img src="docs/images/browser/03-linq.png" alt="Tab LINQ" /><br /><b>Tab LINQ</b> — skrip C# dengan basis data dalam cakupan, dan CuteQL hasil terjemahannya tercetak di atas grid.</td>
+<td width="50%"><img src="docs/images/browser/04-jack.png" alt="Jack, sang asisten" /><br /><b>Jack — The Code Bender</b> — membaca skema sebelum menulis apa pun, memvalidasi yang ditulisnya, dan mengirim setiap kueri ke tab dengan sekali klik.</td>
+</tr>
+</table>
+
+Jack berjalan di atas OpenAI, Azure OpenAI, Claude, Gemini, Ollama, atau apa pun lain yang berbicara
+API OpenAI, lewat Semantic Kernel. Dia bisa membaca koleksi, menjabarkan jalur field yang
+sebenarnya, mempratinjau dan menjelaskan kueri, mencari di web, dan berhitung — tetapi dia tidak
+bisa menjalankan penulisan; itu selalu lewat Anda.
+
+Skrip pemasangan untuk Windows, Linux, dan macOS ada di `tools/CuteBrowser/scripts`. Panduan
+lengkap: [docs/id/browser.md](docs/id/browser.md).
+
+---
+
 ## Baris perintah
 
 ```bash
@@ -290,6 +323,7 @@ Kalau tidak satu pun berlaku, CuteDB cocok dan akan jauh lebih cepat daripada al
 | Memulai | [memulai.md](docs/id/memulai.md) | [getting-started.md](docs/en/getting-started.md) |
 | Rujukan CuteQL | [cuteql.md](docs/id/cuteql.md) | [cuteql.md](docs/en/cuteql.md) |
 | LINQ | [linq.md](docs/id/linq.md) | [linq.md](docs/en/linq.md) |
+| CuteDB Browser | [browser.md](docs/id/browser.md) | [browser.md](docs/en/browser.md) |
 | Arsitektur | [arsitektur.md](docs/id/arsitektur.md) | [architecture.md](docs/en/architecture.md) |
 | Performa | [performa.md](docs/id/performa.md) | [performance.md](docs/en/performance.md) |
 | Baris perintah | [cli.md](docs/id/cli.md) | [cli.md](docs/en/cli.md) |
