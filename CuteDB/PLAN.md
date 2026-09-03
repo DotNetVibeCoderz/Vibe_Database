@@ -13,20 +13,26 @@ The checklist that tracks execution against this is [Progress.md](Progress.md).
 
 ## Where we are
 
-**2.1.0, built and merged, not yet released.**
+**2.1.0 released.**
 
 | | Version | State |
 | --- | --- | --- |
-| Repository | 2.1.0 | LINQ and CuteDB Browser merged |
-| NuGet `CuteDB` | 2.0.0 | No LINQ; native accelerator for `win-x64` only |
-| npm `cutedb` | 2.0.1 | Current |
-| PyPI `cutedb` | 2.0.0 | Current |
+| Repository | 2.1.0 | LINQ and CuteDB Browser |
+| NuGet `CuteDB` | 2.1.0 | LINQ; native accelerator for all six runtimes |
+| NuGet `CuteDB.Cli`, `CuteDB.Server` | 2.1.0 | |
+| npm `cutedb` | 2.0.1 | Unchanged in 2.1 |
+| PyPI `cutedb` | 2.0.0 | Unchanged in 2.1 |
 | Go client | — | Module path resolves from the repository |
 
-The gap between the repository and NuGet is the single most important thing on this page. 2.0.0 was
-packed on a Windows workstation, so it carries one native runtime out of six; the release workflow
-builds all six and *fails the job* if any is missing from the package. Nothing else needs designing
-— it needs running.
+2.0.0 shipped one native runtime out of six because it was packed on a workstation. 2.1.0 was cut by
+the release workflow, which builds all six and fails the job rather than publishing a package
+missing any — and the published package was then downloaded and checked, because a build log saying
+it worked is not the same as the artifact being right.
+
+Getting there turned up two faults that had been silent since the beginning: CuteDB's workflows were
+at `CuteDB/.github/workflows/`, which GitHub does not read, so neither had ever run; and every shell
+script was committed non-executable from Windows, so the first run that did fire died on
+`Permission denied`.
 
 **What exists today:** the binary document format and its length-prefixed containers, the
 append-only log with per-frame CRC-32C and torn-tail recovery, the unmanaged slab allocator, CuteQL
@@ -37,15 +43,14 @@ an LLM assistant, benchmarks, and bilingual documentation.
 
 ---
 
-## 2.1 — ship what is built
+## 2.1 — ship what is built ✔ mostly done
 
-The theme is **distribution**, not features. Everything here already works locally; none of it is
-in anyone else's hands.
+The theme was **distribution**, not features.
 
-- **Release 2.1.0 through the workflow.** All six runtime identifiers, verified in the package
-  rather than assumed. This is what makes the accelerator real on Linux and macOS.
-- **Tag it.** The repository has no tags at all, so there is no way to check out the source a
-  published package was built from.
+- [done] **Released 2.1.0 through the workflow**, all six runtime identifiers, verified in the
+  downloaded package.
+- [done] **Tagged** `cutedb-v2.1.0`.
+- **Publish the drafted GitHub release.** The workflow drafts one; it is still a draft.
 - **Decide how CuteDB Browser is distributed.** Right now it is `git clone` plus a script. The
   honest options are a `dotnet tool`, a GitHub release with per-platform archives, or both. A
   workbench nobody can install is a workbench nobody uses.

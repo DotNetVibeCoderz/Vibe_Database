@@ -5,7 +5,7 @@
 What is done, what is not, and how each was checked. The reasoning behind the order is in
 [PLAN.md](PLAN.md).
 
-**Last reviewed:** 2026-09-04 · **Repository version:** 2.1.0 · **Tests:** 190 passing
+**Last reviewed:** 2026-09-04 · **Released:** 2.1.0 on NuGet · **Tests:** 190 passing
 
 A box is ticked only when something was run and the output read. "It compiles" is not a tick — the
 LINQ provider compiled cleanly while emitting `placedAt.year` for `DateTime.Year`, and the browser's
@@ -144,18 +144,22 @@ editor compiled cleanly while rendering nothing at all.
 
 - [x] 190 tests passing (119 methods across 6 files)
 - [x] Both scan paths verified — `CUTEDB_DISABLE_NATIVE=1` and native
-- [x] CI: restore, build the solution, test, native build, client smoke tests
+- [x] CI: restore, build the solution, test, native build, client smoke tests — green on `main`
 - [x] Release workflow builds six runtime identifiers and fails if any is missing from the package
+- [x] Both workflows actually run. They lived at `CuteDB/.github/workflows/`, which GitHub does not
+      read, so neither had ever executed; moved to the repository root
+- [x] Shell scripts carry the executable bit. Committed 100644 from Windows, so `./native/build.sh`
+      was "Permission denied" on every non-Windows runner
 - [ ] Coverage for `CuteDB.Cli`, `CuteDB.Server`, `tools/CuteBrowser`
 
 ## Release
 
-- [x] 2.0.0 on NuGet, npm (2.0.1) and PyPI
 - [x] Package metadata: project URL, repository, license, symbols, deterministic builds
-- [ ] **Publish 2.1.0.** The NuGet package is a version behind, has no LINQ, and carries one native
-      runtime out of six because it was packed on a workstation instead of through the workflow.
-- [ ] **Tag the repository.** There are no tags, so no published package can be traced to a commit.
-- [ ] Decide whether the clients need a 2.1 release (nothing in them changed)
+- [x] **2.1.0 published** — `CuteDB`, `CuteDB.Cli` and `CuteDB.Server`, cut by the release workflow
+- [x] All six native runtimes verified *in the downloaded package*, not just in the build log
+- [x] `cutedb-v2.1.0` tagged, so the published package traces to a commit
+- [x] npm 2.0.1, PyPI 2.0.0 — unchanged in 2.1, so not re-released
+- [ ] A GitHub release: the workflow drafts one, and the draft has not been published
 
 ---
 
