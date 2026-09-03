@@ -209,6 +209,7 @@ bersama — jangan membuka berkas yang sama dua kali.
 
 ## Selanjutnya
 
+- [LINQ](linq.md) — kueri bertipe, dan `ToCuteQL()` untuk melihat statement yang dijalankan
 - [Rujukan CuteQL](cuteql.md) — seluruh bahasanya, termasuk tiga tempat yang sengaja berbeda dari SQL
 - [Arsitektur](arsitektur.md) — kenapa membaca satu field dari dokumen tersimpan 66× lebih murah
   daripada mendekodenya

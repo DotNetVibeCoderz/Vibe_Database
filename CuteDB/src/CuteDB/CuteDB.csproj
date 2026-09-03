@@ -6,7 +6,7 @@
     <IsPackable>true</IsPackable>
     <PackageId>CuteDB</PackageId>
     <Title>CuteDB — the cute embedded document database for .NET</Title>
-    <Description>A fast, memory-efficient embedded document database for .NET 10. Stores real JSON — nested objects, arrays, mixed types — in a compact binary format, queries it with CuteQL (a small SQL dialect with first-class field paths), and persists through a crash-safe append-only log. Reading one nested field out of a stored document costs 155 ns because it never decodes the rest. Optional Rust accelerator for scans. No server required.</Description>
+    <Description>A fast, memory-efficient embedded document database for .NET 10. Stores real JSON — nested objects, arrays, mixed types — in a compact binary format, queries it with LINQ or CuteQL (a small SQL dialect with first-class field paths), and persists through a crash-safe append-only log. Reading one nested field out of a stored document costs 155 ns because it never decodes the rest. The LINQ provider translates a whole chain into one statement and can print the CuteQL it generated, so a query is never a black box. Optional Rust accelerator for scans. No server required.</Description>
     <PackageReadmeFile>PACKAGE.md</PackageReadmeFile>
   </PropertyGroup>
 

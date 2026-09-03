@@ -138,6 +138,40 @@ db.Execute("SELECT * FROM orders WHERE address.city = @city AND total > @floor",
     ("floor", CuteValue.Decimal(500_000m)));
 ```
 
+### LINQ, and the query it turns into
+
+```csharp
+using CuteDB.Linq;
+
+var query = db.Collection("orders").Query<Order>()
+    .Where(o => o.Address.City == "Bandung" && o.Total > 500_000m)
+    .OrderByDescending(o => o.Total)
+    .Take(10);
+
+Console.WriteLine(query.ToCuteQL());
+// SELECT * FROM orders WHERE address.city = 'Bandung' AND total > 500000 ORDER BY total DESC LIMIT 10
+
+foreach (var order in query) { … }
+```
+
+The whole chain becomes **one statement** — filtering, ordering, grouping, aggregation and paging
+all happen inside the engine. `Count()` runs `SELECT COUNT(*)` rather than counting rows in memory;
+`First()` adds `LIMIT 1`.
+
+`ToCuteQL()` is the point. A provider you cannot see through is a provider you cannot debug, so
+every query prints the statement it will run, and the text parses back to the same thing — you can
+paste it into `cutedb shell` as it stands.
+
+```csharp
+var (rows, diagnostics) = query.ToListWithDiagnostics();
+Console.WriteLine(diagnostics);   // 11 rows · 4.52 ms · Index seek on 'orders_city'
+```
+
+Nested paths, `LIKE` from `StartsWith`/`Contains`, `IN` from a local `Contains`, `IS NULL` from
+`== null`, date parts, enums compared by name, `GroupBy` with `HAVING`, and `o.Lines.Any(l => l.Qty > 3)`
+becoming the projecting path `lines[].qty > 3`. Anything it cannot translate throws and says what it
+was, rather than quietly loading the collection into memory. Full reference: [docs/en/linq.md](docs/en/linq.md).
+
 ### Ask how a query will run
 
 ```csharp
@@ -254,6 +288,7 @@ If none of those apply, CuteDB is a good fit and will be considerably faster tha
 | --- | --- | --- |
 | Getting started | [getting-started.md](docs/en/getting-started.md) | [memulai.md](docs/id/memulai.md) |
 | CuteQL reference | [cuteql.md](docs/en/cuteql.md) | [cuteql.md](docs/id/cuteql.md) |
+| LINQ | [linq.md](docs/en/linq.md) | [linq.md](docs/id/linq.md) |
 | Architecture | [architecture.md](docs/en/architecture.md) | [arsitektur.md](docs/id/arsitektur.md) |
 | Performance | [performance.md](docs/en/performance.md) | [performa.md](docs/id/performa.md) |
 | Command line | [cli.md](docs/en/cli.md) | [cli.md](docs/id/cli.md) |
@@ -269,7 +304,7 @@ git clone https://github.com/DotNetVibeCoderz/Vibe_Database.git
 cd Vibe_Database/CuteDB
 
 dotnet build CuteDB.slnx                 # everything
-dotnet test tests/CuteDB.Tests           # 154 tests
+dotnet test tests/CuteDB.Tests           # 190 tests
 
 pwsh native/build.ps1                    # the Rust accelerator (optional)
 # or: ./native/build.sh

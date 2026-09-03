@@ -229,3 +229,16 @@ var plan = db.Explain("SELECT * FROM orders WHERE code LIKE 'SO-2026%'");
 ```
 
 Lihat [arsitektur](arsitektur.md) untuk biaya dan alasannya.
+
+---
+
+## Menulisnya dengan C#
+
+Semua di halaman ini bisa ditulis sebagai LINQ atas koleksi bertipe, dan setiap kueri LINQ bisa
+mencetak CuteQL yang dihasilkannya:
+
+```csharp
+query.ToCuteQL();   // statement-nya, bisa di-parse ulang, siap ditempel ke `cutedb shell`
+```
+
+Lihat [LINQ](linq.md).

@@ -138,6 +138,41 @@ db.Execute("SELECT * FROM orders WHERE address.city = @kota AND total > @minimum
     ("minimum", CuteValue.Decimal(500_000m)));
 ```
 
+### LINQ, dan kueri yang dihasilkannya
+
+```csharp
+using CuteDB.Linq;
+
+var query = db.Collection("orders").Query<Order>()
+    .Where(o => o.Address.City == "Bandung" && o.Total > 500_000m)
+    .OrderByDescending(o => o.Total)
+    .Take(10);
+
+Console.WriteLine(query.ToCuteQL());
+// SELECT * FROM orders WHERE address.city = 'Bandung' AND total > 500000 ORDER BY total DESC LIMIT 10
+
+foreach (var order in query) { … }
+```
+
+Seluruh rantai menjadi **satu statement** — penyaringan, pengurutan, pengelompokan, agregasi, dan
+paging semuanya terjadi di dalam mesin. `Count()` menjalankan `SELECT COUNT(*)`, bukan menghitung
+baris di memori; `First()` menambahkan `LIMIT 1`.
+
+`ToCuteQL()` adalah inti dari fitur ini. Provider yang tidak bisa Anda lihat isinya adalah provider
+yang tidak bisa Anda debug, jadi setiap kueri mencetak statement yang akan dijalankannya, dan
+teksnya bisa di-parse kembali menjadi hal yang sama — bisa langsung ditempel ke `cutedb shell`.
+
+```csharp
+var (rows, diagnostics) = query.ToListWithDiagnostics();
+Console.WriteLine(diagnostics);   // 11 rows · 4.52 ms · Index seek on 'orders_city'
+```
+
+Jalur bersarang, `LIKE` dari `StartsWith`/`Contains`, `IN` dari `Contains` atas koleksi lokal,
+`IS NULL` dari `== null`, bagian tanggal, enum yang dibandingkan berdasarkan nama, `GroupBy` dengan
+`HAVING`, dan `o.Lines.Any(l => l.Qty > 3)` yang menjadi jalur proyeksi `lines[].qty > 3`. Apa pun
+yang tidak bisa diterjemahkan akan melempar exception dan menyebutkan penyebabnya, alih-alih
+diam-diam memuat seluruh koleksi ke memori. Rujukan lengkap: [docs/id/linq.md](docs/id/linq.md).
+
 ### Tanyakan bagaimana kueri akan dijalankan
 
 ```csharp
@@ -254,6 +289,7 @@ Kalau tidak satu pun berlaku, CuteDB cocok dan akan jauh lebih cepat daripada al
 | --- | --- | --- |
 | Memulai | [memulai.md](docs/id/memulai.md) | [getting-started.md](docs/en/getting-started.md) |
 | Rujukan CuteQL | [cuteql.md](docs/id/cuteql.md) | [cuteql.md](docs/en/cuteql.md) |
+| LINQ | [linq.md](docs/id/linq.md) | [linq.md](docs/en/linq.md) |
 | Arsitektur | [arsitektur.md](docs/id/arsitektur.md) | [architecture.md](docs/en/architecture.md) |
 | Performa | [performa.md](docs/id/performa.md) | [performance.md](docs/en/performance.md) |
 | Baris perintah | [cli.md](docs/id/cli.md) | [cli.md](docs/en/cli.md) |
@@ -269,7 +305,7 @@ git clone https://github.com/DotNetVibeCoderz/Vibe_Database.git
 cd Vibe_Database/CuteDB
 
 dotnet build CuteDB.slnx                 # semuanya
-dotnet test tests/CuteDB.Tests           # 154 uji
+dotnet test tests/CuteDB.Tests           # 190 uji
 
 pwsh native/build.ps1                    # akselerator Rust (opsional)
 # atau: ./native/build.sh

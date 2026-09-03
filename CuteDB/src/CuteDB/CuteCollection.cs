@@ -1,4 +1,5 @@
 using CuteDB.Indexing;
+using CuteDB.Linq;
 using CuteDB.Query;
 using CuteDB.Storage;
 
@@ -66,6 +67,9 @@ public sealed class CuteCollection
         => _database.Read(this, static c => (IReadOnlyList<CuteIndexInfo>)[.. c._indexes.Values.Select(i => i.Info)]);
 
     internal ushort Id { get; }
+
+    /// <summary>The database this collection belongs to.</summary>
+    public CuteDatabase Database => _database;
 
     internal DocumentStore Store => _store;
 
@@ -224,6 +228,67 @@ public sealed class CuteCollection
         c._store.LiveBytes,
         c._store.DeadBytes,
         c._store.ReservedBytes));
+
+    // ---------------------------------------------------------------------------------------
+    // Typed access and LINQ
+    // ---------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// Queries this collection with LINQ.
+    /// </summary>
+    /// <typeparam name="T">The shape to read documents as.</typeparam>
+    /// <param name="naming">
+    /// How property names map to field names. camelCase by default, because documents are
+    /// JSON-shaped.
+    /// </param>
+    /// <remarks>
+    /// The whole chain is translated into one CuteQL statement before anything runs, so filtering,
+    /// ordering, grouping and paging happen inside the engine. Call
+    /// <see cref="CuteQueryableExtensions.ToCuteQL{T}"/> on the query to see exactly what it will
+    /// run as.
+    /// </remarks>
+    /// <example>
+    /// <code>
+    /// var top = orders.Query&lt;Order&gt;()
+    ///     .Where(o =&gt; o.Address.City == "Bandung" &amp;&amp; o.Total &gt; 500_000m)
+    ///     .OrderByDescending(o =&gt; o.Total)
+    ///     .Select(o =&gt; new { o.Code, o.Total })
+    ///     .Take(10)
+    ///     .ToList();
+    /// </code>
+    /// </example>
+    public IQueryable<T> Query<T>(CuteNamingPolicy? naming = null)
+        => new CuteQueryable<T>(new CuteQueryProvider(this, typeof(T), naming ?? CuteMapper.DefaultNaming));
+
+    /// <summary>Inserts an object, mapping it to a document first.</summary>
+    public CuteId Insert<T>(T value, CuteNamingPolicy? naming = null)
+        where T : notnull
+        => Insert(CuteMapper.ToDocument(value, naming));
+
+    /// <summary>Inserts many objects under a single lock.</summary>
+    public int InsertMany<T>(IEnumerable<T> values, CuteNamingPolicy? naming = null)
+        where T : notnull
+        => InsertMany(values.Select(v => CuteMapper.ToDocument(v, naming)));
+
+    /// <summary>Replaces the document with the same id, or inserts it.</summary>
+    public CuteId Save<T>(T value, CuteNamingPolicy? naming = null)
+        where T : notnull
+        => Save(CuteMapper.ToDocument(value, naming));
+
+    /// <summary>Fetches a document by id and maps it, or returns the default when there is none.</summary>
+    public T? FindById<T>(CuteId id, CuteNamingPolicy? naming = null)
+    {
+        var document = FindById(id);
+        return document is null ? default : CuteMapper.ToObject<T>(document, naming);
+    }
+
+    /// <summary>Finds documents matching a CuteQL filter and maps them.</summary>
+    public IReadOnlyList<T> Find<T>(string filter, CuteParameters? parameters = null, int limit = int.MaxValue, CuteNamingPolicy? naming = null)
+        => [.. Find(filter, parameters, limit).Select(d => CuteMapper.ToObject<T>(d, naming))];
+
+    /// <summary>Every document in the collection, mapped.</summary>
+    public IReadOnlyList<T> All<T>(CuteNamingPolicy? naming = null)
+        => [.. All().Select(d => CuteMapper.ToObject<T>(d, naming))];
 
     // ---------------------------------------------------------------------------------------
     // Indexes

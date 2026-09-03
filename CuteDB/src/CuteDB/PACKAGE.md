@@ -77,6 +77,25 @@ db.Execute("SELECT * FROM orders WHERE address.city = @city",
     ("city", CuteValue.String(input)));
 ```
 
+## LINQ
+
+```csharp
+using CuteDB.Linq;
+
+var query = db.Collection("orders").Query<Order>()
+    .Where(o => o.Address.City == "Bandung" && o.Total > 500_000m)
+    .OrderByDescending(o => o.Total)
+    .Take(10);
+
+query.ToCuteQL();
+// SELECT * FROM orders WHERE address.city = 'Bandung' AND total > 500000 ORDER BY total DESC LIMIT 10
+```
+
+The whole chain becomes one statement, so filtering, ordering, grouping and paging happen inside the
+engine. `ToCuteQL()` prints it, and the text parses back to the same thing — a query is never a
+black box. Anything that cannot be translated throws and names what it was, rather than quietly
+loading the collection into memory.
+
 ## Also in this family
 
 - **`CuteDB.Cli`** — `cutedb shell`, import/export, index management, statistics, benchmarks
@@ -93,6 +112,7 @@ joins.
 - [Documentation](https://github.com/DotNetVibeCoderz/Vibe_Database/tree/main/CuteDB/docs) —
   English and Bahasa Indonesia
 - [Getting started](https://github.com/DotNetVibeCoderz/Vibe_Database/blob/main/CuteDB/docs/en/getting-started.md)
+- [LINQ](https://github.com/DotNetVibeCoderz/Vibe_Database/blob/main/CuteDB/docs/en/linq.md)
 - [CuteQL reference](https://github.com/DotNetVibeCoderz/Vibe_Database/blob/main/CuteDB/docs/en/cuteql.md)
 - [Architecture](https://github.com/DotNetVibeCoderz/Vibe_Database/blob/main/CuteDB/docs/en/architecture.md)
 - [Source](https://github.com/DotNetVibeCoderz/Vibe_Database/tree/main/CuteDB)

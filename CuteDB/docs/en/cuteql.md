@@ -225,3 +225,16 @@ var plan = db.Explain("SELECT * FROM orders WHERE code LIKE 'SO-2026%'");
 ```
 
 See [architecture](architecture.md) for what that costs and why.
+
+---
+
+## Writing it in C# instead
+
+Everything on this page can be written as LINQ over a typed collection, and every LINQ query can
+print the CuteQL it becomes:
+
+```csharp
+query.ToCuteQL();   // the statement, re-parseable, ready to paste into `cutedb shell`
+```
+
+See [LINQ](linq.md).

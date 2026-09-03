@@ -206,6 +206,7 @@ against readers. One `CuteDatabase` per file per process, shared — do not open
 
 ## Where to next
 
+- [LINQ](linq.md) — typed queries, and `ToCuteQL()` to see the statement each one runs as
 - [CuteQL reference](cuteql.md) — the whole language, including the three places it deliberately
   differs from SQL
 - [Architecture](architecture.md) — why reading one field out of a stored document is 66× cheaper
