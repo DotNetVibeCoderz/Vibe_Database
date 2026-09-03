@@ -221,7 +221,7 @@ hasilnya tepat di sebelahnya.*
 
 ![Throughput, diukur saat itu juga](docs/images/playground-benchmark.png)
 
-*Salah satu dari enam belas demo playground, mengukur empat ratus ribu tulisan dan sebanyak itu
+*Salah satu dari tujuh belas demo playground, mengukur empat ratus ribu tulisan dan sebanyak itu
 bacaan sementara desk trading masih berjalan di belakangnya.*
 
 ![Tentang](docs/images/about.png)
@@ -271,6 +271,14 @@ Perlu diketahui sebelum Anda memakainya:
 | SDK klien | [id/clients.md](docs/id/clients.md) | [en/clients.md](docs/en/clients.md) |
 | Benchmark | [id/benchmarks.md](docs/id/benchmarks.md) | [en/benchmarks.md](docs/en/benchmarks.md) |
 | Demo trading | [id/trading-demo.md](docs/id/trading-demo.md) | [en/trading-demo.md](docs/en/trading-demo.md) |
+
+## Peta jalan dan progres
+
+- **[PLAN.md](PLAN.md)** — arah proyek ini, apa yang sengaja tidak akan dikerjakan, dan alasannya
+- **[Progress.md](Progress.md)** — daftar periksa pengembangan, termasuk setiap bug yang ditemukan di jalan
+
+Keduanya ditulis dalam bahasa Inggris: keduanya berubah hampir setiap commit, dan menyalinnya ke dua
+bahasa akan menjamin keduanya segera tidak sinkron.
 
 ## Lisensi
 

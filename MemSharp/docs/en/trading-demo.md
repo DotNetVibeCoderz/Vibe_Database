@@ -59,7 +59,7 @@ reading pace.
 
 ![The playground](../images/playground.png)
 
-Sixteen runnable demonstrations. Each shows what it does, the C# that does it, and the result — with
+Seventeen runnable demonstrations. Each shows what it does, the C# that does it, and the result — with
 the snippet directly above its output so the page reads as cause then effect.
 
 The code string and the delegate that runs are written to match line for line. That is the whole
@@ -177,7 +177,7 @@ side where it does not compete with the data for vertical space.
 | `Controls/DepthLadder.cs` | The ladder, one `Render` pass over two sorted-set queries. |
 | `Controls/PriceChart.cs` | The chart, drawn from candles the engine aggregated. |
 | `ViewModels/TradingDeskViewModel.cs` | The 20 Hz sampling loop. |
-| `ViewModels/PlaygroundViewModel.cs` | All sixteen demos, code and delegate side by side. |
+| `ViewModels/PlaygroundViewModel.cs` | All seventeen demos, code and delegate side by side. |
 | `ScreenshotRunner.cs` | Headless capture. |
 | `Theme.axaml`, `Palette.axaml` | The visual language. Split because a `ResourceDictionary` cannot hold `<Styles>`. |
 

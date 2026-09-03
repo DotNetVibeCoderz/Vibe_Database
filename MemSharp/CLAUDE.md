@@ -191,6 +191,20 @@ NuGet's registration index lags its flat container by several minutes after a pu
 `dotnet tool install` can report "not found" for a package that is already there. Clear the HTTP
 cache (`dotnet nuget locals http-cache --clear`) and retry rather than re-pushing.
 
+## Planning documents
+
+`PLAN.md` is the roadmap - what is next, what is deliberately not planned, and the reasoning for
+each so it is not re-derived. `Progress.md` is the development checklist, and also records every bug
+found during 1.0 with how it surfaced.
+
+Both are **English only**, unlike the rest of the documentation. They change on almost every commit,
+and a mirrored copy of a file that churns that fast is a guarantee of drift rather than a service to
+anyone. `check_docs.py` enforces parity only under `docs/`, so this does not break CI.
+
+Keep `Progress.md` honest: tick a box after *running* the thing, not after writing it. When a count
+changes there - tests, commands, playground demos - grep the docs for the old number. A stale "16
+demos" survived in four separate documents until it was counted.
+
 ## Conventions
 
 - **Documentation is mirrored** between `docs/en` and `docs/id`, and `check_docs.py` fails CI if a

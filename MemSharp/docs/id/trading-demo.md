@@ -60,7 +60,7 @@ kecepatan baca manusia.
 
 ![Playground](../images/playground.png)
 
-Enam belas demonstrasi yang bisa dijalankan. Masing-masing menunjukkan apa yang dilakukannya, C# yang
+Tujuh belas demonstrasi yang bisa dijalankan. Masing-masing menunjukkan apa yang dilakukannya, C# yang
 melakukannya, dan hasilnya — dengan potongan kodenya persis di atas outputnya, jadi halamannya
 terbaca sebagai sebab lalu akibat.
 
@@ -184,7 +184,7 @@ samping di mana ia tidak berebut ruang vertikal dengan datanya.
 | `Controls/DepthLadder.cs` | Ladder-nya, satu lintasan `Render` atas dua query sorted set. |
 | `Controls/PriceChart.cs` | Chart-nya, digambar dari candle yang diagregasi engine. |
 | `ViewModels/TradingDeskViewModel.cs` | Loop pengambilan sampel 20 Hz. |
-| `ViewModels/PlaygroundViewModel.cs` | Keenam belas demo, kode dan delegate bersebelahan. |
+| `ViewModels/PlaygroundViewModel.cs` | Ketujuh belas demo, kode dan delegate bersebelahan. |
 | `ScreenshotRunner.cs` | Perekaman headless. |
 | `Theme.axaml`, `Palette.axaml` | Bahasa visualnya. Dipisah karena `ResourceDictionary` tidak bisa memuat `<Styles>`. |
 

@@ -215,7 +215,7 @@ next to it.*
 
 ![Throughput, measured on the spot](docs/images/playground-benchmark.png)
 
-*One of the sixteen playground demos, timing four hundred thousand writes and as many reads while
+*One of the seventeen playground demos, timing four hundred thousand writes and as many reads while
 the trading desk is still running behind it.*
 
 ![About](docs/images/about.png)
@@ -265,6 +265,11 @@ Worth knowing before you reach for this:
 | Client SDKs | [en/clients.md](docs/en/clients.md) | [id/clients.md](docs/id/clients.md) |
 | Benchmarks | [en/benchmarks.md](docs/en/benchmarks.md) | [id/benchmarks.md](docs/id/benchmarks.md) |
 | Trading demo | [en/trading-demo.md](docs/en/trading-demo.md) | [id/trading-demo.md](docs/id/trading-demo.md) |
+
+## Roadmap and progress
+
+- **[PLAN.md](PLAN.md)** — where this is going, what it deliberately will not do, and why
+- **[Progress.md](Progress.md)** — the development checklist, including every bug found on the way
 
 ## Licence
 
