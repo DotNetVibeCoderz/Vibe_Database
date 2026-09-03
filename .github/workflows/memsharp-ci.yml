@@ -1,8 +1,9 @@
 # MemSharp - build, test and pack on every change.
 #
-# This file belongs at the ROOT of the Vibe_Database repository, not inside MemSharp/.
-# GitHub Actions only reads .github/workflows/ from the repository root; a workflow nested in a
-# subdirectory is silently ignored. See .github/workflows/README.md for the move.
+# This file lives at the ROOT of the Vibe_Database repository because GitHub Actions only reads
+# .github/workflows/ from the root; a workflow nested in a project subdirectory is silently ignored.
+# It is written for the monorepo layout: path filters scope it to MemSharp/**, and every job sets
+# working-directory: MemSharp.
 
 name: MemSharp CI
 
@@ -121,10 +122,12 @@ jobs:
         with:
           node-version: '20'
 
+      # Caching is off because the client has no dependencies, so there is no go.sum - and
+      # setup-go fails outright when cache-dependency-path matches nothing.
       - uses: actions/setup-go@v5
         with:
           go-version: '1.22'
-          cache-dependency-path: MemSharp/clients/go/go.sum
+          cache: false
 
       - name: Build the CLI
         run: dotnet build src/MemSharp.Cli -c Release

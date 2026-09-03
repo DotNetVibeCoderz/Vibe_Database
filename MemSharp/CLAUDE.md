@@ -197,8 +197,10 @@ cache (`dotnet nuget locals http-cache --clear`) and retry rather than re-pushin
   page exists on one side only. `README.md` and `README.id.md` likewise. Update both halves.
 - **Screenshots are generated, never hand-made** — `--capture` renders the real views headlessly, and
   CI re-runs it so an image cannot drift from the interface it depicts.
-- **CI workflows live in `.github/workflows/` here but must be copied to the repo root to run.**
-  GitHub only reads workflows from the root; a nested one is silently ignored. See
-  `.github/workflows/README.md`.
+- **CI workflows live at the *repository* root**, `Vibe_Database/.github/workflows/memsharp-*.yml`,
+  not under `MemSharp/`. GitHub reads workflows only from the root and silently ignores nested ones.
+  Only the docs check stays here, at `MemSharp/.github/scripts/check_docs.py`. See
+  `.github/workflows/README.md` — and note the sibling projects' workflows are still nested, and so
+  still inert.
 - Comments explain *why*, not what. Several in the engine record a specific bug the current shape
   prevents — those are the load-bearing ones.

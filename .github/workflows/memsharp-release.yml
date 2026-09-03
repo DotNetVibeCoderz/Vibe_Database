@@ -1,6 +1,7 @@
 # MemSharp - publish to NuGet on a version tag.
 #
-# This file belongs at the ROOT of the Vibe_Database repository. See .github/workflows/README.md.
+# This file lives at the ROOT of the Vibe_Database repository: GitHub Actions only reads workflows
+# from the root, and silently ignores ones nested in a project subdirectory.
 #
 #   git tag memsharp-v1.0.0
 #   git push origin memsharp-v1.0.0
