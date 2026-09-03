@@ -275,7 +275,7 @@ pwsh native/build.ps1                    # the Rust accelerator (optional)
 # or: ./native/build.sh
 ```
 
-The .NET build never depends on Rust. Without it the accelerator is absent, the parity tests skip their canary, and scans use the managed path.
+The .NET build never depends on Rust. Without it the accelerator is absent and scans use the managed path; the test suite still passes in full. CI builds it first and sets `CUTEDB_EXPECT_NATIVE=1`, which makes the parity suite fail loudly if the library ever stops loading.
 
 ---
 

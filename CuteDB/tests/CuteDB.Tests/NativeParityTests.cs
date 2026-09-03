@@ -125,12 +125,24 @@ public class NativeParityTests : IDisposable
     [Fact]
     public void ScannerIsActuallyExercised()
     {
-        // If the library stops loading, every parity test above silently becomes managed-vs-managed
-        // and proves nothing. This is the canary.
-        Assert.True(
-            CuteNative.IsAvailable,
-            $"The native accelerator did not load, so the parity suite is not testing anything: {CuteNative.UnavailableReason}. " +
-            "Run native/build.ps1 (or build.sh) first.");
+        // Without the library, every parity test above compares the managed evaluator against
+        // itself and proves nothing. This is the canary for that.
+        //
+        // It is strict only where the library is supposed to exist. CI builds the accelerator
+        // first and sets CUTEDB_EXPECT_NATIVE, so a build that silently stopped loading it fails
+        // there. A developer with no Rust toolchain gets a suite that passes, which is what the
+        // README promises — the .NET build never depends on Rust.
+        var expected = Environment.GetEnvironmentVariable("CUTEDB_EXPECT_NATIVE") is "1" or "true";
+
+        if (!CuteNative.IsAvailable)
+        {
+            Assert.False(
+                expected,
+                $"CUTEDB_EXPECT_NATIVE is set, but the accelerator did not load: {CuteNative.UnavailableReason}. " +
+                "Run native/build.ps1 (or build.sh) first.");
+
+            return;
+        }
 
         var plan = _database.Explain("SELECT * FROM orders WHERE n > 10000");
 

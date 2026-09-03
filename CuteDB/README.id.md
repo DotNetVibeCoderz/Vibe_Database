@@ -275,7 +275,7 @@ pwsh native/build.ps1                    # akselerator Rust (opsional)
 # atau: ./native/build.sh
 ```
 
-Build .NET tidak pernah bergantung pada Rust. Tanpa itu akselerator tidak ada, uji paritas melewatkan kenarinya, dan pemindaian memakai jalur terkelola.
+Build .NET tidak pernah bergantung pada Rust. Tanpa itu akselerator tidak ada dan pemindaian memakai jalur terkelola; rangkaian ujinya tetap lulus sepenuhnya. CI membangunnya lebih dulu dan menyetel `CUTEDB_EXPECT_NATIVE=1`, yang membuat uji paritas gagal dengan berisik kalau pustakanya berhenti termuat.
 
 ---
 

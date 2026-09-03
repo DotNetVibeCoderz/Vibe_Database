@@ -113,6 +113,10 @@ jobs:
         run: dotnet build CuteDB.slnx -c Release --no-restore
 
       - name: Test with the native scanner
+        # CUTEDB_EXPECT_NATIVE makes the parity suite's canary strict: without it a build that
+        # quietly stopped loading the library would compare managed against managed and pass.
+        env:
+          CUTEDB_EXPECT_NATIVE: '1'
         run: dotnet test tests/CuteDB.Tests -c Release --no-build --logger "console;verbosity=normal"
 
       - name: Test without it
@@ -191,15 +195,24 @@ jobs:
 
       - name: Start the server
         run: |
-          dotnet run --project src/CuteDB.Server -c Release --no-build -- \
-            /tmp/ci.cute --port 8420 --quiet &
+          # The built binary rather than `dotnet run`, under nohup so it survives this step
+          # ending. A `dotnet run` child can be reaped along with the step's shell, which turns a
+          # startup problem into a confusing connection error two steps later.
+          nohup ./src/CuteDB.Server/bin/Release/net10.0/CuteDB.Server \
+            /tmp/ci.cute --port 8420 --quiet > /tmp/server.log 2>&1 &
+          disown
+
           for i in $(seq 1 30); do
             if curl -sf http://127.0.0.1:8420/health > /dev/null; then
-              echo "server is up"; exit 0
+              echo "server is up"
+              exit 0
             fi
             sleep 1
           done
-          echo "server did not start"; exit 1
+
+          echo "server did not start; log follows"
+          cat /tmp/server.log
+          exit 1
 
       - name: End-to-end, all three clients
         run: ./.github/scripts/client-smoke.sh
