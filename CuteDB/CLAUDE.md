@@ -20,7 +20,8 @@ native/cutedb-core  Rust scan accelerator, C ABI
 clients/{python,go,nodejs}
 samples/CuteDB.Retail  shared sample dataset, referenced by CLI, demo and benchmarks
 samples/CuteDB.Demo    Avalonia demo, also renders the docs screenshots
-tests/CuteDB.Tests     154 tests
+tests/CuteDB.Tests     engine, 240 tests; CuteDB.Cli.Tests 70, CuteDB.Server.Tests 57,
+                       CuteBrowser.Tests 83 — all headless
 benchmarks/            BenchmarkDotNet; source of every number in the docs
 ```
 
@@ -28,7 +29,8 @@ benchmarks/            BenchmarkDotNet; source of every number in the docs
 
 ```bash
 dotnet build CuteDB.slnx
-dotnet test tests/CuteDB.Tests                      # 154 tests
+dotnet test CuteDB.slnx                             # all four test projects, 450 tests
+dotnet test tests/CuteDB.Tests                      # the engine alone
 dotnet test tests/CuteDB.Tests --filter "FullyQualifiedName~NativeParityTests"
 
 pwsh native/build.ps1                               # or ./native/build.sh — optional

@@ -14,6 +14,7 @@ cutedb seed toko.cute --scale demo
 cutedb info toko.cute
 cutedb shell toko.cute
 cutedb query toko.cute "SELECT address.city, COUNT(*) FROM orders GROUP BY address.city"
+cutedb explain toko.cute "SELECT * FROM orders WHERE address.city = 'Bandung'"
 cutedb export toko.cute orders --out orders.jsonl
 cutedb import toko.cute orders.jsonl --collection orders --decimal
 cutedb index create toko.cute orders address.city
@@ -22,6 +23,12 @@ cutedb bench --rows 250000
 ```
 
 Opsi bersama: `--read-only`, `--durability buffered|flush|fsync`, `--quiet` (tanpa banner).
+
+Perintah yang hanya membaca — `info`, `explain`, `export`, `index list`, dan `query` yang menjalankan
+`SELECT` — membuka berkas dalam mode baca saja, jadi jalur yang salah ketik dilaporkan sebagai
+"There is no CuteDB database", bukan dibuatkan berkas kosong. Perintah yang menulis membuat berkasnya
+kalau belum ada. Keluaran yang ditujukan untuk program lain (`-f json|jsonl|csv`, `export` tanpa
+`--out`) ditulis apa adanya tanpa banner, jadi bisa langsung dialihkan ke berkas.
 
 ---
 
@@ -89,7 +96,7 @@ cutedb query toko.cute "SELECT * FROM orders WHERE total > 500000" --explain
 | `-f, --format` | `table` (bawaan), `json`, `jsonl`, `csv` |
 | `-n, --max-rows` | baris yang dicetak dalam format tabel, bawaan 50 — kuerinya tetap jalan penuh |
 | `-p, --param nama=nilai` | ikat parameter; bisa diulang |
-| `--explain` | tampilkan jalur aksesnya, jangan jalankan kuerinya sampai tuntas |
+| `--explain` | tampilkan jalur aksesnya alih-alih menjalankan kueri — panel yang sama dengan `cutedb explain` |
 
 Nilai parameter dibaca sebagai JSON kalau bentuknya seperti JSON, jadi `-p min=500000` mengikat
 angka, `-p kota=Bandung` mengikat teks, dan `-p tiers='["gold","platinum"]'` mengikat larik.
@@ -99,6 +106,73 @@ Kaki tabelnya melaporkan baris, waktu, dan rencananya:
 ```
 8 baris · 167.53 ms · Collection scan: 50000 scanned, 47816 matched (native)
 ```
+
+## `explain` — bagaimana kueri menemukan barisnya
+
+```bash
+cutedb explain toko.cute "SELECT * FROM orders WHERE total > 9000000"
+cutedb explain toko.cute "SELECT * FROM orders WHERE address.city = 'Bandung'" --analyze
+cutedb explain toko.cute "SELECT * FROM orders WHERE address.city = @kota" -p kota=Bandung -f json
+```
+
+Keputusan perencana untuk sebuah `SELECT`: **lompatan indeks** (dan indeks yang mana),
+**pemindaian koleksi** (dan apakah akselerator native yang menjalankannya), atau pembacaan
+**seluruh koleksi** kalau tidak ada `WHERE`. Di sebelahnya, berapa dokumen yang diperiksa, berapa
+yang lolos filter, dan batang untuk porsi yang dipertahankan:
+
+```
+╭─ rencana / plan ────────────────────────────────────────╮
+│ koleksi / collection      orders                        │
+│ strategi / strategy       Collection scan               │
+│ diperiksa / examined      50,000                        │
+│ cocok / matched           1,970                         │
+│ selektivitas / kept       ━─────────────────────── 3.9% │
+│ pemindai / scanner        managed                       │
+╰─────────────────────────────────────────────────────────╯
+The scan discarded 96% of what it read. An index on a field this WHERE clause
+tests with = or a range would let the planner skip those rows: cutedb index
+create toko.cute orders <path>
+```
+
+Pemindaian yang hanya mempertahankan secuil dari yang dibacanya adalah gambaran kueri yang butuh
+indeks, dan catatannya mengatakan begitu. Lompatan yang akan mengembalikan lebih dari separuh koleksi
+dilewati demi pemindaian — memeriksa ulang sebagian besar baris lewat indeks lebih mahal daripada
+membacanya langsung — jadi `explain` bisa menampilkan pemindaian atas jalur yang punya indeks; itu
+perencana yang memilih, bukan yang luput.
+
+| | |
+| --- | --- |
+| `-f, --format` | `table` (bawaan) atau `json` |
+| `-p, --param nama=nilai` | ikat parameter, seperti pada `query`; bisa diulang |
+| `--analyze` | jalankan juga seluruh pernyataannya, menambahkan baris yang dikembalikan dan waktu mesin |
+
+Angkanya nyata, bukan perkiraan: menjelaskan berarti mengevaluasi klausa `WHERE`, karena "cocok"
+hanya bisa diketahui dengan mencocokkan. Berhenti di situ — tanpa proyeksi, pengelompokan,
+pengurutan, atau paging — itulah sebabnya *cocok* bisa berbeda dari yang dikembalikan kueri.
+`--analyze` menjalankan pernyataannya sampai selesai untuk angka yang hanya diketahui lewat eksekusi
+penuh, seperti pita rencana di CuteDB Browser.
+
+Hanya `SELECT` yang dijelaskan. `INSERT`, `UPDATE`, dan `DELETE` ditolak sebelum apa pun berjalan,
+dengan atau tanpa `--analyze`, dan basis datanya juga dibuka dalam mode baca saja. Untuk melihat
+bagaimana sebuah `DELETE` akan menemukan barisnya, jelaskan `SELECT` dengan `WHERE` yang sama.
+
+`--format json` memakai nama field yang sama dengan `/v1/explain` di server, jadi skrip bisa membaca
+keduanya; `returnedRows` dan `engineMs` hanya muncul dengan `--analyze`:
+
+```json
+{
+  "collection": "orders",
+  "strategy": "Index seek",
+  "index": "orders_city",
+  "candidateRows": 2944,
+  "matchedRows": 2944,
+  "nativeScanner": false,
+  "description": "Index seek on 'orders_city': 2944 candidates, 2944 matched"
+}
+```
+
+`\e` di shell dan `query --explain` bertanya kepada perencana yang sama lewat panggilan yang sama,
+jadi ketiganya selalu sepakat.
 
 ## `import` dan `export`
 
@@ -130,6 +204,22 @@ kalau berkasnya adalah cadangan.
 
 JSON Lines mengalirkan satu dokumen per baris, jadi berkas yang lebih besar dari memori tetap bisa
 ditangani di kedua arah. Larik JSON tunggal harus diurai seluruhnya.
+
+**Apa yang selamat dalam perjalanan bolak-balik.** Mengekspor sebuah koleksi lalu mengimpor
+berkasnya ke basis data kosong mengembalikan:
+
+| Format | Yang kembali |
+| --- | --- |
+| JSON atau JSON Lines dengan `--lossless` | Semuanya, persis — setiap nilai, setiap tipe, setiap id. Pakai ini untuk cadangan. |
+| JSON atau JSON Lines biasa | Sama sebagai JSON. Id kembali sebagai id. Tanggal kembali sebagai *teks* ISO-8601. Angka pecahan kembali sebagai double, atau persis dengan `--decimal`; desimal bulat (`0`, `225101`) kembali sebagai bilangan bulat, karena JSON tidak menyimpan nol di belakangnya. |
+| CSV | Satu baris per dokumen, satu kolom per field tingkat atas. Objek dan larik bersarang ditulis sebagai JSON di dalam sel dan kembali sebagai struktur. Angka, `true`/`false`, dan tanggal kembali bertipe, tanggal sampai ke tick-nya. `null` dan field yang tidak ada sama-sama menjadi sel kosong dan kembali sebagai *tidak ada*; teks kosong juga. Teks yang dieja seperti angka — kode batang — kembali sebagai angka itu; yang diawali nol atau `+` — nomor telepon — tetap teks. |
+
+CSV memberi tanda kutip pada sel yang memuat koma, tanda kutip, pindah baris, atau spasi di awal
+atau akhir, dan pengimpor membaca pindah baris di dalam kutip sebagai bagian dari sel, jadi teks
+multi-baris selamat. Berkas ditulis sebagai UTF-8 tanpa byte-order mark.
+
+Perjalanan bolak-balik ini diperiksa oleh `tests/CuteDB.Cli.Tests`, yang mengekspor basis data
+contoh dalam setiap format lalu mengimpornya kembali.
 
 ## `index`
 
@@ -168,7 +258,8 @@ ini kecepatan yang seharusnya?" dan untuk membuat laporan kelambatan bisa diband
 
 ## Kode keluar
 
-`0` berhasil, `1` gagal. Galat dicetak dalam panel berbingkai dengan pesan yang CuteDB tulis untuk
+`0` berhasil, `1` gagal — termasuk kueri yang salah, berkas yang tidak ada, koleksi yang tidak
+dikenal, dan penulisan yang ditolak oleh `explain`. Galat dicetak dalam panel berbingkai dengan pesan yang CuteDB tulis untuk
 manusia, termasuk baris tanda sisipan yang menunjuk karakter bermasalah dalam kueri:
 
 ```

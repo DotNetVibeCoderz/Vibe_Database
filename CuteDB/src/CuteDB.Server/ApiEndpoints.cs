@@ -14,8 +14,10 @@ namespace CuteDB.Server;
 /// exactly the type information — decimals, dates, ids — the database exists to keep.
 /// </para>
 /// <para>
-/// Every response is written straight to the body stream as UTF-8. A collection of a million
-/// documents is a stream, not a string to build in memory first.
+/// Every response is written straight to the response pipe as UTF-8 rather than built as a string
+/// first, and a query result is written row by row with periodic flushes (see
+/// <see cref="ResultWriter"/>). The rows themselves are still materialised by the engine before
+/// the first byte goes out; what is streamed is the serialisation, not the query.
 /// </para>
 /// </remarks>
 public static class ApiEndpoints
@@ -263,9 +265,23 @@ public static class ApiEndpoints
                 return;
             }
 
+            if (!QueryPage.TryRead(body, text, out var page, out var errorCode, out var error))
+            {
+                await WriteValue(context, Error(errorCode, error), 400);
+                return;
+            }
+
+            // Refused before running rather than after: paging an UPDATE would mean applying it and
+            // then discarding the answer, and a write that has already happened cannot be un-paged.
+            if (page is not null && CuteParser.ParseStatement(text) is not SelectStatement)
+            {
+                await WriteValue(context, Error("invalid_body", "'limit', 'offset' and 'cursor' apply only to a SELECT."), 400);
+                return;
+            }
+
             var parameters = ToParameters(body["parameters"]);
             var result = database.Execute(text, parameters);
-            await WriteResult(context, result);
+            await WriteResult(context, result, page);
         });
 
         app.MapPost("/v1/explain", async (HttpContext context, CuteDatabase database) =>
@@ -404,28 +420,10 @@ public static class ApiEndpoints
         return parameters;
     }
 
-    private static async Task WriteResult(HttpContext context, CuteQueryResult result)
-    {
-        var rows = new CuteArray(result.Rows.Count);
-        foreach (var row in result.Rows)
-        {
-            rows.Add(CuteValue.Object(row));
-        }
-
-        var columns = new CuteArray(result.Columns.Count);
-        foreach (var column in result.Columns)
-        {
-            columns.Add(CuteValue.String(column));
-        }
-
-        await WriteValue(context, CuteValue.Object(new CuteObject()
-            .Set("kind", result.Kind.ToString().ToLowerInvariant())
-            .Set("columns", CuteValue.Array(columns))
-            .Set("rows", CuteValue.Array(rows))
-            .Set("affected", result.AffectedCount)
-            .Set("durationMs", Math.Round(result.Duration.TotalMilliseconds, 3))
-            .Set("plan", CuteValue.String(result.Plan.ToString()))));
-    }
+    private static Task WriteResult(HttpContext context, CuteQueryResult result, QueryPage? page = null)
+        => ResultWriter.WantsNdjson(context.Request)
+            ? ResultWriter.WriteNdjson(context, result, page)
+            : ResultWriter.WriteJson(context, result, page);
 
     private static async Task WriteValue(HttpContext context, CuteValue value, int status = 200)
     {
@@ -433,8 +431,10 @@ public static class ApiEndpoints
         context.Response.ContentType = JsonContentType;
 
         // Written through CuteDB's own writer rather than the framework serialiser, so decimals
-        // stay exact and dates keep their shape.
-        await context.Response.WriteAsync(CuteJson.Write(value), Encoding.UTF8);
+        // stay exact and dates keep their shape — and straight into the response pipe, so there
+        // is no intermediate string the size of the response.
+        CuteJson.Write(context.Response.BodyWriter, value, CuteJsonOptions.Default);
+        await context.Response.BodyWriter.FlushAsync();
     }
 
     private static async Task WriteRaw(HttpContext context, string json)

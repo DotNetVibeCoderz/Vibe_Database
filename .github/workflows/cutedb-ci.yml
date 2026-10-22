@@ -119,12 +119,29 @@ jobs:
           CUTEDB_EXPECT_NATIVE: '1'
         run: dotnet test tests/CuteDB.Tests -c Release --no-build --logger "console;verbosity=normal"
 
+      - name: Test the CLI
+        # The real command tree, driven in-process: seed, query in every format, explain, the index
+        # commands, error exits, and export -> import round trips through JSON, JSON Lines and CSV.
+        run: dotnet test tests/CuteDB.Cli.Tests -c Release --no-build --logger "console;verbosity=normal"
+
       - name: Test without it
         # The managed engine has to give identical answers on its own. Turning the accelerator off
         # is the only way to prove the fallback is real rather than theoretical.
         env:
           CUTEDB_DISABLE_NATIVE: '1'
         run: dotnet test tests/CuteDB.Tests -c Release --no-build --filter "FullyQualifiedName!~NativeParityTests"
+
+      - name: Test the server
+        # The real application — ServerHost, middleware, routes — hosted in memory, so the HTTP
+        # contract the three clients depend on is checked on every platform, not only by the
+        # Linux-only smoke run below.
+        run: dotnet test tests/CuteDB.Server.Tests -c Release --no-build --logger "console;verbosity=normal"
+
+      - name: Test CuteDB Browser
+        # Headless, so it needs no display: statement splitting, the LINQ script host, every
+        # template run against the Retail seed, settings round-trips, and Jack's tool schemas
+        # including the proof that no tool can write.
+        run: dotnet test tests/CuteBrowser.Tests -c Release --no-build --logger "console;verbosity=normal"
 
       - name: Render the demo screenshots
         # Headless, so it works with no display. This is also the only check that every view in the
@@ -192,6 +209,17 @@ jobs:
           dotnet build src/CuteDB.Server -c Release
           dotnet run --project src/CuteDB.Cli -c Release --no-build -- \
             seed /tmp/ci.cute --scale tiny --quiet
+
+          # The built tool against a real file, on top of the in-process tests: an indexed path
+          # has to plan as a seek, and a write has to be refused rather than run.
+          dotnet run --project src/CuteDB.Cli -c Release --no-build -- \
+            explain /tmp/ci.cute "SELECT * FROM orders WHERE address.city = 'Bandung'" \
+            --analyze --format json | tee /tmp/plan.json
+          grep -q '"strategy": "Index seek"' /tmp/plan.json
+          if dotnet run --project src/CuteDB.Cli -c Release --no-build -- \
+              explain /tmp/ci.cute "DELETE FROM orders" --quiet; then
+            echo "explain ran a DELETE"; exit 1
+          fi
 
       - name: Start the server
         run: |
@@ -261,10 +289,26 @@ jobs:
         run: |
           cd artifacts/packages
           ls -la
-          for nupkg in CuteDB.2*.nupkg; do
+          for nupkg in CuteDB.2*.nupkg CuteDB.Browser.2*.nupkg; do
             echo "--- $nupkg ---"
-            unzip -l "$nupkg" | grep -E 'runtimes|lib/' || true
+            unzip -l "$nupkg" | grep -E 'runtimes/[^/]+/native|lib/' || true
           done
+
+      - name: Install the browser tool and start it
+        # The same check the release runs: the package installs as a tool, finds its settings,
+        # and loads the accelerator from runtimes/linux-x64/native inside the tool store.
+        run: |
+          version=$(grep -oPm1 '(?<=<Version>)[^<]+' Directory.Build.props)
+          printf '<configuration><packageSources><clear /><add key="local" value="%s" /></packageSources></configuration>\n' \
+            "$PWD/artifacts/packages" > /tmp/browser-nuget.config
+
+          dotnet tool install --tool-path /tmp/browser-tool --configfile /tmp/browser-nuget.config \
+            CuteDB.Browser --version "$version"
+          CUTEBROWSER_CONFIG=/tmp/browser-tool-settings.config /tmp/browser-tool/cutebrowser --help | tee /tmp/browser-help.txt
+          if ! grep -q "accelerator : cutedb_core" /tmp/browser-help.txt; then
+            echo "::error::The installed browser tool did not load the native accelerator."
+            exit 1
+          fi
 
       - uses: actions/upload-artifact@v4
         with:

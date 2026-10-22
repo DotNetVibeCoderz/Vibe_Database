@@ -42,6 +42,37 @@ with CuteClient("http://127.0.0.1:8420") as db:
 Bind values through `parameters` rather than building the statement by concatenation: a bound value
 is used as a value and can never be reinterpreted as syntax.
 
+## Query builder
+
+Or don't write the statement at all. The builder binds every value as a parameter for you:
+
+```python
+from cutedb import field
+
+q = (db.collection("orders").query()
+     .where(field("address.city") == city,
+            (field("status") == "paid") | field("total").between(100_000, 500_000))
+     .where(field("code").startswith(user_text))       # % and _ in user_text stay literal
+     .select("code", "total", buyer="customer.name")
+     .order_by("total", desc=True)
+     .limit(20).offset(40))
+
+print(q.to_cuteql())   # ... WHERE address.city = @p0 AND (status = @p1 OR total BETWEEN @p2 AND @p3) ...
+print(q.parameters)    # {'p0': ..., 'p1': 'paid', ...}
+for row in q.run():    # or db.query(q)
+    ...
+```
+
+Conditions: `== != < <= > >=`, `is_in`/`not_in`, `between`/`not_between`, `like`/`not_like` (raw
+pattern), `startswith`/`endswith`/`contains` (escaped), `is_null`/`is_not_null`,
+`is_missing`/`is_not_missing`; combine with `&` `|` `~` or `and_`/`or_`/`not_`. Python's `&` binds
+tighter than `==`, so bracket each comparison. `field(...) == None` becomes `IS NULL`.
+
+Field paths, aliases and collection names must be one CuteQL identifier — ASCII letters, digits and
+`_`, joined by `.`, with `[n]` or `[]` after a segment, and not a bare keyword — or a `ValueError`
+is raised. Values may be `str`, `int`, `float`, `Decimal`, `bool`, `None`, `datetime` (sent as UTC)
+or lists of those; anything else is a `TypeError`.
+
 ## Notes
 
 - `get`, `delete` and `drop_index` return `None`/`False` for a missing target rather than raising.

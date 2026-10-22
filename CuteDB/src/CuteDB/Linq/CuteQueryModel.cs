@@ -95,6 +95,19 @@ internal sealed class CuteQueryModel
     /// <summary>The type <see cref="ClientSelector"/> expects, when there is one.</summary>
     internal Type? ClientSelectorInput { get; set; }
 
+    /// <summary>
+    /// For a <c>SelectMany</c>, turns one returned row into the elements it flattens to.
+    /// </summary>
+    /// <remarks>
+    /// The engine has no unnest: a statement returns one row per document, so the stored array
+    /// comes back as a single projected value and is flattened here. Only the array, and whatever
+    /// parent fields a result selector reads, is fetched — nothing is decoded and thrown away.
+    /// </remarks>
+    internal Func<CuteObject, IEnumerable<object?>>? Expand { get; set; }
+
+    /// <summary>Selects applied to each flattened element, in the order they were written.</summary>
+    internal List<Delegate> ElementSelectors { get; } = [];
+
     /// <summary>True once a Select has been pushed down.</summary>
     internal bool HasProjection => Projections.Count > 0;
 

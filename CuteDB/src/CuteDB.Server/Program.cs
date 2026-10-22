@@ -1,10 +1,6 @@
-using System.Net.Mime;
 using System.Text;
 using CuteDB;
-using CuteDB.Query;
 using CuteDB.Server;
-using CuteDB.Storage;
-using Microsoft.AspNetCore.Http.Json;
 
 // -------------------------------------------------------------------------------------------
 // CuteDB HTTP server — Gravicode Studios, led by Kang Fadhil.
@@ -17,6 +13,9 @@ using Microsoft.AspNetCore.Http.Json;
 // Everything the API does is something the embedded library already does. There is no server-side
 // query planning, no connection pooling and no session state — a request opens no resources of its
 // own, and the database is held open for the life of the process.
+//
+// The application itself is assembled in ServerHost, so the tests run the same middleware and
+// routes this does; this file is only the command line and the banner.
 // -------------------------------------------------------------------------------------------
 
 var options = ServerOptions.Parse(args);
@@ -26,49 +25,8 @@ if (options is null)
     return 0;
 }
 
-var builder = WebApplication.CreateSlimBuilder(args);
-
-builder.Logging.ClearProviders();
-if (!options.Quiet)
-{
-    builder.Logging.AddSimpleConsole(console =>
-    {
-        console.SingleLine = true;
-        console.TimestampFormat = "HH:mm:ss ";
-    });
-}
-
-builder.Services.Configure<JsonOptions>(json =>
-{
-    json.SerializerOptions.WriteIndented = false;
-});
-
-builder.WebHost.UseUrls($"http://{options.Host}:{options.Port}");
-
-var database = CuteDatabase.Open(options.DatabasePath, new CuteDatabaseOptions
-{
-    Durability = options.Durability,
-    ReadOnly = options.ReadOnly,
-});
-
-builder.Services.AddSingleton(database);
-builder.Services.AddSingleton(options);
-
-var app = builder.Build();
-
-app.Lifetime.ApplicationStopping.Register(() =>
-{
-    // The log is append-only, so an abrupt exit loses at most the buffered tail and recovers on
-    // the next open. Flushing here makes the ordinary shutdown lose nothing at all.
-    database.Flush(durable: true);
-    database.Dispose();
-});
-
-app.UseMiddleware<ApiKeyMiddleware>();
-app.UseMiddleware<CorsMiddleware>();
-app.UseMiddleware<ProblemMiddleware>();
-
-ApiEndpoints.Map(app);
+var app = ServerHost.Build(options, args);
+var database = app.Services.GetRequiredService<CuteDatabase>();
 
 var banner = new StringBuilder()
     .AppendLine()

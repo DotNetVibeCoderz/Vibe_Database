@@ -37,6 +37,40 @@ console.log(result.plan);                    // how the engine found them
 Bind values through the second argument rather than building the statement by concatenation: a
 bound value is used as a value and can never be reinterpreted as syntax.
 
+## Query builder
+
+Or don't write the statement at all. The builder binds every value as a parameter for you:
+
+```javascript
+import { field, or } from "cutedb";
+
+const q = db.collection("orders").query()
+  .where(
+    field("address.city").eq(city),
+    or(field("status").eq("paid"), field("total").between(100_000, 500_000))
+  )
+  .where(field("code").startsWith(userText))        // % and _ in userText stay literal
+  .select("code", "total", { buyer: "customer.name" })
+  .orderBy("total", "desc")
+  .limit(20)
+  .offset(40);
+
+q.toCuteQL();   // ... WHERE address.city = @p0 AND (status = @p1 OR total BETWEEN @p2 AND @p3) ...
+q.parameters;   // { p0: ..., p1: "paid", ... }
+await q.run();  // or db.query(q)
+```
+
+Conditions: `eq ne lt le gt ge`, `in`/`notIn`, `between`/`notBetween`, `like`/`notLike` (raw
+pattern), `startsWith`/`endsWith`/`contains` (escaped), `isNull`/`isNotNull`,
+`isMissing`/`isNotMissing`; combine with `and`, `or`, `not` (or `.and()`, `.or()`, `.not()` on a
+condition). `eq(null)` becomes `IS NULL`.
+
+Field paths, aliases and collection names must be one CuteQL identifier — ASCII letters, digits and
+`_`, joined by `.`, with `[n]` or `[]` after a segment, and not a bare keyword — or a `RangeError`
+is thrown. Values may be strings, finite numbers, booleans, `null`, `Date` (sent as UTC) or arrays
+of those; anything else — `undefined`, `NaN`, a `bigint`, a plain object — is a `TypeError` or
+`RangeError` rather than silently becoming something else in JSON.
+
 ## Notes
 
 - `get`, `delete` and `dropIndex` resolve to `null`/`false` for a missing target rather than

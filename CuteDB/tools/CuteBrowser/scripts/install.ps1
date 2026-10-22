@@ -76,9 +76,11 @@ if (-not (Test-Path $exe)) {
     throw "Publish finished but $exe is not there."
 }
 
-# The published App.config carries the API keys, so a reinstall must not overwrite one that has
-# already been filled in.
+# Settings are written to %APPDATA%\CuteDB\Browser\app.config, which a reinstall never touches.
+# An install from before that kept them in the shipped CuteBrowser.dll.config, which is still read
+# as the defaults, so the note below says whether one was there.
 $config = Join-Path $InstallPath 'CuteBrowser.dll.config'
+$settings = Join-Path $env:APPDATA 'CuteDB\Browser\app.config'
 if (Test-Path $config) {
     Write-Step 'Settings preserved (CuteBrowser.dll.config was not replaced)'
 }
@@ -101,7 +103,7 @@ if (-not $NoShortcut) {
 Write-Host ''
 Write-Host 'CuteDB Browser installed.' -ForegroundColor Green
 Write-Host "  Run:      $exe"
-Write-Host "  Settings: $config"
+Write-Host "  Settings: $settings"
 Write-Host ''
 Write-Host 'Jack, the assistant, needs an API key before he will answer. Set one in'
 Write-Host 'Tools > Settings, or set an environment variable:'

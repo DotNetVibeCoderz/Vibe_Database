@@ -567,3 +567,109 @@ public class LinqExecutionTests(LinqFixture fixture) : IClassFixture<LinqFixture
         Assert.Equal("platinum", people.Query<Buyer>().Single(b => b.Name == "Wulan").Tier);
     }
 }
+
+public class LinqSelectManyTests(LinqFixture fixture) : IClassFixture<LinqFixture>
+{
+    [Fact]
+    public void FlattensAStoredArrayIntoItsElements()
+    {
+        var query = fixture.Query.SelectMany(o => o.Lines);
+
+        // Only the array is fetched; the rest of each document is never decoded.
+        Assert.Equal("SELECT lines AS __elements FROM orders", query.ToCuteQL());
+        Assert.NotNull(Query.CuteParser.ParseStatement(query.ToCuteQL()));
+
+        var lines = query.ToList();
+        Assert.Equal(7, lines.Count);
+        Assert.Contains(lines, l => l.Sku == "SKU-3" && l.Qty == 7 && l.LineTotal == 980_000m);
+    }
+
+    [Fact]
+    public void OperatorsBeforeSelectManyRunOnTheEngineOverDocuments()
+    {
+        var query = fixture.Query
+            .Where(o => o.Address.City == "Medan")
+            .OrderByDescending(o => o.Total)
+            .Take(1)
+            .SelectMany(o => o.Lines);
+
+        Assert.Equal(
+            "SELECT lines AS __elements FROM orders WHERE address.city = 'Medan' ORDER BY total DESC LIMIT 1",
+            query.ToCuteQL());
+
+        Assert.Equal(["SKU-5"], query.Select(l => l.Sku).ToList());
+    }
+
+    [Fact]
+    public void AResultSelectorFetchesOnlyTheParentFieldsItReads()
+    {
+        var query = fixture.Query
+            .Where(o => o.Customer.Tier == "gold")
+            .SelectMany(o => o.Lines, (o, l) => new { o.Code, City = o.Address.City, l.Sku, l.Qty });
+
+        Assert.Equal(
+            "SELECT lines AS __elements, code, address FROM orders WHERE customer.tier = 'gold'",
+            query.ToCuteQL());
+
+        var rows = query.ToList().OrderBy(r => r.Code).ToList();
+        Assert.Equal(2, rows.Count);
+        Assert.Equal(("SO-001", "Bandung", "SKU-1", 2), (rows[0].Code, rows[0].City, rows[0].Sku, rows[0].Qty));
+        Assert.Equal(("SO-003", "Bandung", "SKU-3", 7), (rows[1].Code, rows[1].City, rows[1].Sku, rows[1].Qty));
+    }
+
+    [Fact]
+    public void AResultSelectorUsingTheWholeDocumentFetchesItWhole()
+    {
+        var query = fixture.Query
+            .Where(o => o.Code == "SO-004")
+            .SelectMany(o => o.Lines, (o, l) => new { Order = o, l.Sku });
+
+        Assert.StartsWith("SELECT * FROM orders", query.ToCuteQL(), StringComparison.Ordinal);
+
+        var row = Assert.Single(query.ToList());
+        Assert.Equal("Rina", row.Order.Customer.Name);
+        Assert.Equal("SKU-4", row.Sku);
+    }
+
+    [Fact]
+    public void ScalarArraysFlattenToo()
+    {
+        var tags = fixture.Query.SelectMany(o => o.Tags).ToList();
+        Assert.Equal(6, tags.Count);
+        Assert.Equal(2, tags.Count(t => t == "promo"));
+    }
+
+    [Fact]
+    public void DocumentsWithoutTheArrayContributeNothing()
+    {
+        using var db = CuteDatabase.CreateInMemory();
+        var orders = db.Collection("orders");
+        orders.Insert(CuteDocument.Parse("""{ "code": "A", "lines": [ { "sku": "X", "qty": 1 } ] }"""));
+        orders.Insert(CuteDocument.Parse("""{ "code": "B" }"""));
+        orders.Insert(CuteDocument.Parse("""{ "code": "C", "lines": null }"""));
+
+        var lines = orders.Query<Order>().SelectMany(o => o.Lines).ToList();
+        Assert.Equal("X", Assert.Single(lines).Sku);
+    }
+
+    [Fact]
+    public void OperatorsAfterSelectManyThatWouldRunOnDocumentsAreRefused()
+    {
+        // Count after SelectMany would be answered by the engine as a count of documents.
+        var count = Assert.Throws<CuteTranslationException>(() => fixture.Query.SelectMany(o => o.Lines).Count());
+        Assert.Contains("after SelectMany", count.Message, StringComparison.Ordinal);
+
+        Assert.Throws<CuteTranslationException>(() => fixture.Query.SelectMany(o => o.Lines).Where(l => l.Qty > 1).ToList());
+        Assert.Throws<CuteTranslationException>(() => fixture.Query.SelectMany(o => o.Lines).Take(2).ToList());
+
+        // AsEnumerable is the documented way to keep going in memory.
+        Assert.Equal(3, fixture.Query.SelectMany(o => o.Lines).AsEnumerable().Count(l => l.Qty > 2));
+    }
+
+    [Fact]
+    public void SelectManyNeedsAStoredArray()
+    {
+        Assert.Throws<CuteTranslationException>(() => fixture.Query.SelectMany(o => o.Lines.Where(l => l.Qty > 1)).ToList());
+        Assert.Throws<CuteTranslationException>(() => fixture.Query.Select(o => o.Lines).SelectMany(l => l).ToList());
+    }
+}

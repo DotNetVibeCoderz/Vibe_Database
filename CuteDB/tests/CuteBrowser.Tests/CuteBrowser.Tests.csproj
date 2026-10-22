@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Tests for CuteDB Browser, all headless. Nothing here starts Avalonia: the parts that break
+    silently — statement splitting, the LINQ script host, the templates, settings, Jack's tool
+    schemas — live in plain classes, and are tested there.
+  -->
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <RootNamespace>CuteDB.Browser.Tests</RootNamespace>
+    <NoWarn>$(NoWarn);SKEXP0001</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../tools/CuteBrowser/CuteBrowser.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      The shipped App.config, under a name of its own, so the settings tests start from the real
+      defaults rather than a hand-made copy that could drift from them.
+    -->
+    <None Include="../../tools/CuteBrowser/App.config" Link="Fixtures/shipped.config" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+</Project>

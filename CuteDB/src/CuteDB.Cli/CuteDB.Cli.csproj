@@ -19,17 +19,25 @@
     <Title>CuteDB command line</Title>
     <Description>The cutedb command line: an interactive CuteQL shell, import and export, index management, statistics and a built-in benchmark for CuteDB databases. Rendered with Spectre.Console.</Description>
     <PackageReadmeFile>PACKAGE.md</PackageReadmeFile>
+    <PackageIcon>icon.png</PackageIcon>
     <PackageTags>$(PackageTags);cli;dotnet-tool;spectre.console</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>
     <None Include="PACKAGE.md" Pack="true" PackagePath="\" />
+    <!-- Rendered from assets/icons/cutedb-cli.svg by assets/icons/make.js. -->
+    <None Include="../../assets/icons/cutedb-cli.png" Pack="true" PackagePath="icon.png" Visible="false" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Spectre.Console" />
     <PackageReference Include="Spectre.Console.Cli" />
     <PackageReference Include="Spectre.Console.Json" />
+  </ItemGroup>
+
+  <!-- The commands are internal; the tests drive them in-process through CliApp.Configure. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="CuteDB.Cli.Tests" />
   </ItemGroup>
 
   <ItemGroup>

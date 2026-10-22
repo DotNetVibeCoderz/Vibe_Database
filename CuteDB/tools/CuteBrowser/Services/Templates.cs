@@ -204,7 +204,7 @@ public static class Templates
                    COUNT(*)     AS orders
             FROM   orders
             GROUP  BY address.city
-            HAVING COUNT(*) > 2
+            HAVING COUNT(*) > 1
             ORDER  BY biggest DESC
             """),
 

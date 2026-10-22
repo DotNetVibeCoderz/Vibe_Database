@@ -44,7 +44,19 @@ internal static class OpenApi
                   "rows": { "type": "array", "items": { "$ref": "#/components/schemas/Document" } },
                   "affected": { "type": "integer" },
                   "durationMs": { "type": "number" },
-                  "plan": { "type": "string", "description": "How the rows were found." }
+                  "plan": { "type": "string", "description": "How the rows were found." },
+                  "page": { "$ref": "#/components/schemas/Page" }
+                }
+              },
+              "Page": {
+                "type": "object",
+                "description": "Present only when the request asked for a page. 'columns' and 'affected' still describe the whole result, so every page of one query has the same columns.",
+                "properties": {
+                  "offset": { "type": "integer", "description": "Index of this page's first row in the whole result." },
+                  "limit": { "type": "integer" },
+                  "returned": { "type": "integer", "description": "Rows on this page." },
+                  "total": { "type": "integer", "description": "Rows in the whole result." },
+                  "next": { "type": ["string", "null"], "description": "Cursor for the next page, or null on the last one." }
                 }
               },
               "Error": {
@@ -56,6 +68,18 @@ internal static class OpenApi
               "BadRequest": {
                 "description": "The request or the query was not usable. The message is written to be shown to a person.",
                 "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+              },
+              "Ndjson": {
+                "description": "Sent instead of the JSON object when the request carries Accept: application/x-ndjson. One row per line and nothing else; what the JSON object carries beside the rows travels in headers. The rows are already materialised by the engine; what streams is their serialisation.",
+                "headers": {
+                  "X-CuteDB-Kind": { "schema": { "type": "string" } },
+                  "X-CuteDB-Affected": { "schema": { "type": "integer" } },
+                  "X-CuteDB-Duration-Ms": { "schema": { "type": "number" } },
+                  "X-CuteDB-Plan": { "schema": { "type": "string" }, "description": "Percent-encoded outside printable ASCII." },
+                  "X-CuteDB-Total": { "schema": { "type": "integer" }, "description": "Paged requests only: rows in the whole result." },
+                  "X-CuteDB-Next-Cursor": { "schema": { "type": "string" }, "description": "Paged requests only, and absent on the last page." }
+                },
+                "content": { "application/x-ndjson": { "schema": { "$ref": "#/components/schemas/Document" } } }
               },
               "NotFound": {
                 "description": "No such collection, document or index.",
@@ -70,6 +94,12 @@ internal static class OpenApi
                 "summary": "Liveness check. Never requires an API key.",
                 "security": [],
                 "responses": { "200": { "description": "The server is up." } }
+              }
+            },
+            "/openapi.json": {
+              "get": {
+                "summary": "This document.",
+                "responses": { "200": { "description": "The OpenAPI description." } }
               }
             },
             "/v1/collections": {
@@ -99,8 +129,10 @@ internal static class OpenApi
                   { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 100, "maximum": 10000 } },
                   { "name": "offset", "in": "query", "schema": { "type": "integer", "default": 0 } }
                 ],
-                "responses": { "200": { "description": "A query result.",
-                  "content": { "application/json": { "schema": { "$ref": "#/components/schemas/QueryResult" } } } } }
+                "responses": { "200": { "description": "A query result, or NDJSON rows when Accept asks for application/x-ndjson.",
+                  "content": {
+                    "application/json": { "schema": { "$ref": "#/components/schemas/QueryResult" } },
+                    "application/x-ndjson": { "schema": { "$ref": "#/components/schemas/Document" } } } } }
               },
               "post": {
                 "summary": "Insert one document, or many when the body is an array.",
@@ -142,16 +174,24 @@ internal static class OpenApi
             "/v1/query": {
               "post": {
                 "summary": "Run a CuteQL statement.",
-                "description": "SELECT, INSERT, UPDATE and DELETE. Bind values through 'parameters' rather than building the statement by concatenation.",
+                "description": "SELECT, INSERT, UPDATE and DELETE. Bind values through 'parameters' rather than building the statement by concatenation. A SELECT can be paged with 'limit' plus 'offset' or 'cursor'; each page re-runs the statement and returns one slice, so paging bounds the response, not the work the engine does. Send Accept: application/x-ndjson for one row per line.",
                 "requestBody": { "required": true, "content": { "application/json": { "schema": {
                   "type": "object",
                   "required": ["query"],
                   "properties": {
                     "query": { "type": "string", "example": "SELECT address.city AS city, SUM(total) AS revenue FROM orders GROUP BY address.city" },
-                    "parameters": { "type": "object", "additionalProperties": true, "example": { "city": "Bandung" } }
+                    "parameters": { "type": "object", "additionalProperties": true, "example": { "city": "Bandung" } },
+                    "limit": { "type": "integer", "minimum": 1, "maximum": 10000, "default": 100,
+                      "description": "Page size. Giving any of limit, offset or cursor asks for a page; SELECT only." },
+                    "offset": { "type": "integer", "minimum": 0,
+                      "description": "First row of the page. Not together with cursor." },
+                    "cursor": { "type": "string",
+                      "description": "The 'next' value from the previous page. Valid only with the same query and parameters." }
                   } } } } },
-                "responses": { "200": { "description": "A query result.",
-                  "content": { "application/json": { "schema": { "$ref": "#/components/schemas/QueryResult" } } } },
+                "responses": { "200": { "description": "A query result. Carries 'page' when one was asked for. With Accept: application/x-ndjson, one row per line instead (see the Ndjson response).",
+                  "content": {
+                    "application/json": { "schema": { "$ref": "#/components/schemas/QueryResult" } },
+                    "application/x-ndjson": { "schema": { "$ref": "#/components/schemas/Document" } } } },
                   "400": { "$ref": "#/components/responses/BadRequest" } }
               }
             },

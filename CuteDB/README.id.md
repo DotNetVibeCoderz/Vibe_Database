@@ -1,3 +1,5 @@
+<img src="assets/icons/cutedb.svg" alt="CuteDB" width="112" align="right" />
+
 # CuteDB
 
 **Basis data dokumen tertanam yang imut untuk .NET 10.**
@@ -88,6 +90,7 @@ Lainnya: [catatan](docs/images/03-catatan.png) · [muat massal](docs/images/04-m
 dotnet add package CuteDB                 # pustakanya
 dotnet tool install -g CuteDB.Cli         # perintah cutedb
 dotnet tool install -g CuteDB.Server      # server HTTP, untuk klien Python/Go/Node
+dotnet tool install -g CuteDB.Browser     # meja kerja desktop, sebagai `cutebrowser`
 ```
 
 Paketnya membawa akselerator native untuk keenam runtime — `win-x64`, `win-arm64`, `linux-x64`, `linux-arm64`, `osx-x64`, `osx-arm64`. Alur rilis membangun semuanya dan lebih baik gagal daripada menerbitkan paket yang kehilangan salah satunya, jadi paket yang ada pasti membawa runtime yang Anda butuhkan. Di luar itu CuteDB memakai pemindai terkelola: semantiknya identik, 1,3–1,8× lebih lambat pada pemindaian besar, dan tidak ada fitur yang hilang.
@@ -204,7 +207,8 @@ melihat apa yang sebenarnya dikerjakan mesin untuk menjawabnya.
 ![CuteDB Browser](docs/images/browser/01-workbench.png)
 
 ```bash
-dotnet run --project tools/CuteBrowser
+dotnet tool install -g CuteDB.Browser
+cutebrowser
 ```
 
 Strip di antara editor dan grid adalah intinya. Ia mencetak apa yang dikerjakan mesin —
@@ -224,8 +228,9 @@ API OpenAI, lewat Semantic Kernel. Dia bisa membaca koleksi, menjabarkan jalur f
 sebenarnya, mempratinjau dan menjelaskan kueri, mencari di web, dan berhitung — tetapi dia tidak
 bisa menjalankan penulisan; itu selalu lewat Anda.
 
-Skrip pemasangan untuk Windows, Linux, dan macOS ada di `tools/CuteBrowser/scripts`. Panduan
-lengkap: [docs/id/browser.md](docs/id/browser.md).
+Untuk mesin tanpa .NET, setiap rilis GitHub juga membawa arsip self-contained per platform; dari
+salinan repositori, `dotnet run --project tools/CuteBrowser` atau skrip pemasangan di
+`tools/CuteBrowser/scripts`. Panduan lengkap: [docs/id/browser.md](docs/id/browser.md).
 
 ---
 

@@ -30,9 +30,11 @@ import json
 import urllib.error
 import urllib.parse
 import urllib.request
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any, Iterable, Iterator, Mapping, Sequence
+
+from .query import Condition, Field, Query, and_, escape_like, field, not_, or_
 
 __all__ = [
     "CuteClient",
@@ -41,10 +43,18 @@ __all__ = [
     "CuteQueryError",
     "QueryResult",
     "IndexInfo",
+    "Query",
+    "Field",
+    "Condition",
+    "field",
+    "and_",
+    "or_",
+    "not_",
+    "escape_like",
     "__version__",
 ]
 
-__version__ = "2.0.0"
+__version__ = "2.2.0"
 
 Document = dict[str, Any]
 
@@ -236,6 +246,16 @@ class CuteCollection:
         )
         return QueryResult._from_json(payload)
 
+    def query(self) -> Query:
+        """Start a query over this collection that can be run with ``.run()``.
+
+        Prefer this to :meth:`find` with a hand-written filter whenever a value comes from outside
+        the program: the builder binds every value as a parameter, so none can become syntax.
+
+            orders.query().where(field("address.city") == city).order_by("total", desc=True).run()
+        """
+        return Query(self.name, self._client)
+
     def stats(self) -> Document:
         """Size and index statistics for this collection."""
         return self._client._request("GET", f"/v1/collections/{self.name}")
@@ -341,12 +361,18 @@ class CuteClient:
                 return False
             raise
 
-    def query(self, query: str, parameters: Mapping[str, Any] | None = None) -> QueryResult:
-        """Run a CuteQL statement.
+    def query(self, query: str | Query, parameters: Mapping[str, Any] | None = None) -> QueryResult:
+        """Run a CuteQL statement, or a :class:`Query` built with the query builder.
 
         Bind values through ``parameters`` rather than building the statement by concatenation:
-        a bound value is used as a value and can never be reinterpreted as syntax.
+        a bound value is used as a value and can never be reinterpreted as syntax. A built query
+        carries its own parameters, so passing more alongside one is refused rather than merged.
         """
+        if isinstance(query, Query):
+            if parameters:
+                raise ValueError("A built Query carries its own parameters; do not pass more.")
+            query, parameters = query.build()
+
         body: dict[str, Any] = {"query": query}
         if parameters:
             body["parameters"] = dict(parameters)

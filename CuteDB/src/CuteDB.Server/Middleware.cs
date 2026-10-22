@@ -81,6 +81,10 @@ public sealed class CorsMiddleware(RequestDelegate next, ServerOptions options)
                 headers.AccessControlAllowMethods = "GET, POST, PUT, PATCH, DELETE, OPTIONS";
                 headers.AccessControlMaxAge = "86400";
 
+                // Without this a page can read an NDJSON body but not the X-CuteDB-* headers that
+                // carry its row count and next cursor.
+                headers.AccessControlExposeHeaders = ResultWriter.ExposedHeaders;
+
                 // Origin varies the response, so a shared cache must not serve one origin's
                 // response to another.
                 headers.Vary = "Origin";
@@ -148,7 +152,9 @@ public sealed class ProblemMiddleware(RequestDelegate next, ILogger<ProblemMiddl
 
         context.Response.Clear();
         context.Response.StatusCode = (int)status;
-        context.Response.ContentType = "application/problem+json";
-        await context.Response.WriteAsJsonAsync(new { error = code, message });
+
+        // The content type goes to WriteAsJsonAsync itself: set on the response beforehand, it is
+        // silently replaced with application/json.
+        await context.Response.WriteAsJsonAsync(new { error = code, message }, options: null, contentType: "application/problem+json");
     }
 }

@@ -1,6 +1,7 @@
 using System.Globalization;
 using CuteDB.Query;
 using Spectre.Console;
+using Spectre.Console.Json;
 using Spectre.Console.Rendering;
 
 namespace CuteDB.Cli;
@@ -73,8 +74,10 @@ internal static class Theme
     {
         // CuteDB's own exceptions carry messages written for a person, including the caret line a
         // query error points with, so they are shown as-is. Anything else is unexpected and gets
-        // its type name too, because that is what a bug report needs.
-        var message = error is CuteDbException
+        // its type name too, because that is what a bug report needs. A missing file is the one
+        // system exception that is expected — the engine raises it, worded for a person, when a
+        // read-only command is pointed at a path with no database — so it is shown plainly too.
+        var message = error is CuteDbException or FileNotFoundException
             ? error.Message
             : $"{error.GetType().Name}: {error.Message}";
 
@@ -85,6 +88,35 @@ internal static class Theme
             BorderStyle = new Style(foreground: Color.FromHex(Coral)),
             Padding = new Padding(1, 0, 1, 0),
         });
+    }
+
+    /// <summary>Writes text that is data — JSON, JSON Lines, CSV — exactly as given.</summary>
+    /// <remarks>
+    /// Straight to the console's writer, past Spectre's layout. Spectre wraps everything it renders
+    /// at the console width, and a redirected console is 80 columns wide, so
+    /// <c>cutedb query … -f jsonl &gt; rows.jsonl</c> used to split every long document across
+    /// several lines — three orders came out as fifty-odd lines, none of them valid JSON. Data is
+    /// not a layout problem; it goes out byte for byte.
+    /// </remarks>
+    internal static void WriteData(IAnsiConsole console, string text)
+    {
+        var writer = console.Profile.Out.Writer;
+        writer.Write(text);
+        writer.Flush();
+    }
+
+    /// <summary>Writes a JSON document: coloured on a terminal, verbatim anywhere else.</summary>
+    internal static void WriteJson(IAnsiConsole console, string json)
+    {
+        if (console.Profile.Out.IsTerminal && console.Profile.Capabilities.Ansi)
+        {
+            // On a terminal the reader is a person, and wrapping only costs a scroll.
+            console.Write(new JsonText(json));
+            console.WriteLine();
+            return;
+        }
+
+        WriteData(console, json + Environment.NewLine);
     }
 
     /// <summary>A one-line confirmation.</summary>

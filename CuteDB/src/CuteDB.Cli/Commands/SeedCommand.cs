@@ -7,7 +7,7 @@ using Spectre.Console.Cli;
 namespace CuteDB.Cli.Commands;
 
 /// <summary>Fills a database with the Nusantara Retail sample dataset.</summary>
-internal sealed class SeedCommand : DatabaseCommand<SeedCommand.Settings>
+internal sealed class SeedCommand(IAnsiConsole console) : DatabaseCommand<SeedCommand.Settings>(console)
 {
     internal sealed class Settings : DatabaseSettings
     {
@@ -124,7 +124,7 @@ internal sealed class SeedCommand : DatabaseCommand<SeedCommand.Settings>
 }
 
 /// <summary>Reclaims space by rewriting the file with only current state.</summary>
-internal sealed class CompactCommand : DatabaseCommand<DatabaseSettings>
+internal sealed class CompactCommand(IAnsiConsole console) : DatabaseCommand<DatabaseSettings>(console)
 {
     /// <inheritdoc />
     protected override int Run(IAnsiConsole console, CuteDatabase database, DatabaseSettings settings)

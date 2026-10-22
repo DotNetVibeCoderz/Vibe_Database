@@ -1,9 +1,7 @@
 using System.ComponentModel;
-using System.Text;
 using CuteDB.Query;
 using Spectre.Console;
 using Spectre.Console.Cli;
-using Spectre.Console.Json;
 
 namespace CuteDB.Cli.Commands;
 
@@ -24,7 +22,7 @@ internal enum OutputFormat
 }
 
 /// <summary>Runs one CuteQL statement.</summary>
-internal sealed class QueryCommand : DatabaseCommand<QueryCommand.Settings>
+internal sealed class QueryCommand(IAnsiConsole console) : DatabaseCommand<QueryCommand.Settings>(console)
 {
     internal sealed class Settings : DatabaseSettings
     {
@@ -50,6 +48,28 @@ internal sealed class QueryCommand : DatabaseCommand<QueryCommand.Settings>
     }
 
     /// <inheritdoc />
+    protected override bool WritesData(Settings settings)
+        => !settings.Explain && settings.Format.ToLowerInvariant() is not ("table" or "t");
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// A SELECT opens the file read-only, so a mistyped path is reported as missing rather than
+    /// created empty. Anything that does not parse is treated the same way: it is about to fail
+    /// anyway, and should not leave a file behind when it does.
+    /// </remarks>
+    protected override bool OnlyReads(Settings settings)
+    {
+        try
+        {
+            return CuteParser.ParseStatement(settings.Query) is SelectStatement;
+        }
+        catch (CuteDbException)
+        {
+            return true;
+        }
+    }
+
+    /// <inheritdoc />
     protected override int Run(IAnsiConsole console, CuteDatabase database, Settings settings)
     {
         var parameters = ParameterParsing.Parse(settings.Parameters);
@@ -57,15 +77,10 @@ internal sealed class QueryCommand : DatabaseCommand<QueryCommand.Settings>
 
         if (settings.Explain)
         {
+            // The same panel as `cutedb explain`, so the two spellings cannot drift apart.
             var plan = database.Explain(settings.Query, parameters);
-            console.Write(new Panel(new Markup($"[{Theme.Ink}]{plan.ToString().EscapeMarkup()}[/]"))
-            {
-                Header = new PanelHeader($"[bold {Theme.Gold}] rencana / plan [/]"),
-                Border = BoxBorder.Rounded,
-                BorderStyle = new Style(foreground: Color.FromHex(Theme.Muted)),
-                Padding = new Padding(1, 0, 1, 0),
-            });
-
+            var select = (SelectStatement)CuteParser.ParseStatement(settings.Query);
+            ExplainCommand.Render(console, settings.Database, select.Collection, plan, analysis: null);
             return 0;
         }
 
@@ -88,19 +103,20 @@ internal sealed class QueryCommand : DatabaseCommand<QueryCommand.Settings>
         switch (format)
         {
             case OutputFormat.Json:
-                // Spectre's JSON renderer colourises; when the output is redirected it degrades to
-                // plain text on its own, so piping still produces valid JSON.
-                console.Write(new JsonText(result.ToJson()));
-                console.WriteLine();
+                Theme.WriteJson(console, result.ToJson());
                 break;
 
             case OutputFormat.JsonLines:
+            {
+                var lines = new StringWriter();
                 foreach (var row in result.Rows)
                 {
-                    console.WriteLine(CuteJson.Write(CuteValue.Object(row)));
+                    lines.WriteLine(CuteJson.Write(CuteValue.Object(row)));
                 }
 
+                Theme.WriteData(console, lines.ToString());
                 break;
+            }
 
             case OutputFormat.Csv:
                 WriteCsv(console, result);
@@ -120,46 +136,18 @@ internal sealed class QueryCommand : DatabaseCommand<QueryCommand.Settings>
     }
 
     /// <summary>Writes a result as CSV, quoting only the cells that need it.</summary>
+    /// <remarks>The same rules as <c>export --format csv</c>, so either output imports back.</remarks>
     internal static void WriteCsv(IAnsiConsole console, CuteQueryResult result)
     {
-        var builder = new StringBuilder();
-
-        for (var i = 0; i < result.Columns.Count; i++)
-        {
-            if (i > 0)
-            {
-                builder.Append(',');
-            }
-
-            AppendCsvCell(builder, result.Columns[i]);
-        }
-
-        console.WriteLine(builder.ToString());
+        var writer = new StringWriter();
+        Csv.WriteRow(writer, result.Columns);
 
         foreach (var row in result.Rows)
         {
-            builder.Clear();
-            for (var i = 0; i < result.Columns.Count; i++)
-            {
-                if (i > 0)
-                {
-                    builder.Append(',');
-                }
-
-                var value = row[result.Columns[i]];
-
-                // A nested object or array has no CSV spelling, so it goes in as compact JSON
-                // rather than as "{3 fields}" — the point of CSV output is that something else
-                // reads it.
-                var text = value.Type is CuteType.Object or CuteType.Array
-                    ? CuteJson.Write(value)
-                    : value.IsNullOrMissing ? string.Empty : value.ToDisplayString();
-
-                AppendCsvCell(builder, text);
-            }
-
-            console.WriteLine(builder.ToString());
+            Csv.WriteRow(writer, result.Columns.Select(column => Csv.Format(row[column], CuteJsonOptions.Default)));
         }
+
+        Theme.WriteData(console, writer.ToString());
     }
 
     /// <summary>Parses the <c>--format</c> option.</summary>
@@ -171,18 +159,6 @@ internal sealed class QueryCommand : DatabaseCommand<QueryCommand.Settings>
         "csv" => OutputFormat.Csv,
         _ => throw new CuteDbException($"'{format}' is not an output format. Use table, json, jsonl or csv."),
     };
-
-    private static void AppendCsvCell(StringBuilder builder, string text)
-    {
-        var needsQuotes = text.AsSpan().IndexOfAny(',', '"', '\n') >= 0 || text.Contains('\r');
-        if (!needsQuotes)
-        {
-            builder.Append(text);
-            return;
-        }
-
-        builder.Append('"').Append(text.Replace("\"", "\"\"", StringComparison.Ordinal)).Append('"');
-    }
 
     private static string Describe(CuteQueryKind kind) => kind switch
     {

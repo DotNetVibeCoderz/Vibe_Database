@@ -443,6 +443,61 @@ public class IndexTests
     }
 
     [Fact]
+    public void ARejectedInsertLeavesNoTrace()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"cutedb-unique-{Guid.NewGuid():N}.cute");
+        try
+        {
+            using (var db = CuteDatabase.Open(path))
+            {
+                var users = db.Collection("users");
+                users.CreateIndex("email", unique: true);
+                users.Insert(CuteDocument.Parse("""{ "email": "a@example.com", "n": 1 }"""));
+
+                Assert.Throws<CuteDbException>(() =>
+                    users.Insert(CuteDocument.Parse("""{ "email": "a@example.com", "n": 2 }""")));
+
+                // Memory and disk have to agree: the refused document is in neither.
+                Assert.Equal(1, users.Count);
+                Assert.Equal(1, users.CountWhere("email = 'a@example.com'"));
+                Assert.Equal(0, users.CountWhere("n = 2"));
+            }
+
+            using (var reopened = CuteDatabase.Open(path))
+            {
+                Assert.Equal(1, reopened.Collection("users").Count);
+            }
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void ARejectedReplacementKeepsTheOriginal()
+    {
+        using var db = CuteDatabase.CreateInMemory();
+        var users = db.Collection("users");
+        users.CreateIndex("email", unique: true);
+        users.Insert(CuteDocument.Parse("""{ "email": "a@example.com" }"""));
+        var id = users.Insert(CuteDocument.Parse("""{ "email": "b@example.com" }"""));
+
+        var clash = CuteDocument.Parse("""{ "email": "a@example.com" }""");
+        clash.Root.Set(CuteDocument.IdField, CuteValue.Id(id));
+        Assert.Throws<CuteDbException>(() => users.Save(clash));
+
+        Assert.Equal("b@example.com", users.FindById(id)!["email"].AsString);
+        Assert.Equal(1, users.CountWhere("email = 'b@example.com'"));
+
+        // Replacing a document with itself, keys unchanged, is not a conflict.
+        var same = CuteDocument.Parse("""{ "email": "b@example.com", "v": 2 }""");
+        same.Root.Set(CuteDocument.IdField, CuteValue.Id(id));
+        users.Save(same);
+        Assert.Equal(2, users.Count);
+    }
+
+    [Fact]
     public void UniqueIndexIsSparse()
     {
         using var db = CuteDatabase.CreateInMemory();

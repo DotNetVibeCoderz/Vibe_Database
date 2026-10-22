@@ -5,7 +5,7 @@
 What is done, what is not, and how each was checked. The reasoning behind the order is in
 [PLAN.md](PLAN.md).
 
-**Last reviewed:** 2026-09-04 · **Released:** 2.1.0 on NuGet · **Tests:** 190 passing
+**Last reviewed:** 2026-10-23 · **Released:** 2.1.0 on NuGet; 2.2 work merged, unreleased · **Tests:** 450 passing
 
 A box is ticked only when something was run and the output read. "It compiles" is not a tick — the
 LINQ provider compiled cleanly while emitting `placedAt.year` for `DateTime.Year`, and the browser's
@@ -22,6 +22,10 @@ editor compiled cleanly while rendering nothing at all.
 - [x] `DiscardedBytesOnOpen` surfaced rather than hidden
 - [x] Auto-compaction (`CuteDatabaseOptions.AutoCompact`, on by default) and manual `Compact()`
 - [x] Thread safety: concurrent reads, serialised writes
+- [x] A write refused by a unique index leaves no trace — it used to stay visible in memory while
+      never reaching the log; now checked before the store changes (`ARejectedInsertLeavesNoTrace`)
+- [ ] A string `_id` is stored as given rather than as an id — the CLI import converts it back;
+      the engine and the server do not
 - [ ] Cursors instead of materialising whole result sets
 - [ ] Paged slabs, so the resident set can be smaller than the data — the 3.0 boundary
 
@@ -37,7 +41,7 @@ editor compiled cleanly while rendering nothing at all.
 - [x] `MISSING` distinct from `NULL`, three-valued logic
 - [x] Parameter binding
 - [x] `CuteQLWriter` renders a statement back to re-parseable text — `LinqTranslationTests`
-- [ ] `EXPLAIN` reachable from the CLI as its own command
+- [x] `EXPLAIN` reachable from the CLI as its own command — `cutedb explain`, see CLI
 
 ## Indexing
 
@@ -76,8 +80,10 @@ editor compiled cleanly while rendering nothing at all.
 - [x] Untranslatable throws and names what it was; only a `Select` body falls back to memory
 - [x] `ToCuteQL()`, `ToCuteQLStatement()`, `ExplainCuteQL()`, `ToListWithDiagnostics()`
 - [x] Rendered text re-parses to an equivalent statement
-- [x] 35 tests — `LinqTests.cs`
-- [ ] `SelectMany` over a stored array
+- [x] `SelectMany` over a stored array, with or without a result selector — fetches the array and
+      only the parent fields the selector reads; operators after it other than `Select` refuse,
+      because `Count` there would count documents — 8 tests, `LinqSelectManyTests`
+- [x] 43 tests — `LinqTests.cs`
 
 ## CuteDB Browser *(2.1)*
 
@@ -93,9 +99,17 @@ editor compiled cleanly while rendering nothing at all.
 - [x] `app.config` for everything, editable in Tools ▸ Settings
 - [x] Screenshots rendered from the real window by `--screenshot`
 - [x] Install scripts for Windows, Linux and macOS
-- [ ] **Automated tests — currently zero.** Statement splitting, the script host, template
-      validity, settings round-trip and the tool schemas are all testable headlessly.
-- [ ] A distribution channel: `dotnet tool`, GitHub release archives, or both
+- [x] Automated tests — 83, headless, `tests/CuteBrowser.Tests`: statement splitting, the script
+      host, all 5 + 14 templates run against Retail, settings round-trip, Jack's tool schemas and
+      a write sweep proving no tool changes the database. They found four bugs: the splitter
+      ignored comments and double quotes, Azure settings were saved under one key and read from
+      another, the "Top N per group" template returned nothing on Retail, and the tool package
+      would have carried one native runtime
+- [x] Distributed as the `CuteDB.Browser` dotnet tool (`cutebrowser`) — packed, installed into a
+      tool path, `--help` and a live `--ask` run from the installed tool
+- [x] Settings live in the user's app-data folder, so `dotnet tool update` keeps them
+- [ ] Per-platform release archives — the release workflow builds six; not yet run in CI, and the
+      macOS archives are unsigned and untested on a Mac
 
 ## Jack — The Code Bender *(2.1)*
 
@@ -118,17 +132,28 @@ editor compiled cleanly while rendering nothing at all.
 - [x] `seed` `info` `shell` `query` `export` `import` `bench`, index commands
 - [x] `--format json|jsonl|csv` on `query` and `export`
 - [x] Assembly is `CuteDB.Cli`; the command name comes from `ToolCommandName`
-- [ ] `explain` as its own command
-- [ ] Automated tests — covered only by the CI smoke script
+- [x] `explain` as its own command — same `CuteDatabase.Explain` as the shell, `--format json`,
+      opt-in `--analyze`; refuses writes and opens the file read-only
+- [x] Automated tests — 70, `tests/CuteDB.Cli.Tests`, including export → import round trips in
+      every format. They found six bugs: data formats wrapped at 80 columns when redirected, the
+      banner in data output, CSV import breaking quoted newlines and mangling phone numbers,
+      CSV export dropping sub-second time, `_id` imported as a string, a BOM on export files
+- [x] Read-only commands no longer create an empty database at a mistyped path
 
 ## Server and clients
 
 - [x] HTTP API, self-describing at `/openapi.json`
 - [x] API-key middleware (`X-API-Key` or bearer)
 - [x] Python, Go, Node.js — CRUD, `find`, indexes, stats, dependency-free
-- [ ] A query builder in each client, so a filter is not concatenated by hand
-- [ ] Pagination / streaming on the query endpoint
-- [ ] Automated tests beyond the CI smoke script
+- [x] A query builder in each client — values always bound as parameters, names checked against
+      the lexer's rules; 40 golden cases render identically in all three, are parsed and run by
+      the .NET engine (`ClientGoldenTests`), and were run live against the server from each client
+- [x] Pagination on the query endpoint (`limit` + `offset`/`cursor`, a `page` object) and NDJSON
+      streaming on `Accept: application/x-ndjson`; the default response is unchanged. The engine
+      still materialises, so paging saves serialisation and transfer, not query work
+- [x] Automated tests — 57, `tests/CuteDB.Server.Tests`, the real app hosted in memory. They
+      found `--cors` with `--api-key` failing every preflight, and errors sent with the wrong
+      content type
 
 ## Documentation
 
@@ -142,7 +167,7 @@ editor compiled cleanly while rendering nothing at all.
 
 ## Testing and CI
 
-- [x] 190 tests passing (119 methods across 6 files)
+- [x] 450 tests passing — engine 240, CLI 70, server 57, browser 83 — on both scan paths
 - [x] Both scan paths verified — `CUTEDB_DISABLE_NATIVE=1` and native
 - [x] CI: restore, build the solution, test, native build, client smoke tests — green on `main`
 - [x] Release workflow builds six runtime identifiers and fails if any is missing from the package
@@ -150,11 +175,14 @@ editor compiled cleanly while rendering nothing at all.
       read, so neither had ever executed; moved to the repository root
 - [x] Shell scripts carry the executable bit. Committed 100644 from Windows, so `./native/build.sh`
       was "Permission denied" on every non-Windows runner
-- [ ] Coverage for `CuteDB.Cli`, `CuteDB.Server`, `tools/CuteBrowser`
+- [x] Coverage for `CuteDB.Cli`, `CuteDB.Server`, `tools/CuteBrowser`, each its own test project
+      run by CI on all three operating systems
 
 ## Release
 
 - [x] Package metadata: project URL, repository, license, symbols, deterministic builds
+- [x] Package icons — one per package, from SVG masters in `assets/icons/` (`make.js` renders
+      them); verified inside each packed `.nupkg`
 - [x] **2.1.0 published** — `CuteDB`, `CuteDB.Cli` and `CuteDB.Server`, cut by the release workflow
 - [x] All six native runtimes verified *in the downloaded package*, not just in the build log
 - [x] `cutedb-v2.1.0` tagged, so the published package traces to a commit

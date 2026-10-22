@@ -14,8 +14,11 @@ internal class CollectionSettings : DatabaseSettings
 }
 
 /// <summary>Lists the indexes on a collection.</summary>
-internal sealed class IndexListCommand : DatabaseCommand<CollectionSettings>
+internal sealed class IndexListCommand(IAnsiConsole console) : DatabaseCommand<CollectionSettings>(console)
 {
+    /// <inheritdoc />
+    protected override bool OnlyReads(CollectionSettings settings) => true;
+
     /// <inheritdoc />
     protected override int Run(IAnsiConsole console, CuteDatabase database, CollectionSettings settings)
     {
@@ -73,7 +76,7 @@ internal sealed class IndexListCommand : DatabaseCommand<CollectionSettings>
 }
 
 /// <summary>Creates an index over a document path.</summary>
-internal sealed class IndexCreateCommand : DatabaseCommand<IndexCreateCommand.Settings>
+internal sealed class IndexCreateCommand(IAnsiConsole console) : DatabaseCommand<IndexCreateCommand.Settings>(console)
 {
     internal sealed class Settings : CollectionSettings
     {
@@ -117,7 +120,7 @@ internal sealed class IndexCreateCommand : DatabaseCommand<IndexCreateCommand.Se
 }
 
 /// <summary>Drops an index.</summary>
-internal sealed class IndexDropCommand : DatabaseCommand<IndexDropCommand.Settings>
+internal sealed class IndexDropCommand(IAnsiConsole console) : DatabaseCommand<IndexDropCommand.Settings>(console)
 {
     internal sealed class Settings : CollectionSettings
     {

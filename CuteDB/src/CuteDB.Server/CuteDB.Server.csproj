@@ -10,12 +10,15 @@
     <Title>CuteDB HTTP server</Title>
     <Description>A single-file HTTP server around a CuteDB database, so the Python, Go and Node.js clients — or anything that speaks JSON over HTTP — can use it. Optional API key, CORS, and an OpenAPI description at /openapi.json.</Description>
     <PackageReadmeFile>PACKAGE.md</PackageReadmeFile>
+    <PackageIcon>icon.png</PackageIcon>
     <PackageTags>$(PackageTags);http;rest;server</PackageTags>
     <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
 
   <ItemGroup>
     <None Include="PACKAGE.md" Pack="true" PackagePath="\" />
+    <!-- Rendered from assets/icons/cutedb-server.svg by assets/icons/make.js. -->
+    <None Include="../../assets/icons/cutedb-server.png" Pack="true" PackagePath="icon.png" Visible="false" />
   </ItemGroup>
 
   <ItemGroup>

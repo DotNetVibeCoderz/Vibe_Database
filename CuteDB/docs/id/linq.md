@@ -259,6 +259,28 @@ sama, yang di database relasional butuh join:
 | `o.Lines.Count()` | `ARRAY_LENGTH(lines)` |
 | `o.Lines.Count` (propertinya) | `LENGTH(lines)` |
 
+### Meratakan array: `SelectMany`
+
+`SelectMany` mengubah satu baris per order menjadi satu baris per item. Statement-nya hanya mengambil
+array-nya — dan, dengan result selector, hanya field tingkat atas order yang dibaca selector itu:
+
+```csharp
+orders.Query<Order>()
+    .Where(o => o.Customer.Tier == "gold")
+    .SelectMany(o => o.Lines, (o, l) => new { o.Code, City = o.Address.City, l.Sku, l.Qty });
+// SELECT lines AS __elements, code, address FROM orders WHERE customer.tier = 'gold'
+```
+
+Mesin tidak punya unnest, jadi tetap mengembalikan satu baris per dokumen dan array-nya diratakan
+saat baris-baris itu dimaterialisasi. Semua yang ditulis *sebelum* `SelectMany` — `Where`, `OrderBy`,
+`Take` — berjalan di mesin atas dokumen, dan elemen mengikuti urutan dokumennya. Dokumen tanpa array,
+atau dengan array null, tidak menyumbang apa-apa.
+
+Setelah `SelectMany` hanya `Select` yang diizinkan. `Where`, `Take` atau `Count` di sana hanya bisa
+berjalan di memori, dan `Count` akan dijawab mesin sebagai jumlah *dokumen* — jadi semuanya melempar
+`CuteTranslationException`. Saring dokumen sebelum diratakan (`o.Lines.Any(l => …)`), atau panggil
+`.AsEnumerable()` untuk menyatakan terang-terangan bahwa sisanya berjalan di memori.
+
 ### Proyeksi
 
 Proyeksi didorong masuk ke statement, jadi hanya field yang Anda minta yang kembali:

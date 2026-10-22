@@ -43,7 +43,8 @@ lokal dan salah untuk selain itu. Sebelum ia bisa dijangkau dari mesin lain:
 - **Taruh TLS di depannya.** Servernya berbicara HTTP polos; terminasikan TLS di reverse proxy.
 - **Daftarkan asal Anda.** `--cors` tidak pernah mengizinkan asal mana pun — API basis data yang
   bisa dipanggil halaman mana pun dari peramban yang sudah login adalah API yang menunggu
-  disalahgunakan.
+  disalahgunakan. Preflight dari asal yang terdaftar dijawab tanpa kunci, karena preflight adalah
+  peramban yang bertanya apakah ia boleh mengirim kunci.
 - **Pertimbangkan `--read-only`** kalau konsumennya hanya membaca.
 
 Satu proses memiliki berkasnya. Jangan arahkan dua server ke basis data yang sama.
@@ -63,7 +64,7 @@ bertipe.
 | `GET /v1/collections/{c}/documents` | telusuri berhalaman, `?filter=&limit=&offset=` |
 | `POST /v1/collections/{c}/documents` | sisipkan satu objek, atau banyak dari sebuah larik |
 | `GET\|PUT\|PATCH\|DELETE /v1/collections/{c}/documents/{id}` | satu dokumen |
-| `POST /v1/query` | jalankan CuteQL |
+| `POST /v1/query` | jalankan CuteQL; bisa berhalaman, atau dialirkan sebagai NDJSON |
 | `POST /v1/explain` | bagaimana sebuah kueri akan dijalankan |
 | `POST /v1/collections/{c}/indexes` | buat indeks |
 | `DELETE /v1/collections/{c}/indexes/{nama}` | buang indeks |
@@ -76,6 +77,50 @@ satu kunci dan satu flush — selisih antara satu flush dan sepuluh ribu.
 **`PATCH` menggabung dangkal, dan kunci bertitik adalah jalur.** `{"address.city": "Bandung"}`
 menjangkau ke dalam subdokumen; `{"address": {…}}` menggantinya. Keduanya berguna dan tidak satu pun
 bisa diungkapkan oleh yang lain.
+
+### Membagi kueri per halaman
+
+Beri `POST /v1/query` sebuah `limit` dan ia mengembalikan satu halaman dari sebuah `SELECT` beserta
+kursor untuk halaman berikutnya:
+
+```json
+{"query": "SELECT code, total FROM orders ORDER BY code", "limit": 100}
+```
+
+```json
+{"kind":"select","columns":["code","total"],"rows":[…100 baris…],"affected":1000,
+ "durationMs":8.9,"plan":"Full collection: 1000 scanned, 1000 matched",
+ "page":{"offset":0,"limit":100,"returned":100,"total":1000,"next":"MToxMDA6YzhhOTJi…"}}
+```
+
+Kirim `query` dan `parameters` yang sama dengan `"cursor": "<next>"` untuk halaman berikutnya;
+`next` bernilai `null` di halaman terakhir. `offset` sebagai ganti `cursor` langsung melompat ke
+sebuah baris. `limit` bernilai 1–10.000 (bawaan 100 begitu ada salah satu bidang halaman); membagi
+halaman sebuah penulisan ditolak sebelum penulisannya dijalankan. Tanpa `limit`, `offset`, atau
+`cursor`, jawabannya persis seperti selama ini — tanpa `page`.
+
+Pahami apa yang didapat. Mesinnya membangun hasil secara utuh sebelum ada yang melihat satu baris
+pun, jadi **setiap halaman menjalankan ulang pernyataannya** dan mengembalikan satu potongannya:
+pembagian halaman membatasi jawabannya — yang diserialisasi, dikirim, dan diurai — bukan kerja
+kuerinya. Halaman adalah offset, jadi penulisan yang terjadi di antara dua permintaan bisa
+menggeser baris melewati batas halaman; urutkan dengan sesuatu yang stabil bila itu penting.
+`columns` dan `affected` menggambarkan seluruh hasil, jadi setiap halaman punya kolom yang sama.
+
+### Mengalirkan sebagai NDJSON
+
+Kirim `Accept: application/x-ndjson` ke `POST /v1/query` atau `GET …/documents` dan barisnya kembali
+satu objek JSON per baris, ditulis dan di-flush selagi diserialisasi alih-alih dirakit menjadi satu
+dokumen dulu. Badannya hanya berisi baris; sisanya lewat header — `X-CuteDB-Kind`, `-Affected`,
+`-Duration-Ms`, `-Plan`, dan untuk permintaan berhalaman `-Total` serta `-Next-Cursor`.
+
+```bash
+curl -sN http://127.0.0.1:8420/v1/query -H 'Accept: application/x-ndjson' \
+  -H 'Content-Type: application/json' -d '{"query":"SELECT * FROM orders"}' | wc -l
+```
+
+Galat — kueri yang salah, kursor yang salah — tetap berupa galat JSON dengan status 4xx, karena
+semua yang bisa gagal sudah gagal sebelum baris pertama ditulis. Ketiga klien mengirim
+`Accept: application/json`, jadi tetap menerima objek JSON.
 
 Galat berupa JSON dengan `error` yang bisa dibaca mesin dan `message` yang ditulis untuk manusia:
 
@@ -196,6 +241,81 @@ try {
   if (error instanceof CuteError && error.isQueryError) console.error(error.message);
 }
 ```
+
+## Pembangun kueri
+
+Menyambung filter dengan tangan adalah cara bug injeksi ditulis. Ketiga klien punya pembangun kueri
+dengan bentuk yang sama seperti LINQ di sisi .NET: susun kuerinya, tanyakan CuteQL apa yang
+dihasilkannya, lalu jalankan.
+
+```python
+from cutedb import field
+
+q = (orders.query()
+     .where(field("address.city") == kota, field("total") > 500_000)
+     .select("code", "total", pembeli="customer.name")
+     .order_by("total", desc=True)
+     .limit(10))
+
+q.to_cuteql()  # SELECT code, total, customer.name AS pembeli FROM orders
+               #   WHERE address.city = @p0 AND total > @p1 ORDER BY total DESC LIMIT 10
+q.parameters   # {'p0': 'Bandung', 'p1': 500000}
+q.run()        # atau db.query(q)
+```
+
+```go
+q := orders.Query().
+    Where(cutedb.Field("address.city").Eq(kota), cutedb.Field("total").Gt(500000)).
+    Select("code", "total").SelectAs("customer.name", "pembeli").
+    OrderByDesc("total").
+    Limit(10)
+
+text, params, err := q.Build()   // atau q.ToCuteQL()
+hasil, err := q.Run(ctx)         // atau client.Run(ctx, cutedb.From("orders")…)
+```
+
+```javascript
+import { field } from "cutedb";
+
+const q = orders.query()
+  .where(field("address.city").eq(kota), field("total").gt(500_000))
+  .select("code", "total", { pembeli: "customer.name" })
+  .orderBy("total", "desc")
+  .limit(10);
+
+q.toCuteQL();      // teks yang sama, karakter demi karakter
+q.parameters;      // { p0: "Bandung", p1: 500000 }
+await q.run();     // atau db.query(q)
+```
+
+Tersedia `= != < <= > >=`, `AND`/`OR`/`NOT` (operator `&` `|` `~` di Python, `and`/`or`/`not` di
+Node, `And`/`Or`/`Not` di Go), `IN`/`NOT IN`, `BETWEEN`, `LIKE` mentah, `startswith`/`endswith`/
+`contains`, `IS [NOT] NULL`, `IS [NOT] MISSING`, path bersarang `a.b`, `lines[0].sku` dan
+`lines[].sku`, proyeksi dengan alias, `ORDER BY`, `LIMIT`/`OFFSET`. Beberapa `where` digabung
+dengan `AND`.
+
+Dua aturan membuatnya aman:
+
+- **Nilai tidak pernah masuk ke teks.** Setiap nilai menjadi `@p0`, `@p1`, … dan dikirim di
+  `parameters`, yang diikat server sebagai nilai. Tidak ada escaping yang bisa salah karena memang
+  tidak ada yang di-escape. Tanggal dikirim sebagai `{"$date": "…Z"}` dalam UTC.
+- **Nama diperiksa terhadap lexer.** Path field, alias, dan nama koleksi *adalah* bagian dari teks,
+  jadi harus terbaca sebagai tepat satu identifier: huruf ASCII, angka, dan `_`, disambung `.`,
+  dengan `[n]` atau `[]` setelah segmen, dan bukan kata kunci tunggal seperti `order` atau `count`.
+  Selain itu ditolak, bukan dikutip — CuteQL tidak punya identifier berkutip. Hanya ASCII dengan
+  sengaja: lexer menerima huruf Unicode apa pun, tetapi tiap runtime membawa tabel Unicode-nya
+  sendiri, dan ketiga klien harus sepakat untuk setiap masukan.
+
+`startswith`, `endswith`, dan `contains` meng-escape `\`, `%`, dan `_` pada teks pengguna persis
+seperti `StartsWith` di provider LINQ, jadi kode produk `100%` cocok dengan dirinya sendiri, bukan
+menjadi wildcard. `like` menerima pola mentah. Membandingkan dengan `None`/`nil`/`null` lewat
+`=`/`!=` menjadi `IS NULL`/`IS NOT NULL`, karena `= NULL` tidak pernah benar.
+
+Ketiganya merender teks dan parameter yang sama persis, dan itu dibuktikan, bukan diasumsikan:
+`clients/querybuilder-golden.json` berisi kasus bersama, setiap suite klien mencocokkannya, dan
+`ClientGoldenTests` di suite .NET mem-parse setiap pernyataan dengan parser sungguhan lalu
+menjalankannya terhadap data uji. Set `CUTEDB_TEST_SERVER` agar suite klien juga menjalankan semua
+kasus terhadap server yang hidup.
 
 ---
 

@@ -13,15 +13,16 @@ The checklist that tracks execution against this is [Progress.md](Progress.md).
 
 ## Where we are
 
-**2.1.0 released.**
+**2.1.0 released. The 2.2 work is merged and unreleased.**
 
 | | Version | State |
 | --- | --- | --- |
-| Repository | 2.1.0 | LINQ and CuteDB Browser |
-| NuGet `CuteDB` | 2.1.0 | LINQ; native accelerator for all six runtimes |
-| NuGet `CuteDB.Cli`, `CuteDB.Server` | 2.1.0 | |
-| npm `cutedb` | 2.0.1 | Unchanged in 2.1 |
-| PyPI `cutedb` | 2.0.0 | Unchanged in 2.1 |
+| Repository | 2.2.0 | Explain, query builders, paging, browser as a tool |
+| NuGet `CuteDB` | 2.1.0 → 2.2.0 | `SelectMany`; unique-index fix |
+| NuGet `CuteDB.Cli`, `CuteDB.Server` | 2.1.0 → 2.2.0 | `explain`; paging and NDJSON |
+| NuGet `CuteDB.Browser` | 2.2.0 | New in 2.2 |
+| npm `cutedb` | 2.0.1 | 2.2.0 in the repository with the query builder; not yet published |
+| PyPI `cutedb` | 2.0.0 | 2.2.0 in the repository with the query builder; not yet published |
 | Go client | — | Module path resolves from the repository |
 
 2.0.0 shipped one native runtime out of six because it was packed on a workstation. 2.1.0 was cut by
@@ -51,29 +52,27 @@ The theme was **distribution**, not features.
   downloaded package.
 - [done] **Tagged** `cutedb-v2.1.0`.
 - **Publish the drafted GitHub release.** The workflow drafts one; it is still a draft.
-- **Decide how CuteDB Browser is distributed.** Right now it is `git clone` plus a script. The
-  honest options are a `dotnet tool`, a GitHub release with per-platform archives, or both. A
-  workbench nobody can install is a workbench nobody uses.
-- **Test CuteDB Browser.** It ships with zero automated tests against 190 for the engine. The
-  parts that break silently — statement splitting, the LINQ script host, template validity,
-  settings round-tripping, the assistant's tool schemas — are all testable without a display.
+- [done] **CuteDB Browser is distributed both ways:** the `CuteDB.Browser` dotnet tool, and
+  per-platform archives attached to the release. The archives have not yet been through a real
+  release run, and the macOS ones are unsigned.
+- [done] **Tested CuteDB Browser** — 83 headless tests, which found four bugs.
 
 ---
 
-## 2.2 — close the gaps that are actually load-bearing
+## 2.2 — close the gaps that are actually load-bearing ✔ done, unreleased
 
 The theme is **the parts a second person will hit first**.
 
-- **A query builder in the three clients.** Python, Go and Node can do CRUD and `find("filter
+- [done] **A query builder in the three clients.** Python, Go and Node can do CRUD and `find("filter
   string")`. Concatenating a filter by hand is how injection bugs are written, and the .NET side
   already proves the shape: build a query, ask it what CuteQL it becomes, then run it.
-- **Tests for the CLI and the server.** Both are exercised only by the smoke script in CI. Import
+- [done] **Tests for the CLI and the server.** Both are exercised only by the smoke script in CI. Import
   and export in particular have never had a round-trip test.
-- **`cutedb explain`.** The planner is the most useful thing in the engine and the CLI cannot
+- [done] **`cutedb explain`.** The planner is the most useful thing in the engine and the CLI cannot
   reach it, though `EXPLAIN` works in the shell.
-- **LINQ: `SelectMany` over a stored array.** `Any` already becomes a projecting path; flattening
+- [done] **LINQ: `SelectMany` over a stored array.** `Any` already becomes a projecting path; flattening
   order lines into rows is the natural next operator and is expressible without a join.
-- **Server: pagination and streaming on the query endpoint.** It materialises the whole result
+- [done] **Server: pagination and streaming on the query endpoint.** It materialises the whole result
   before responding, which is fine for a demo and wrong for a million rows.
 
 ---

@@ -360,6 +360,11 @@ public sealed class CuteCollection
             CuteBinary.Write(writer, CuteValue.Object(document.Root));
             var encoded = writer.WrittenSpan;
 
+            // Checked before anything changes. The index used to find the conflict while adding
+            // the new row, by which time the store already held it and the old row's entries were
+            // gone: the write was refused, never logged, and still visible until the next restart.
+            EnsureUniqueKeysAreFree(id, encoded);
+
             ApplyIndexRemoval(id);
             var row = _store.Upsert(id, encoded, out _);
             ApplyIndexInsertion(row);
@@ -467,6 +472,52 @@ public sealed class CuteCollection
         }
 
         return QueryPlanner.Execute(this, predicate, parameters, limit);
+    }
+
+    /// <summary>
+    /// Throws when writing <paramref name="encoded"/> as <paramref name="id"/> would put a second
+    /// document under a key of a unique index. Changes nothing.
+    /// </summary>
+    private void EnsureUniqueKeysAreFree(CuteId id, ReadOnlySpan<byte> encoded)
+    {
+        if (_indexes.Count == 0)
+        {
+            return;
+        }
+
+        // A replacement may keep its own keys; it is about to give them up and take them back.
+        var current = _store.TryGetRow(id, out var existing) ? existing : -1;
+
+        foreach (var index in _indexes.Values)
+        {
+            if (!index.Unique)
+            {
+                continue;
+            }
+
+            index.ExtractKeys(encoded, _keyScratch);
+            for (var i = 0; i < _keyScratch.Count; i++)
+            {
+                var key = _keyScratch[i];
+                var taken = false;
+                foreach (var row in index.Equal(key))
+                {
+                    taken |= row != current;
+                }
+
+                // An array repeating a value would collide with itself, as it always has.
+                for (var j = 0; j < i && !taken; j++)
+                {
+                    taken = CuteValueEqualityComparer.Instance.Equals(_keyScratch[j], key);
+                }
+
+                if (taken)
+                {
+                    throw new CuteDbException(
+                        $"Unique index '{index.Name}' already has a document with {index.Path.Text} = {key.ToDisplayString()}.");
+                }
+            }
+        }
     }
 
     private void ApplyIndexInsertion(int row)

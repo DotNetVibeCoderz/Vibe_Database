@@ -64,7 +64,9 @@ step "Publishing for ${RID} to ${PREFIX}"
 
 mkdir -p "$PREFIX"
 
-# A settings file that already holds someone's API keys must survive a reinstall.
+# Settings are written to ~/.config/CuteDB/Browser/app.config, which a reinstall never touches.
+# An install from before that kept them in the shipped CuteBrowser.dll.config, which is still read
+# as the defaults — so that file, if it already holds someone's API keys, must survive too.
 CONFIG="${PREFIX}/CuteBrowser.dll.config"
 PRESERVED=""
 if [[ -f "$CONFIG" ]]; then
@@ -135,7 +137,7 @@ fi
 echo
 printf '\033[32mCuteDB Browser installed.\033[0m\n'
 echo "  Run:      ${EXE}"
-echo "  Settings: ${CONFIG}"
+echo "  Settings: ${XDG_CONFIG_HOME:-${HOME}/.config}/CuteDB/Browser/app.config"
 echo
 echo "Jack, the assistant, needs an API key before he will answer. Set one in"
 echo "Tools > Settings, or export an environment variable:"

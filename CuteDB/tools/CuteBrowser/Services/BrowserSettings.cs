@@ -65,9 +65,29 @@ public sealed record ProviderProfile(AiProvider Provider, string Model, string A
 /// <remarks>
 /// <para>
 /// The user asked for the configuration to live in <c>app.config</c> and to be editable from the
-/// UI, which means the file has to be both readable by <see cref="ConfigurationManager"/> and
-/// writable at runtime. <see cref="ConfigurationManager"/> caches, so a save refreshes the section
-/// rather than trusting the cache — otherwise a setting changed in the dialog reads back stale.
+/// UI. There are two files in that format, read in order:
+/// </para>
+/// <list type="number">
+/// <item><description>
+/// <b>The shipped defaults</b> — <c>CuteBrowser.dll.config</c>, which the build makes from
+/// <c>App.config</c> and puts beside the executable. Read, never written.
+/// </description></item>
+/// <item><description>
+/// <b>The person's own settings</b> — <see cref="UserFile"/>, in their application-data folder.
+/// Everything Tools ▸ Settings changes is written there.
+/// </description></item>
+/// </list>
+/// <para>
+/// The split exists because of <c>dotnet tool</c>. A tool is unpacked into a versioned directory
+/// in the tool store, which <c>dotnet tool update</c> replaces wholesale — settings written beside
+/// the executable would be lost on every update, and on a machine-wide install they could not be
+/// written at all. Only values that differ from the shipped defaults are written to the user file,
+/// so an improved default (a better system prompt, a newer model) still reaches people who never
+/// touched that setting.
+/// </para>
+/// <para>
+/// An install made by the scripts in <c>tools/CuteBrowser/scripts</c> before the split kept its
+/// settings in the shipped file. Those are still read, as defaults, so nothing is lost.
 /// </para>
 /// <para>
 /// API keys fall back to environment variables. A blank key in the file means "look at the
@@ -77,14 +97,29 @@ public sealed record ProviderProfile(AiProvider Provider, string Model, string A
 /// </remarks>
 public sealed class BrowserSettings
 {
-    private readonly Dictionary<string, string> _values = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>
+    /// Names a settings file to use instead of the one in the application-data folder.
+    /// </summary>
+    /// <remarks>
+    /// For a portable install on a USB stick, and for the tests, which must never write to the
+    /// settings of the person running them.
+    /// </remarks>
+    public const string FileVariable = "CUTEBROWSER_CONFIG";
 
-    private BrowserSettings()
-    {
-    }
+    private readonly Dictionary<string, string> _values = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string> _defaults = new(StringComparer.OrdinalIgnoreCase);
+
+    private BrowserSettings(string? userFile) => UserFile = userFile;
 
     /// <summary>The settings for this process.</summary>
-    public static BrowserSettings Current { get; } = Load();
+    public static BrowserSettings Current { get; } = Load(DefaultsFile, DefaultUserFile());
+
+    /// <summary>The shipped defaults, beside the executable.</summary>
+    public static string DefaultsFile
+        => Path.Combine(AppContext.BaseDirectory, typeof(BrowserSettings).Assembly.GetName().Name + ".dll.config");
+
+    /// <summary>Where <see cref="Save(out string)"/> writes, or null when there is nowhere.</summary>
+    public string? UserFile { get; }
 
     /// <summary>Raised after any save, so open panels can pick the change up.</summary>
     public event Action? Changed;
@@ -245,14 +280,15 @@ public sealed class BrowserSettings
     /// <summary>The connection details for one provider.</summary>
     public ProviderProfile ProfileFor(AiProvider provider)
     {
-        var (prefix, environment, model, endpoint) = provider switch
+        var prefix = Prefix(provider);
+        var (environment, model, endpoint) = provider switch
         {
-            AiProvider.OpenAI => ("openai", "OPENAI_API_KEY", "gpt-4o", "https://api.openai.com/v1"),
-            AiProvider.Anthropic => ("anthropic", "ANTHROPIC_API_KEY", "claude-sonnet-5", "https://api.anthropic.com/v1"),
-            AiProvider.Gemini => ("gemini", "GEMINI_API_KEY", "gemini-2.0-flash", "https://generativelanguage.googleapis.com/v1beta/openai/"),
-            AiProvider.Compatible => ("compatible", "OPENAI_COMPATIBLE_API_KEY", "deepseek-chat", "https://api.deepseek.com/v1"),
-            AiProvider.AzureOpenAI => ("azure", "AZURE_OPENAI_API_KEY", "gpt-4o", "https://your-resource.openai.azure.com/"),
-            _ => ("ollama", "OLLAMA_API_KEY", "llama3.1", "http://localhost:11434/v1"),
+            AiProvider.OpenAI => ("OPENAI_API_KEY", "gpt-4o", "https://api.openai.com/v1"),
+            AiProvider.Anthropic => ("ANTHROPIC_API_KEY", "claude-sonnet-5", "https://api.anthropic.com/v1"),
+            AiProvider.Gemini => ("GEMINI_API_KEY", "gemini-2.0-flash", "https://generativelanguage.googleapis.com/v1beta/openai/"),
+            AiProvider.Compatible => ("OPENAI_COMPATIBLE_API_KEY", "deepseek-chat", "https://api.deepseek.com/v1"),
+            AiProvider.AzureOpenAI => ("AZURE_OPENAI_API_KEY", "gpt-4o", "https://your-resource.openai.azure.com/"),
+            _ => ("OLLAMA_API_KEY", "llama3.1", "http://localhost:11434/v1"),
         };
 
         return new ProviderProfile(
@@ -265,11 +301,24 @@ public sealed class BrowserSettings
     /// <summary>Writes one provider's details back.</summary>
     public void UpdateProfile(ProviderProfile profile)
     {
-        var prefix = profile.Provider.ToString().ToLowerInvariant();
+        // The prefix comes from the same table ProfileFor reads with. Deriving it from the enum
+        // name instead wrote Azure's details under "azureopenai.*" while they were read from
+        // "azure.*", so a deployment typed into Settings was saved and then never seen again.
+        var prefix = Prefix(profile.Provider);
         Set($"{prefix}.model", profile.Model);
         Set($"{prefix}.apiKey", profile.ApiKey);
         Set($"{prefix}.endpoint", profile.Endpoint);
     }
+
+    private static string Prefix(AiProvider provider) => provider switch
+    {
+        AiProvider.OpenAI => "openai",
+        AiProvider.Anthropic => "anthropic",
+        AiProvider.Gemini => "gemini",
+        AiProvider.Compatible => "compatible",
+        AiProvider.AzureOpenAI => "azure",
+        _ => "ollama",
+    };
 
     /// <summary>Every provider, for the model picker at the top of the chat panel.</summary>
     public IReadOnlyList<ProviderProfile> AllProfiles()
@@ -285,36 +334,61 @@ public sealed class BrowserSettings
     public void Set(string key, string value) => _values[key] = value ?? string.Empty;
 
     /// <summary>
-    /// Writes every setting back to <c>app.config</c> beside the executable.
+    /// Writes the settings that differ from the shipped defaults to <see cref="UserFile"/>.
     /// </summary>
     /// <remarks>
-    /// A failure here is reported rather than thrown: a read-only install directory is a real
+    /// <para>
+    /// A setting put back to its default is removed from the file rather than written out again,
+    /// so the file only ever holds what the person actually chose.
+    /// </para>
+    /// <para>
+    /// A failure here is reported rather than thrown: a read-only home directory is a real
     /// situation, and losing the settings you just typed is worse than the app forgetting them
     /// after you close it. The return value says which happened.
+    /// </para>
     /// </remarks>
     public bool Save(out string message)
     {
         try
         {
-            var configuration = ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None);
+            if (UserFile is null)
+            {
+                throw new InvalidOperationException(
+                    "There is no application-data folder to save settings in. Set "
+                    + FileVariable + " to a file path to choose one.");
+            }
+
+            if (Path.GetDirectoryName(UserFile) is { Length: > 0 } directory)
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            var configuration = Open(UserFile);
+            var stored = configuration.AppSettings.Settings;
 
             foreach (var (key, value) in _values)
             {
-                if (configuration.AppSettings.Settings[key] is null)
+                var isDefault = _defaults.TryGetValue(key, out var shipped)
+                    ? string.Equals(shipped, value, StringComparison.Ordinal)
+                    : value.Length == 0;
+
+                if (isDefault)
                 {
-                    configuration.AppSettings.Settings.Add(key, value);
+                    stored.Remove(key);
+                }
+                else if (stored[key] is null)
+                {
+                    stored.Add(key, value);
                 }
                 else
                 {
-                    configuration.AppSettings.Settings[key].Value = value;
+                    stored[key].Value = value;
                 }
             }
 
-            configuration.Save(ConfigurationSaveMode.Modified);
-
-            // The manager caches the section it just wrote, so a read straight after a save would
-            // return what was there before.
-            ConfigurationManager.RefreshSection("appSettings");
+            // Full rather than Modified: the file may not exist yet, and a first save must write
+            // the section even when every value in it is new.
+            configuration.Save(ConfigurationSaveMode.Full);
 
             message = configuration.FilePath;
             Changed?.Invoke();
@@ -331,19 +405,75 @@ public sealed class BrowserSettings
     /// <summary>Writes every setting back, ignoring whether it worked.</summary>
     public void Save() => Save(out _);
 
-    private static BrowserSettings Load()
+    /// <summary>
+    /// Reads the shipped defaults, then the person's own settings over them.
+    /// </summary>
+    /// <param name="defaultsFile">The shipped <c>app.config</c>. A missing file means no defaults.</param>
+    /// <param name="userFile">Where saves go. A missing file means nothing has been saved yet.</param>
+    public static BrowserSettings Load(string defaultsFile, string? userFile)
     {
-        var settings = new BrowserSettings();
+        var settings = new BrowserSettings(userFile);
 
-        foreach (var key in ConfigurationManager.AppSettings.AllKeys)
+        // Read through the mapped-file API rather than ConfigurationManager.AppSettings: the latter
+        // reads whichever .config belongs to the entry assembly, which under a test host is not
+        // this one, and caches what it read.
+        foreach (var (key, value) in Read(defaultsFile))
         {
-            if (key is not null)
+            settings._defaults[key] = value;
+            settings._values[key] = value;
+        }
+
+        // When there is no application-data folder the user file is the defaults file, and
+        // reading it twice is harmless.
+        if (userFile is not null)
+        {
+            foreach (var (key, value) in Read(userFile))
             {
-                settings._values[key] = ConfigurationManager.AppSettings[key] ?? string.Empty;
+                settings._values[key] = value;
             }
         }
 
         return settings;
+    }
+
+    /// <summary>
+    /// Where this person's settings live: <see cref="FileVariable"/> if it is set, otherwise
+    /// <c>CuteDB/Browser/app.config</c> under the application-data folder.
+    /// </summary>
+    /// <remarks>
+    /// That folder is <c>%APPDATA%</c> on Windows and <c>~/.config</c> (or
+    /// <c>$XDG_CONFIG_HOME</c>) elsewhere. When there is none — a service account, a container with
+    /// no home directory — the file beside the executable is used, which is where every version
+    /// before the split kept its settings.
+    /// </remarks>
+    public static string? DefaultUserFile()
+    {
+        var explicitFile = Environment.GetEnvironmentVariable(FileVariable);
+        if (!string.IsNullOrWhiteSpace(explicitFile))
+        {
+            return Path.GetFullPath(explicitFile);
+        }
+
+        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        return string.IsNullOrWhiteSpace(appData)
+            ? DefaultsFile
+            : Path.Combine(appData, "CuteDB", "Browser", "app.config");
+    }
+
+    private static Configuration Open(string file)
+        => ConfigurationManager.OpenMappedExeConfiguration(
+            new ExeConfigurationFileMap { ExeConfigFilename = file },
+            ConfigurationUserLevel.None);
+
+    private static List<(string Key, string Value)> Read(string file)
+    {
+        if (!File.Exists(file))
+        {
+            return [];
+        }
+
+        var settings = Open(file).AppSettings.Settings;
+        return [.. settings.AllKeys.Select(key => (key, settings[key].Value ?? string.Empty))];
     }
 
     private string KeyOrEnvironment(string key, string variable)

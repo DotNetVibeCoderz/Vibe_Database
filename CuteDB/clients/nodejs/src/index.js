@@ -26,8 +26,12 @@
  * for (const row of result.rows) console.log(row.city, row.revenue);
  */
 
+import { Query } from "./query.js";
+
+export { Condition, Field, Query, and, escapeLike, field, not, or } from "./query.js";
+
 /** This client's version. */
-export const VERSION = "2.0.1";
+export const VERSION = "2.2.0";
 
 /**
  * Anything the server refused, or any transport failure.
@@ -218,15 +222,23 @@ export class CuteClient {
   }
 
   /**
-   * Runs a CuteQL statement.
+   * Runs a CuteQL statement, or a {@link Query} built with the query builder.
    *
    * Bind values through `parameters` rather than building the statement by concatenation: a bound
-   * value is used as a value and can never be reinterpreted as syntax.
+   * value is used as a value and can never be reinterpreted as syntax. A built query carries its
+   * own parameters, so passing more alongside one is refused rather than merged.
    *
-   * @param {string} query
+   * @param {string | Query} query
    * @param {Record<string, unknown>} [parameters]
    */
   query(query, parameters) {
+    if (query instanceof Query) {
+      if (parameters) {
+        return Promise.reject(new TypeError("A built Query carries its own parameters; do not pass more."));
+      }
+      return request(this, "POST", "/v1/query", { body: query.build() });
+    }
+
     return request(this, "POST", "/v1/query", {
       body: parameters ? { query, parameters } : { query },
     });
@@ -366,6 +378,19 @@ export class CuteCollection {
     const where = filter ? ` WHERE ${filter}` : "";
     const result = await this.client.query(`SELECT COUNT(*) AS n FROM ${this.name}${where}`);
     return result.rows[0]?.n ?? 0;
+  }
+
+  /**
+   * Starts a query over this collection that can be run with `.run()`.
+   *
+   * Prefer it to {@link find} with a hand-written filter whenever a value comes from outside the
+   * program: the builder binds every value as a parameter, so none can become syntax.
+   *
+   * @example
+   * await orders.query().where(field("address.city").eq(city)).orderBy("total", "desc").run();
+   */
+  query() {
+    return new Query(this.name, this.client);
   }
 
   /** This collection's size and indexes. */

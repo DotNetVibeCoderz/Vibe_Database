@@ -41,7 +41,7 @@ import (
 )
 
 // Version of this client.
-const Version = "2.0.0"
+const Version = "2.2.0"
 
 // Document is one CuteDB document. The reserved "_id" key holds its identifier.
 type Document map[string]any

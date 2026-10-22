@@ -9,8 +9,12 @@ duduk di panel kanan dan menulis kueri berdasarkan skema yang benar-benar ada di
 ![Meja kerja](../images/browser/01-workbench.png)
 
 ```bash
-dotnet run --project tools/CuteBrowser
+dotnet tool install -g CuteDB.Browser
+cutebrowser
 ```
+
+Dari salinan repositori, `dotnet run --project tools/CuteBrowser` melakukan hal yang sama. Cara
+pemasangan lainnya ada [di bawah](#pemasangan).
 
 ---
 
@@ -78,7 +82,9 @@ tidak ada perintah format sama sekali.
 
 Satu tab boleh memuat beberapa statement yang dipisahkan titik koma. Semuanya dijalankan berurutan,
 dan grid menampilkan yang terakhir mengembalikan baris — jadi "isi data, lalu select" cukup dalam
-satu tab. Pemisahannya tetap benar meski ada titik koma di dalam string berkutip.
+satu tab. Pemisahannya mengikuti aturan lexer itu sendiri: titik koma di dalam string berkutip atau
+di dalam komentar tidak mengakhiri statement, dan statement yang Anda jadikan komentar dilewati,
+bukan dijalankan sebagai statement kosong.
 
 ---
 
@@ -177,7 +183,7 @@ sebelumnya" tetaplah sebuah halaman, bukan otoritas.
 
 ## Penyedia LLM
 
-Enam, semuanya diatur di `Tools ▸ Settings` dan disimpan di `app.config`:
+Enam, semuanya diatur di `Tools ▸ Settings` dan disimpan di [berkas pengaturan](#pengaturan) Anda:
 
 | Penyedia | Catatan |
 | --- | --- |
@@ -188,7 +194,7 @@ Enam, semuanya diatur di `Tools ▸ Settings` dan disimpan di `app.config`:
 | **Ollama** | Lokal, tanpa kunci |
 | **Compatible** | Apa pun lain yang berbicara API OpenAI — DeepSeek, Groq, Together, OpenRouter, vLLM |
 
-Kunci boleh dibiarkan kosong di `app.config` dan diberikan lewat environment, sehingga salinan
+Kunci boleh dibiarkan kosong di pengaturan dan diberikan lewat environment, sehingga salinan
 repositori bersama tidak pernah membawa kunci milik siapa pun:
 
 ```
@@ -259,8 +265,17 @@ dicapai lewat satu jalan tetapi tidak lewat jalan lain.
 
 ## Pengaturan
 
-`Tools ▸ Settings` menulis kembali ke `app.config` di sebelah executable, dan semua isi berkas itu
-juga bisa disunting manual.
+`Tools ▸ Settings` menulis ke berkas pengaturan milik Anda sendiri, di folder data aplikasi:
+`%APPDATA%\CuteDB\Browser\app.config` di Windows, `~/.config/CuteDB/Browser/app.config` di tempat
+lain. `cutebrowser --help` mencetak jalur persisnya. Berkas ini `app.config` biasa dan bisa disunting
+manual.
+
+Isinya hanya yang Anda ubah. Nilai bawaan dikirim di sebelah executable dalam
+`CuteBrowser.dll.config`, yang dibaca aplikasi tetapi tidak pernah ditulisi — jadi `dotnet tool
+update` atau arsip yang lebih baru tetap mempertahankan pengaturan Anda, dan nilai bawaan yang
+diperbaiki tetap sampai ke setiap pengaturan yang tidak pernah Anda sentuh. Isi `CUTEBROWSER_CONFIG`
+dengan jalur berkas untuk menyimpan pengaturan di tempat lain, misalnya di sebelah salinan portabel
+di USB.
 
 | Kelompok | Pengaturan |
 | --- | --- |
@@ -269,15 +284,43 @@ juga bisa disunting manual.
 | Alat | Apakah alat web ditawarkan sama sekali, dan kunci Tavily |
 | Meja kerja | Nomor baris, bungkus kata, ukuran font editor, jumlah baris di grid |
 
-Kegagalan menyimpan dilaporkan, bukan dilempar sebagai exception — direktori instalasi yang hanya
-bisa dibaca itu situasi nyata, dan kehilangan apa yang baru Anda ketik lebih buruk daripada aplikasi
+Kegagalan menyimpan dilaporkan, bukan dilempar sebagai exception — direktori home yang hanya bisa
+dibaca itu situasi nyata, dan kehilangan apa yang baru Anda ketik lebih buruk daripada aplikasi
 melupakannya setelah ditutup.
 
 ---
 
 ## Pemasangan
 
-**Windows:**
+**Sebagai .NET tool** — cara untuk memulai, di platform mana pun yang punya .NET 10:
+
+```bash
+dotnet tool install -g CuteDB.Browser
+cutebrowser
+
+dotnet tool update -g CuteDB.Browser      # nanti; pengaturan Anda tetap ada
+```
+
+Satu paket untuk semua platform, membawa akselerator native untuk keenam runtime. Di Linux, Avalonia
+butuh pustaka X11 yang lazim — `libx11-6 libice6 libsm6 libfontconfig1` di Debian dan Ubuntu.
+
+**Sebagai arsip self-contained** — untuk mesin yang sama sekali tidak punya .NET. Setiap
+[rilis GitHub](https://github.com/DotNetVibeCoderz/Vibe_Database/releases) CuteDB membawa satu arsip
+per platform:
+
+| Platform | Arsip |
+| --- | --- |
+| Windows | `cutebrowser-<versi>-win-x64.zip`, `…-win-arm64.zip` |
+| Linux | `cutebrowser-<versi>-linux-x64.tar.gz`, `…-linux-arm64.tar.gz` |
+| macOS | `cutebrowser-<versi>-osx-arm64.tar.gz`, `…-osx-x64.tar.gz` |
+
+Ekstrak di mana saja lalu jalankan `CuteBrowser` (`CuteBrowser.exe` di Windows). Arsipnya tidak
+ditandatangani: Windows SmartScreen bertanya sekali, dan macOS mengarantina salinan hasil unduhan
+sampai `xattr -dr com.apple.quarantine <folder>` membukanya.
+
+**Dari repositori**, dengan skrip pemasangan, saat Anda sedang mengerjakan browser itu sendiri.
+
+Windows:
 
 ```powershell
 ./tools/CuteBrowser/scripts/install.ps1
@@ -286,7 +329,7 @@ melupakannya setelah ditutup.
 
 Mem-publish ke `%LOCALAPPDATA%\CuteBrowser` dan menaruh pintasan di Start menu.
 
-**Linux dan macOS:**
+Linux dan macOS:
 
 ```bash
 chmod +x tools/CuteBrowser/scripts/install.sh
@@ -298,16 +341,18 @@ Mem-publish ke `~/.local/share/cutebrowser`, menautkan `cutebrowser` ke `~/.loca
 desktop entry di Linux. Skripnya menyebutkan pustaka X11 yang hilang, alih-alih membiarkan Anda
 menemukannya sendiri saat peluncuran pertama.
 
-Kedua skrip hanya butuh .NET 10 SDK, keduanya mempertahankan berkas pengaturan yang sudah ada saat
-pemasangan ulang, dan `--self-contained` membundel runtime untuk mesin yang tidak punya .NET.
+Kedua skrip hanya butuh .NET 10 SDK, dan `--self-contained` membundel runtime untuk mesin yang tidak
+punya .NET. Pengaturan tinggal di folder data aplikasi, bukan di direktori instalasi, jadi
+pemasangan ulang tidak pernah menyentuhnya.
 
 ---
 
 ## Menguji asisten tanpa jendela
 
 ```bash
-CuteBrowser --ask "Kota mana yang pendapatannya paling besar? Berikan CuteQL-nya."
-CuteBrowser --ask "Ada berapa pesanan?" --db shop.cute
+cutebrowser --ask "Kota mana yang pendapatannya paling besar? Berikan CuteQL-nya."
+cutebrowser --ask "Ada berapa pesanan?" --db shop.cute
+cutebrowser --help        # opsi, lokasi pengaturan, dan apakah akselerator termuat
 ```
 
 Satu giliran lewat agen, plugin, dan pengaturan yang sama dengan yang dipakai panelnya, dicetak ke
@@ -317,6 +362,10 @@ terlihat di tangkapan layar, dan semuanya rusak dalam diam.
 
 Tanpa `--db`, ia mengisi basis data sementara dari templat Retail supaya tool-nya punya sesuatu
 untuk ditemukan.
+
+Di Windows, browser ini adalah program berjendela, dan terminal tidak menunggu program semacam itu.
+Keluarannya tetap muncul, tetapi setelah prompt; di PowerShell, `cutebrowser --ask "…" | Out-Host`
+menunggu gilirannya selesai lalu mencetaknya di tempat.
 
 ---
 

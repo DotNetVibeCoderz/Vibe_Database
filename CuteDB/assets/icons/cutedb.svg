@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="ground" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2A3557"/>
+      <stop offset="1" stop-color="#0E1424"/>
+    </linearGradient>
+    <linearGradient id="body" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#C98C2A"/>
+      <stop offset="0.35" stop-color="#F2B854"/>
+      <stop offset="0.6" stop-color="#E9A83C"/>
+      <stop offset="1" stop-color="#A8701C"/>
+    </linearGradient>
+    <linearGradient id="lid" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FCE3A6"/>
+      <stop offset="1" stop-color="#F2B854"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.45" r="0.5">
+      <stop offset="0" stop-color="#E9A83C" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#E9A83C" stop-opacity="0"/>
+    </radialGradient>
+    <clipPath id="tile"><rect width="512" height="512" rx="116"/></clipPath>
+  </defs>
+
+  <g clip-path="url(#tile)">
+    <rect width="512" height="512" fill="url(#ground)"/>
+    <!-- kawung: the four-petal batik motif, faint, so the ground has a texture with a source -->
+    <g fill="#EAE4D6" opacity="0.05">
+      
+      <ellipse cx="64" cy="30" rx="20" ry="32"/><ellipse cx="64" cy="98" rx="20" ry="32"/>
+      <ellipse cx="30" cy="64" rx="32" ry="20"/><ellipse cx="98" cy="64" rx="32" ry="20"/>
+      <ellipse cx="448" cy="30" rx="20" ry="32"/><ellipse cx="448" cy="98" rx="20" ry="32"/>
+      <ellipse cx="414" cy="64" rx="32" ry="20"/><ellipse cx="482" cy="64" rx="32" ry="20"/>
+      <ellipse cx="64" cy="414" rx="20" ry="32"/><ellipse cx="64" cy="482" rx="20" ry="32"/>
+      <ellipse cx="30" cy="448" rx="32" ry="20"/><ellipse cx="98" cy="448" rx="32" ry="20"/>
+      <ellipse cx="448" cy="414" rx="20" ry="32"/><ellipse cx="448" cy="482" rx="20" ry="32"/>
+      <ellipse cx="414" cy="448" rx="32" ry="20"/><ellipse cx="482" cy="448" rx="32" ry="20"/>
+    </g>
+    <circle cx="256" cy="270" r="210" fill="url(#glow)"/>
+  </g>
+
+  <!-- shadow -->
+  <ellipse cx="256" cy="432" rx="128" ry="22" fill="#05080F" opacity="0.45"/>
+
+  <!-- the database: two discs of turmeric -->
+  <path d="M132,142 L132,372 A124,42 0 0 0 380,372 L380,142 Z" fill="url(#body)"/>
+  <path d="M132,232 A124,42 0 0 0 380,232" fill="none" stroke="#7A4E10" stroke-width="9" stroke-linecap="round" opacity="0.9"/>
+  <path d="M140,246 A120,40 0 0 0 372,246" fill="none" stroke="#FCE3A6" stroke-width="5" stroke-linecap="round" opacity="0.55"/>
+  <ellipse cx="256" cy="142" rx="124" ry="42" fill="url(#lid)"/>
+  <ellipse cx="256" cy="142" rx="124" ry="42" fill="none" stroke="#C98C2A" stroke-width="4"/>
+  <ellipse cx="226" cy="132" rx="58" ry="12" fill="#FFFFFF" opacity="0.45"/>
+  <!-- highlight running down the body -->
+  <rect x="168" y="178" width="16" height="200" rx="8" fill="#FFF3D1" opacity="0.35"/>
+
+  <!-- the face -->
+  <g>
+    <ellipse cx="214" cy="318" rx="15" ry="19" fill="#1A1408"/>
+    <ellipse cx="298" cy="318" rx="15" ry="19" fill="#1A1408"/>
+    <circle cx="219" cy="310" r="6" fill="#FFFFFF"/>
+    <circle cx="303" cy="310" r="6" fill="#FFFFFF"/>
+    <ellipse cx="182" cy="348" rx="17" ry="10" fill="#f2685c" opacity="0.6"/>
+    <ellipse cx="330" cy="348" rx="17" ry="10" fill="#f2685c" opacity="0.6"/>
+    <path d="M240,346 Q256,364 272,346" fill="none" stroke="#1A1408" stroke-width="8" stroke-linecap="round"/>
+  </g>
+
+  
+  <path d="M410,58 Q416.12,85.88 444,92 Q416.12,98.12 410,126 Q403.88,98.12 376,92 Q403.88,85.88 410,58 Z" fill="#5fd3a0"/>
+  <path d="M446,144 Q448.88,157.12 462,160 Q448.88,162.88 446,176 Q443.12,162.88 430,160 Q443.12,157.12 446,144 Z" fill="#EAE4D6"/>
+  <path d="M86,200 Q88.52,211.48 100,214 Q88.52,216.52 86,228 Q83.48,216.52 72,214 Q83.48,211.48 86,200 Z" fill="#5fd3a0"/>
+</svg>

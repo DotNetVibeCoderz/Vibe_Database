@@ -26,14 +26,22 @@ own JSON rather than a generic serialiser, so decimals stay exact and dates stay
 | `GET\|DELETE /v1/collections/{c}` | one collection |
 | `GET\|POST /v1/collections/{c}/documents` | page through, or insert one or many |
 | `GET\|PUT\|PATCH\|DELETE /v1/collections/{c}/documents/{id}` | one document |
-| `POST /v1/query` | run CuteQL |
+| `POST /v1/query` | run CuteQL; optionally paged, or streamed as NDJSON |
 | `POST /v1/explain` | how a query would run |
-| `POST\|DELETE /v1/collections/{c}/indexes` | manage indexes |
+| `POST /v1/collections/{c}/indexes`, `DELETE …/indexes/{name}` | manage indexes |
 | `GET /v1/stats`, `POST /v1/compact` | maintenance |
 
 `POST` with a JSON array inserts the whole batch under a single lock and a single flush. `PATCH`
 merges shallowly, and a dotted key is a path — `{"address.city": "Bandung"}` reaches into the
 subdocument.
+
+**Paging.** Add `"limit": 100` to a `/v1/query` body and the response gains a `page` object whose
+`next` cursor fetches the following page (`"cursor": "…"`, same query and parameters); `offset` works
+too. Each page re-runs the statement and returns one slice — it bounds the response, not the query,
+because the engine materialises results in full. Without paging fields the response is unchanged.
+
+**Streaming.** `Accept: application/x-ndjson` on `/v1/query` or `GET …/documents` returns one row per
+line, flushed as it is written, with the count, plan and next cursor in `X-CuteDB-*` headers.
 
 ## Options
 

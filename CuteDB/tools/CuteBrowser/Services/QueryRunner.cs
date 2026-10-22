@@ -165,39 +165,71 @@ public sealed class QueryRunner(Workspace workspace)
         }
     }
 
-    /// <summary>Splits a tab into statements on semicolons outside string literals.</summary>
+    /// <summary>
+    /// Splits a tab into statements on semicolons outside string literals and comments.
+    /// </summary>
     /// <remarks>
+    /// <para>
     /// A tab holding several statements is normal — seed data, then the query that reads it — so
     /// the split has to survive a semicolon inside a quoted value, which a plain <c>Split(';')</c>
     /// would not.
+    /// </para>
+    /// <para>
+    /// It follows the same rules as <see cref="CuteLexer"/>, because a splitter that disagrees with
+    /// the lexer hands it fragments: single-quoted strings double up to escape (<c>'it''s'</c>),
+    /// double-quoted strings use backslash escapes, and <c>--</c> and <c>/* */</c> are comments. An
+    /// apostrophe in a comment (<c>-- don't</c>) must not open a string that swallows every
+    /// semicolon after it, and a piece that is only comments — a commented-out last statement — is
+    /// dropped rather than sent to the parser as an empty statement.
+    /// </para>
     /// </remarks>
     public static List<string> SplitStatements(string text)
     {
         var statements = new List<string>();
         var current = new StringBuilder();
-        var inString = false;
+
+        // Whether the current piece holds anything other than whitespace and comments.
+        var hasCode = false;
 
         for (var i = 0; i < text.Length; i++)
         {
             var c = text[i];
+            var next = i + 1 < text.Length ? text[i + 1] : '\0';
 
-            if (c == '\'')
+            if (c == '-' && next == '-')
             {
-                // '' inside a string is an escaped quote, not the end of one.
-                if (inString && i + 1 < text.Length && text[i + 1] == '\'')
-                {
-                    current.Append("''");
-                    i++;
-                    continue;
-                }
-
-                inString = !inString;
+                var end = text.IndexOf('\n', i);
+                end = end < 0 ? text.Length : end;
+                current.Append(text, i, end - i);
+                i = end - 1;
+                continue;
             }
 
-            if (c == ';' && !inString)
+            if (c == '/' && next == '*')
+            {
+                var end = text.IndexOf("*/", i + 2, StringComparison.Ordinal);
+                end = end < 0 ? text.Length : end + 2;
+                current.Append(text, i, end - i);
+                i = end - 1;
+                continue;
+            }
+
+            if (c is '\'' or '"')
+            {
+                i = CopyString(text, i, current);
+                hasCode = true;
+                continue;
+            }
+
+            if (c == ';')
             {
                 Flush();
                 continue;
+            }
+
+            if (!char.IsWhiteSpace(c))
+            {
+                hasCode = true;
             }
 
             current.Append(c);
@@ -209,12 +241,48 @@ public sealed class QueryRunner(Workspace workspace)
         void Flush()
         {
             var statement = current.ToString().Trim();
-            if (statement.Length > 0)
+            if (hasCode && statement.Length > 0)
             {
                 statements.Add(statement);
             }
 
             current.Clear();
+            hasCode = false;
+        }
+
+        // Copies one string literal, quotes included, and returns the index of its closing quote.
+        // An unterminated string runs to the end of the text, which is what the lexer will then
+        // report as an error — better than guessing where it was meant to stop.
+        static int CopyString(string text, int start, StringBuilder into)
+        {
+            var quote = text[start];
+            into.Append(quote);
+
+            for (var i = start + 1; i < text.Length; i++)
+            {
+                var c = text[i];
+                into.Append(c);
+
+                if (quote == '"' && c == '\\' && i + 1 < text.Length)
+                {
+                    into.Append(text[++i]);
+                    continue;
+                }
+
+                if (c == quote)
+                {
+                    // '' inside a single-quoted string is an escaped quote, not the end of one.
+                    if (quote == '\'' && i + 1 < text.Length && text[i + 1] == '\'')
+                    {
+                        into.Append(text[++i]);
+                        continue;
+                    }
+
+                    return i;
+                }
+            }
+
+            return text.Length - 1;
         }
     }
 

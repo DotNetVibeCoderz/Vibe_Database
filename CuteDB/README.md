@@ -1,3 +1,5 @@
+<img src="assets/icons/cutedb.svg" alt="CuteDB" width="112" align="right" />
+
 # CuteDB
 
 **The cute embedded document database for .NET 10.**
@@ -88,6 +90,7 @@ More: [records](docs/images/03-catatan.png) · [bulk load](docs/images/04-massal
 dotnet add package CuteDB                 # the library
 dotnet tool install -g CuteDB.Cli         # the cutedb command
 dotnet tool install -g CuteDB.Server      # the HTTP server, for the Python/Go/Node clients
+dotnet tool install -g CuteDB.Browser     # the desktop workbench, as `cutebrowser`
 ```
 
 The package carries the native accelerator for all six runtimes — `win-x64`, `win-arm64`, `linux-x64`, `linux-arm64`, `osx-x64`, `osx-arm64`. The release workflow builds every one of them and fails rather than publishing a package that is missing any, so a package that exists has the runtime you need. Anywhere else, CuteDB uses the managed scanner: identical semantics, 1.3–1.8× slower on large scans, nothing unavailable.
@@ -203,7 +206,8 @@ the engine actually did to answer it.
 ![CuteDB Browser](docs/images/browser/01-workbench.png)
 
 ```bash
-dotnet run --project tools/CuteBrowser
+dotnet tool install -g CuteDB.Browser
+cutebrowser
 ```
 
 The strip between the editor and the grid is the point of it. It prints what the engine did —
@@ -223,8 +227,9 @@ API, through Semantic Kernel. He can read the collections, describe their real f
 and explain a query, search the web, and do arithmetic — but he cannot run a write; that always
 passes through you.
 
-Install scripts for Windows, Linux and macOS are in `tools/CuteBrowser/scripts`. Full guide:
-[docs/en/browser.md](docs/en/browser.md).
+For a machine with no .NET, every GitHub release also carries a self-contained archive per
+platform; from a clone, `dotnet run --project tools/CuteBrowser` or the install scripts in
+`tools/CuteBrowser/scripts`. Full guide: [docs/en/browser.md](docs/en/browser.md).
 
 ---
 

@@ -13,7 +13,7 @@ namespace CuteDB.Cli.Commands;
 /// importing a file bigger than memory works, whereas a single JSON array has to be parsed whole
 /// before the first document can be stored.
 /// </remarks>
-internal sealed class ImportCommand : DatabaseCommand<ImportCommand.Settings>
+internal sealed class ImportCommand(IAnsiConsole console) : DatabaseCommand<ImportCommand.Settings>(console)
 {
     internal sealed class Settings : DatabaseSettings
     {
@@ -118,7 +118,7 @@ internal sealed class ImportCommand : DatabaseCommand<ImportCommand.Settings>
 
                     var value = CuteJson.Parse(line, options);
                     yield return value.IsObject
-                        ? new CuteDocument(value.AsObject)
+                        ? WithId(new CuteDocument(value.AsObject, assignId: false))
                         : throw new CuteDbException($"Every line must be a JSON object; found {value.Type.ToDisplayName()}.");
                 }
 
@@ -134,13 +134,13 @@ internal sealed class ImportCommand : DatabaseCommand<ImportCommand.Settings>
                     foreach (var item in parsed.AsArray.AsSpan().ToArray())
                     {
                         yield return item.IsObject
-                            ? new CuteDocument(item.AsObject)
+                            ? WithId(new CuteDocument(item.AsObject, assignId: false))
                             : throw new CuteDbException($"Array elements must be objects; found {item.Type.ToDisplayName()}.");
                     }
                 }
                 else if (parsed.IsObject)
                 {
-                    yield return new CuteDocument(parsed.AsObject);
+                    yield return WithId(new CuteDocument(parsed.AsObject, assignId: false));
                 }
                 else
                 {
@@ -167,32 +167,26 @@ internal sealed class ImportCommand : DatabaseCommand<ImportCommand.Settings>
     /// Reads a CSV file, using the header row as field names and inferring each cell's type.
     /// </summary>
     /// <remarks>
-    /// Type inference is the whole reason this is not just "everything is a string": a CSV of
-    /// orders whose totals arrive as text cannot be summed, and asking people to cast in every
-    /// query would be worse than guessing well here. Empty cells become missing fields rather than
-    /// empty strings, which is what makes <c>IS MISSING</c> work on imported data.
+    /// Empty cells become missing fields rather than empty strings, which is what makes
+    /// <c>IS MISSING</c> work on imported data. The rules for the rest are in <see cref="Csv"/>.
     /// </remarks>
     private static IEnumerable<CuteDocument> ReadCsv(string path, CuteJsonOptions options)
     {
         using var reader = new StreamReader(path, Encoding.UTF8);
+        List<string>? headers = null;
 
-        var headerLine = reader.ReadLine();
-        if (headerLine is null)
+        foreach (var cells in Csv.ReadRecords(reader))
         {
-            yield break;
-        }
-
-        var headers = ParseCsvLine(headerLine);
-
-        while (reader.ReadLine() is { } line)
-        {
-            if (line.Trim().Length == 0)
+            if (headers is null)
             {
+                headers = cells;
                 continue;
             }
 
-            var cells = ParseCsvLine(line);
-            var document = new CuteDocument();
+            // With no _id column the fresh id goes first, where every other document keeps it.
+            var document = headers.Contains(CuteDocument.IdField)
+                ? new CuteDocument(new CuteObject(), assignId: false)
+                : new CuteDocument();
 
             for (var i = 0; i < headers.Count && i < cells.Count; i++)
             {
@@ -201,102 +195,36 @@ internal sealed class ImportCommand : DatabaseCommand<ImportCommand.Settings>
                     continue;
                 }
 
-                document.Set(headers[i], InferCell(cells[i], options));
+                // The id column is read as an id before inference sees it: an id that happens to
+                // be all decimal digits — rare per row, but not over a million rows — would
+                // otherwise be read as a number and replaced with a fresh one.
+                document.Set(headers[i], headers[i] == CuteDocument.IdField && CuteId.TryParse(cells[i], out var id)
+                    ? CuteValue.Id(id)
+                    : Csv.Infer(cells[i], options));
             }
 
-            yield return document;
+            yield return WithId(document);
         }
     }
 
-    private static CuteValue InferCell(string text, CuteJsonOptions options)
+    /// <summary>Turns an <c>_id</c> that arrived as text back into an id.</summary>
+    /// <remarks>
+    /// Plain JSON and CSV have no id type, so export writes an id as its 24-character hex string.
+    /// The engine accepts that spelling as the document's key, but stores the field as it came —
+    /// a string — so a restored document no longer had the id-typed <c>_id</c> it was exported
+    /// with. Converting here makes a plain export and import put back what was taken out. A
+    /// document with no usable <c>_id</c> is given a fresh one.
+    /// </remarks>
+    private static CuteDocument WithId(CuteDocument document)
     {
-        if (int.TryParse(text, out var i32))
+        var id = document[CuteDocument.IdField];
+        if (id.Type == CuteType.String && CuteId.TryParse(id.AsString, out var parsed))
         {
-            return CuteValue.Int32(i32);
+            document[CuteDocument.IdField] = CuteValue.Id(parsed);
+            return document;
         }
 
-        if (long.TryParse(text, out var i64))
-        {
-            return CuteValue.Int64(i64);
-        }
-
-        if (text.Length > 0 && (char.IsAsciiDigit(text[0]) || text[0] == '-' || text[0] == '+'))
-        {
-            if (options.PreferDecimal && decimal.TryParse(text, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var dec))
-            {
-                return CuteValue.Decimal(dec);
-            }
-
-            if (double.TryParse(text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var number))
-            {
-                return CuteValue.Double(number);
-            }
-        }
-
-        if (bool.TryParse(text, out var flag))
-        {
-            return CuteValue.Boolean(flag);
-        }
-
-        if (DateTime.TryParse(text, System.Globalization.CultureInfo.InvariantCulture,
-                System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal,
-                out var date) && text.Length >= 8)
-        {
-            return CuteValue.DateTime(date);
-        }
-
-        return CuteValue.String(text);
-    }
-
-    /// <summary>Splits one CSV line, honouring quotes and doubled quotes inside them.</summary>
-    private static List<string> ParseCsvLine(string line)
-    {
-        var cells = new List<string>();
-        var builder = new StringBuilder();
-        var inQuotes = false;
-
-        for (var i = 0; i < line.Length; i++)
-        {
-            var c = line[i];
-
-            if (inQuotes)
-            {
-                if (c != '"')
-                {
-                    builder.Append(c);
-                }
-                else if (i + 1 < line.Length && line[i + 1] == '"')
-                {
-                    builder.Append('"');
-                    i++;
-                }
-                else
-                {
-                    inQuotes = false;
-                }
-
-                continue;
-            }
-
-            switch (c)
-            {
-                case '"':
-                    inQuotes = true;
-                    break;
-
-                case ',':
-                    cells.Add(builder.ToString().Trim());
-                    builder.Clear();
-                    break;
-
-                default:
-                    builder.Append(c);
-                    break;
-            }
-        }
-
-        cells.Add(builder.ToString().Trim());
-        return cells;
+        return id.Type == CuteType.Id ? document : new CuteDocument(document.Root);
     }
 
     private static string InferFormat(string path) => Path.GetExtension(path).ToLowerInvariant() switch
@@ -310,7 +238,7 @@ internal sealed class ImportCommand : DatabaseCommand<ImportCommand.Settings>
 }
 
 /// <summary>Writes a collection out to a file or to standard output.</summary>
-internal sealed class ExportCommand : DatabaseCommand<ExportCommand.Settings>
+internal sealed class ExportCommand(IAnsiConsole console) : DatabaseCommand<ExportCommand.Settings>(console)
 {
     internal sealed class Settings : DatabaseSettings
     {
@@ -336,6 +264,12 @@ internal sealed class ExportCommand : DatabaseCommand<ExportCommand.Settings>
     }
 
     /// <inheritdoc />
+    protected override bool WritesData(Settings settings) => settings.Out is null;
+
+    /// <inheritdoc />
+    protected override bool OnlyReads(Settings settings) => true;
+
+    /// <inheritdoc />
     protected override int Run(IAnsiConsole console, CuteDatabase database, Settings settings)
     {
         var collection = database.TryGetCollection(settings.Collection)
@@ -350,17 +284,23 @@ internal sealed class ExportCommand : DatabaseCommand<ExportCommand.Settings>
         var format = settings.Format ?? (settings.Out is null ? "jsonl" : InferFormat(settings.Out));
         var options = settings.Lossless ? CuteJsonOptions.Lossless : CuteJsonOptions.Default;
 
-        using var writer = settings.Out is null
-            ? Console.Out
-            : new StreamWriter(settings.Out, append: false, Encoding.UTF8);
-
-        var written = Write(writer, documents, format, options);
-
-        if (settings.Out is not null)
+        if (settings.Out is null)
         {
-            Theme.WriteSuccess(console, $"{written:N0} dokumen → {settings.Out}");
+            // Standard output is flushed, never disposed: it belongs to the process, and closing
+            // it would silence everything written after the export — including the error panel
+            // of whatever runs next in the same process.
+            Write(Console.Out, documents, format, options);
+            Console.Out.Flush();
+            return 0;
         }
 
+        int written;
+        using (var writer = new StreamWriter(settings.Out, append: false, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)))
+        {
+            written = Write(writer, documents, format, options);
+        }
+
+        Theme.WriteSuccess(console, $"{written:N0} dokumen → {settings.Out}");
         return 0;
     }
 
@@ -409,19 +349,11 @@ internal sealed class ExportCommand : DatabaseCommand<ExportCommand.Settings>
                     }
                 }
 
-                writer.WriteLine(string.Join(',', columns.Select(EscapeCsv)));
+                Csv.WriteRow(writer, columns);
 
                 foreach (var document in documents)
                 {
-                    var cells = columns.Select(column =>
-                    {
-                        var value = document[column];
-                        return value.Type is CuteType.Object or CuteType.Array
-                            ? EscapeCsv(CuteJson.Write(value, options))
-                            : value.IsNullOrMissing ? string.Empty : EscapeCsv(value.ToDisplayString());
-                    });
-
-                    writer.WriteLine(string.Join(',', cells));
+                    Csv.WriteRow(writer, columns.Select(column => Csv.Format(document[column], options)));
                 }
 
                 return documents.Count;
@@ -431,11 +363,6 @@ internal sealed class ExportCommand : DatabaseCommand<ExportCommand.Settings>
                 throw new CuteDbException($"'{format}' is not an export format. Use json, jsonl or csv.");
         }
     }
-
-    private static string EscapeCsv(string text)
-        => text.AsSpan().IndexOfAny(',', '"', '\n') >= 0 || text.Contains('\r')
-            ? $"\"{text.Replace("\"", "\"\"", StringComparison.Ordinal)}\""
-            : text;
 
     private static string InferFormat(string path) => Path.GetExtension(path).ToLowerInvariant() switch
     {

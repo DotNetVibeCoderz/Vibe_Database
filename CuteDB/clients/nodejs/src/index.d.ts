@@ -121,6 +121,8 @@ export declare class CuteCollection {
   delete(id: string): Promise<boolean>;
   find(options?: FindOptions): Promise<QueryResult>;
   count(filter?: string): Promise<number>;
+  /** Starts a query builder over this collection that can be run with `.run()`. */
+  query(): Query;
   stats(): Promise<CollectionStats>;
   createIndex(path: string, options?: { name?: string; unique?: boolean }): Promise<IndexInfo>;
   dropIndex(name: string): Promise<boolean>;
@@ -137,10 +139,92 @@ export declare class CuteClient {
   collection(name: string): CuteCollection;
   collections(): Promise<CollectionStats[]>;
   dropCollection(name: string): Promise<boolean>;
+  /** Runs CuteQL text with parameters, or a built {@link Query} (which carries its own). */
   query(query: string, parameters?: Record<string, unknown>): Promise<QueryResult>;
+  query(query: Query): Promise<QueryResult>;
   explain(query: string, parameters?: Record<string, unknown>): Promise<QueryPlan>;
   stats(): Promise<Stats>;
   compact(): Promise<number>;
 }
+
+// --- query builder ------------------------------------------------------------------------------
+//
+// Values are never written into the text: each becomes @p0, @p1… and is sent as a parameter.
+// Field paths, aliases and collection names must lex as a single CuteQL identifier — ASCII
+// letters, digits and '_', joined by '.', with [n] or [] after a segment — and not be a bare
+// keyword; anything else throws a RangeError.
+
+/** What a builder can bind: anything else throws a TypeError. Dates are sent as `{"$date": …}`. */
+export type BindableValue = string | number | boolean | null | Date | BindableValue[];
+
+/** A predicate. Build one from a {@link Field}; combine with {@link and}, {@link or}, {@link not}. */
+export declare class Condition {
+  private constructor();
+  and(...others: Condition[]): Condition;
+  or(...others: Condition[]): Condition;
+  not(): Condition;
+}
+
+/**
+ * A field path — `total`, `customer.address.city`, `lines[0].sku`, `lines[].sku`. A field holding
+ * an array compares element-wise: `field("tags").eq("promo")` means "tags contains promo".
+ */
+export declare class Field {
+  constructor(path: string);
+  readonly path: string;
+  /** `= value`; against `null`, `IS NULL`. */
+  eq(value: BindableValue): Condition;
+  /** `!= value`; against `null`, `IS NOT NULL`. */
+  ne(value: BindableValue): Condition;
+  lt(value: Exclude<BindableValue, null>): Condition;
+  le(value: Exclude<BindableValue, null>): Condition;
+  gt(value: Exclude<BindableValue, null>): Condition;
+  ge(value: Exclude<BindableValue, null>): Condition;
+  /** `IN` the values, sent as one array parameter. */
+  in(values: BindableValue[]): Condition;
+  notIn(values: BindableValue[]): Condition;
+  /** Inclusive at both ends. */
+  between(low: Exclude<BindableValue, null>, high: Exclude<BindableValue, null>): Condition;
+  notBetween(low: Exclude<BindableValue, null>, high: Exclude<BindableValue, null>): Condition;
+  /** A raw pattern: `%` and `_` are wildcards. Use the helpers below for user text. */
+  like(pattern: string): Condition;
+  notLike(pattern: string): Condition;
+  /** Text taken literally; its `%` and `_` are escaped. */
+  startsWith(text: string): Condition;
+  endsWith(text: string): Condition;
+  contains(text: string): Condition;
+  isNull(): Condition;
+  isNotNull(): Condition;
+  isMissing(): Condition;
+  isNotMissing(): Condition;
+}
+
+/** A SELECT over one collection. Each method changes the query and returns it. */
+export declare class Query {
+  constructor(collection: string);
+  readonly collection: string;
+  /** Strings are paths; an object maps aliases to paths: `select("code", { buyer: "customer.name" })`. */
+  select(...items: (string | Record<string, string>)[]): this;
+  /** Several conditions, or several calls, are combined with AND. */
+  where(...conditions: Condition[]): this;
+  orderBy(path: string, direction?: "asc" | "desc"): this;
+  limit(count: number): this;
+  offset(count: number): this;
+  /** The text and parameters, as `/v1/query` takes them. */
+  build(): { query: string; parameters: Record<string, unknown> };
+  /** The statement, with `@p0`-style placeholders for its values. */
+  toCuteQL(): string;
+  readonly parameters: Record<string, unknown>;
+  /** Runs on the server the query was created from (`collection.query()`). */
+  run(): Promise<QueryResult>;
+  explain(): Promise<QueryPlan>;
+}
+
+export declare function field(path: string): Field;
+export declare function and(...conditions: Condition[]): Condition;
+export declare function or(...conditions: Condition[]): Condition;
+export declare function not(condition: Condition): Condition;
+/** Escapes `\`, `%` and `_` exactly as the .NET LINQ provider does. */
+export declare function escapeLike(text: string): string;
 
 export default CuteClient;

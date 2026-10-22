@@ -70,8 +70,19 @@ internal sealed class CuteQueryTranslator(string collection, Type documentType, 
         Visit(call.Arguments[0], model);
 
         var name = call.Method.Name;
+
+        if (model.Expand is not null)
+        {
+            ApplyAfterSelectMany(call, model, name);
+            return;
+        }
+
         switch (name)
         {
+            case nameof(Queryable.SelectMany):
+                ApplySelectMany(call, model);
+                return;
+
             case nameof(Queryable.Where):
                 ApplyWhere(call, model);
                 return;
@@ -155,7 +166,7 @@ internal sealed class CuteQueryTranslator(string collection, Type documentType, 
 
             default:
                 throw new CuteTranslationException(
-                    $"'{name}' is not supported. Supported: Where, Select, OrderBy/ThenBy (and Descending), " +
+                    $"'{name}' is not supported. Supported: Where, Select, SelectMany, OrderBy/ThenBy (and Descending), " +
                     "Take, Skip, Distinct, GroupBy, Reverse, First/Single/Last (and OrDefault), ElementAt, " +
                     "Any, All, Count, LongCount, Sum, Average, Min, Max.");
         }
@@ -382,6 +393,210 @@ internal sealed class CuteQueryTranslator(string collection, Type documentType, 
         model.Materialize = materializer;
         model.ClientSelector = null;
         return true;
+    }
+
+    /// <summary>The alias the flattened array travels under; not a name a document field takes.</summary>
+    private const string ElementsAlias = "__elements";
+
+    /// <summary>
+    /// Flattens a stored array: <c>SelectMany(o =&gt; o.Lines)</c>, optionally with a result
+    /// selector that pairs each element with fields of its document.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The statement projects the array and, for a result selector, only the top-level fields of
+    /// the document that the selector reads. The engine still returns one row per document — it
+    /// has no unnest — so the flattening happens as the rows are materialised. That is the same
+    /// amount of data a hand-written <c>SELECT lines, code FROM orders</c> would fetch.
+    /// </para>
+    /// <para>
+    /// Every operator written before SelectMany applies to documents, which is exactly what the
+    /// statement does: a Where, OrderBy or Take there filters, sorts and pages documents, and the
+    /// flattened elements keep their document's order.
+    /// </para>
+    /// </remarks>
+    private void ApplySelectMany(MethodCallExpression call, CuteQueryModel model)
+    {
+        if (model.GroupBy.Count > 0 || model.HasProjection || model.ClientSelector is not null)
+        {
+            throw new CuteTranslationException(
+                "SelectMany has to come before Select and GroupBy: it flattens an array stored in the documents themselves.");
+        }
+
+        if (model.Distinct)
+        {
+            // Distinct over whole documents is all but a no-op, but over the narrowed projection
+            // this statement fetches it would collapse documents that merely share those fields.
+            throw new CuteTranslationException("Distinct before SelectMany is not supported.");
+        }
+
+        var collectionLambda = Lambda(call.Arguments[1]);
+        if (collectionLambda.Parameters.Count != 1)
+        {
+            throw new CuteTranslationException("The SelectMany overload that passes an index is not supported.");
+        }
+
+        var body = CuteExpressionTranslator.Strip(collectionLambda.Body);
+        if (!TryTranslate(TranslatorFor(collectionLambda, model), body, out var translated)
+            || translated is not PathExpression { Path.HasProjection: false } collection)
+        {
+            throw new CuteTranslationException(
+                $"SelectMany needs a stored array, such as o => o.Lines. '{body}' is not one.");
+        }
+
+        // Both overloads carry the element type second: SelectMany<TSource, TResult> and
+        // SelectMany<TSource, TCollection, TResult>.
+        var generics = call.Method.GetGenericArguments();
+        var sourceType = generics[0];
+        var elementType = generics[1];
+        var policy = model.Naming;
+
+        model.Projections.Clear();
+        model.ProjectionAliases.Clear();
+
+        if (call.Arguments.Count == 2)
+        {
+            model.Projections.Add(new CuteProjection(collection, ElementsAlias));
+            model.Expand = row => Elements(row[ElementsAlias], elementType, policy);
+            model.ResultType = elementType;
+            return;
+        }
+
+        var resultLambda = Lambda(call.Arguments[2]);
+        var resultSelector = resultLambda.Compile();
+        var fields = ParentFields(resultLambda, model);
+
+        // A selector that uses the document itself, rather than members of it, needs all of it.
+        if (fields is null)
+        {
+            model.Expand = row => Pair(row, collection.Path.Resolve(CuteValue.Object(row)));
+        }
+        else
+        {
+            model.Projections.Add(new CuteProjection(collection, ElementsAlias));
+            foreach (var field in fields)
+            {
+                model.Projections.Add(new CuteProjection(new PathExpression(CutePath.Parse(field)), field));
+            }
+
+            model.Expand = row => Pair(row, row[ElementsAlias]);
+        }
+
+        model.ResultType = resultLambda.ReturnType;
+
+        IEnumerable<object?> Pair(CuteObject row, CuteValue array)
+        {
+            // Mapping a partial row leaves the fields that were not fetched at their defaults,
+            // and those are exactly the fields the selector does not read.
+            var document = CuteMapper.FromValue(CuteValue.Object(row), sourceType, policy);
+            return Elements(array, elementType, policy).Select(element => resultSelector.DynamicInvoke(document, element));
+        }
+    }
+
+    /// <summary>
+    /// The top-level document fields a SelectMany result selector reads, or null when it uses the
+    /// document as a whole.
+    /// </summary>
+    private static List<string>? ParentFields(LambdaExpression resultLambda, CuteQueryModel model)
+    {
+        var parent = resultLambda.Parameters[0];
+        var translator = new CuteExpressionTranslator(model.Naming, [parent]);
+        var collector = new ParentFieldCollector(parent);
+        collector.Visit(resultLambda.Body);
+
+        if (collector.UsesWholeParent)
+        {
+            return null;
+        }
+
+        var fields = new List<string>();
+        foreach (var member in collector.Members)
+        {
+            if (translator.Translate(member) is PathExpression { Path.RootField: { } root } && !fields.Contains(root))
+            {
+                fields.Add(root);
+            }
+        }
+
+        return fields;
+    }
+
+    /// <summary>Finds the members read directly off the source parameter.</summary>
+    private sealed class ParentFieldCollector(System.Linq.Expressions.ParameterExpression parent) : ExpressionVisitor
+    {
+        internal List<MemberExpression> Members { get; } = [];
+
+        internal bool UsesWholeParent { get; private set; }
+
+        protected override Expression VisitMember(MemberExpression node)
+        {
+            if (node.Expression is { } owner && CuteExpressionTranslator.Strip(owner) == parent)
+            {
+                Members.Add(node);
+                return node;
+            }
+
+            return base.VisitMember(node);
+        }
+
+        protected override Expression VisitParameter(System.Linq.Expressions.ParameterExpression node)
+        {
+            // Reached only when the parameter is not the target of a member read.
+            if (node == parent)
+            {
+                UsesWholeParent = true;
+            }
+
+            return node;
+        }
+    }
+
+    /// <summary>The elements of a stored array, mapped to the element type.</summary>
+    private static IEnumerable<object?> Elements(CuteValue value, Type elementType, CuteNamingPolicy naming)
+    {
+        // A document without the array contributes nothing, as an empty one would. LINQ to
+        // Objects would throw on a null collection; a document store routinely has documents
+        // that never had the field.
+        if (value.IsNullOrMissing)
+        {
+            return [];
+        }
+
+        if (!value.IsArray)
+        {
+            throw new InvalidOperationException($"SelectMany expected an array, but a document stores {value.Type} there.");
+        }
+
+        return value.AsArray.Select(element => CuteMapper.FromValue(element, elementType, naming));
+    }
+
+    /// <summary>
+    /// The operators allowed once a SelectMany has flattened the rows: shaping each element.
+    /// </summary>
+    /// <remarks>
+    /// The statement has already run by the time elements exist, so a Where, OrderBy, Take or
+    /// Count here could only happen in memory — and Count in particular would be answered by the
+    /// engine as a count of documents, silently wrong. Refusing says so instead.
+    /// </remarks>
+    private static void ApplyAfterSelectMany(MethodCallExpression call, CuteQueryModel model, string name)
+    {
+        if (name == nameof(Queryable.Select))
+        {
+            var lambda = Lambda(call.Arguments[1]);
+            if (lambda.Parameters.Count != 1)
+            {
+                throw new CuteTranslationException("The Select overload that passes an index is not supported.");
+            }
+
+            model.ElementSelectors.Add(lambda.Compile());
+            model.ResultType = lambda.ReturnType;
+            return;
+        }
+
+        throw new CuteTranslationException(
+            $"'{name}' after SelectMany is not supported: the engine returns documents, and they are flattened " +
+            "after the statement runs. Filter, sort and page the documents before SelectMany " +
+            "(o.Lines.Any(l => …) filters on the elements), or call AsEnumerable() to continue in memory.");
     }
 
     /// <summary>Projects the result of a GroupBy: key parts and aggregates.</summary>

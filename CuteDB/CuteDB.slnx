@@ -12,7 +12,10 @@
     <Project Path="samples/CuteDB.Demo/CuteDB.Demo.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/CuteDB.Cli.Tests/CuteDB.Cli.Tests.csproj" />
     <Project Path="tests/CuteDB.Tests/CuteDB.Tests.csproj" />
+    <Project Path="tests/CuteDB.Server.Tests/CuteDB.Server.Tests.csproj" />
+    <Project Path="tests/CuteBrowser.Tests/CuteBrowser.Tests.csproj" />
   </Folder>
   <Folder Name="/benchmarks/">
     <Project Path="benchmarks/CuteDB.Benchmarks/CuteDB.Benchmarks.csproj" />

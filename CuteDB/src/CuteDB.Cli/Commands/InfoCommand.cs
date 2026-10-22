@@ -3,8 +3,11 @@ using Spectre.Console;
 namespace CuteDB.Cli.Commands;
 
 /// <summary>Shows what a database contains and what it costs to keep open.</summary>
-internal sealed class InfoCommand : DatabaseCommand<DatabaseSettings>
+internal sealed class InfoCommand(IAnsiConsole console) : DatabaseCommand<DatabaseSettings>(console)
 {
+    /// <inheritdoc />
+    protected override bool OnlyReads(DatabaseSettings settings) => true;
+
     /// <inheritdoc />
     protected override int Run(IAnsiConsole console, CuteDatabase database, DatabaseSettings settings)
     {

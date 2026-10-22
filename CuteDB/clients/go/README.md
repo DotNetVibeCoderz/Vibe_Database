@@ -56,6 +56,36 @@ var order Order
 err := cutedb.Decode(result.Rows[0], &order)
 ```
 
+## Query builder
+
+Concatenating a filter is how injection bugs are written. The builder binds every value as a
+parameter instead:
+
+```go
+F := cutedb.Field
+
+q := client.Collection("orders").Query().
+    Where(F("address.city").Eq(city),
+        cutedb.Or(F("status").Eq("paid"), F("total").Between(100000, 500000))).
+    Where(F("code").StartsWith(userText)).          // % and _ in userText stay literal
+    Select("code", "total").SelectAs("customer.name", "buyer").
+    OrderByDesc("total").
+    Limit(20).Offset(40)
+
+text, params, err := q.Build()  // ... WHERE address.city = @p0 AND (status = @p1 OR total BETWEEN @p2 AND @p3) ...
+result, err := q.Run(ctx)       // or client.Run(ctx, cutedb.From("orders")...)
+```
+
+Conditions: `Eq Ne Lt Le Gt Ge`, `In`/`NotIn` (values or one slice), `Between`/`NotBetween`,
+`Like`/`NotLike` (raw pattern), `StartsWith`/`EndsWith`/`Contains` (escaped), `IsNull`/`IsNotNull`,
+`IsMissing`/`IsNotMissing`; combine with `And`, `Or`, `Not`. `Eq(nil)` becomes `IS NULL`.
+
+Errors are kept and returned by `Build`, `ToCuteQL` and `Run`, so a chain needs one check; they
+wrap `cutedb.ErrInvalidQuery`. Field paths, aliases and collection names must be one CuteQL
+identifier — ASCII letters, digits and `_`, joined by `.`, with `[n]` or `[]` after a segment, and
+not a bare keyword. Values may be strings, numbers, bools, nil, `json.Number`, `time.Time` (sent as
+UTC) or slices of those.
+
 ## Notes
 
 - `Get`, `Delete` and `DropIndex` treat 404 as "not there" rather than as an error.

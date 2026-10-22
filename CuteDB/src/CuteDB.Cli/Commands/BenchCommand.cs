@@ -22,7 +22,7 @@ namespace CuteDB.Cli.Commands;
 /// people is not the absolute throughput but whether the native library loaded at all.
 /// </para>
 /// </remarks>
-internal sealed class BenchCommand : Command<BenchCommand.Settings>
+internal sealed class BenchCommand(IAnsiConsole console) : Command<BenchCommand.Settings>
 {
     internal sealed class Settings : CommandSettings
     {
@@ -42,7 +42,6 @@ internal sealed class BenchCommand : Command<BenchCommand.Settings>
     /// <inheritdoc />
     protected override int Execute(CommandContext context, Settings settings, CancellationToken cancellationToken)
     {
-        var console = AnsiConsole.Console;
         if (!settings.Quiet)
         {
             Theme.WriteBanner(console);

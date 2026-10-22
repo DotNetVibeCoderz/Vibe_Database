@@ -3,8 +3,29 @@
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <RootNamespace>CuteDB.Browser</RootNamespace>
+    <!--
+      The package is CuteDB.Browser, to sit with the other CuteDB.* packages, but the assembly stays
+      CuteBrowser: the install scripts, the Start-menu shortcut and the CuteBrowser.dll.config the
+      settings are read from all carry that name. It must never differ from "CuteDB" by case alone
+      — the CLI found out why, when cutedb.dll and CuteDB.dll collided in one directory.
+    -->
     <AssemblyName>CuteBrowser</AssemblyName>
-    <IsPackable>false</IsPackable>
+    <RollForward>latestMajor</RollForward>
+
+    <!--
+      Shipped as a global tool: `dotnet tool install -g CuteDB.Browser` puts `cutebrowser` on the
+      PATH. The per-platform archives on the GitHub release are the other channel, for a machine
+      with no .NET SDK; both are built from this project.
+    -->
+    <IsPackable>true</IsPackable>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>cutebrowser</ToolCommandName>
+    <PackageId>CuteDB.Browser</PackageId>
+    <Title>CuteDB Browser</Title>
+    <Description>CuteDB Browser: a desktop workbench for CuteDB databases. Browse collections and their inferred fields, write CuteQL or LINQ with the generated CuteQL and the query plan shown beside the rows, and ask Jack, an LLM assistant that reads the real schema before writing a query. Built on Avalonia.</Description>
+    <PackageReadmeFile>PACKAGE.md</PackageReadmeFile>
+    <PackageIcon>icon.png</PackageIcon>
+    <PackageTags>$(PackageTags);dotnet-tool;gui;avalonia;workbench;browser</PackageTags>
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
@@ -30,6 +51,31 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src/CuteDB/CuteDB.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="PACKAGE.md" Pack="true" PackagePath="\" />
+    <!-- Rendered from assets/icons/cutedb-browser.svg by assets/icons/make.js. -->
+    <None Include="../../assets/icons/cutedb-browser.png" Pack="true" PackagePath="icon.png" Visible="false" />
+    <InternalsVisibleTo Include="CuteBrowser.Tests" />
+  </ItemGroup>
+
+  <!--
+    The native accelerator, for every platform the CuteDB package ships it for. A tool package is
+    the publish output of a RID-less build, and CuteDB.csproj copies only the build machine's own
+    library into that, so the other five are added here under runtimes/<rid>/native/ — where
+    Program.ResolveNativeAccelerator looks. A RID-specific publish (the release archives) skips
+    this: it gets its one library beside the executable, by setting CuteDbNativeRid.
+    Whatever is not staged in native/artifacts is simply left out; the browser runs without it.
+  -->
+  <ItemGroup Condition="'$(RuntimeIdentifier)' == ''">
+    <CuteBrowserNative Include="$(MSBuildThisFileDirectory)../../native/artifacts/*/*cutedb_core.dll;$(MSBuildThisFileDirectory)../../native/artifacts/*/*cutedb_core.so;$(MSBuildThisFileDirectory)../../native/artifacts/*/*cutedb_core.dylib" />
+    <None Include="@(CuteBrowserNative)">
+      <Link>runtimes/$([System.IO.Path]::GetFileName($([System.IO.Path]::GetDirectoryName('%(FullPath)'))))/native/%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      <Visible>false</Visible>
+    </None>
   </ItemGroup>
 
   <ItemGroup>

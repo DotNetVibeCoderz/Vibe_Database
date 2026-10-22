@@ -10,7 +10,7 @@ namespace CuteDB.Cli.Commands;
 internal class DatabaseSettings : CommandSettings
 {
     [CommandArgument(0, "<database>")]
-    [Description("Path to the .cute database file. Created if it does not exist.")]
+    [Description("Path to the .cute database file. Commands that write create it if it does not exist.")]
     public string Database { get; init; } = string.Empty;
 
     [CommandOption("--read-only")]
@@ -26,9 +26,15 @@ internal class DatabaseSettings : CommandSettings
     public bool Quiet { get; init; }
 
     /// <summary>Opens the database described by these settings.</summary>
-    internal CuteDatabase Open() => CuteDatabase.Open(Database, new CuteDatabaseOptions
+    /// <param name="forceReadOnly">
+    /// Set by commands that only ever read. Besides making "this cannot write" true rather than
+    /// merely intended, it changes what a mistyped path does: a read-write open creates the file,
+    /// so <c>cutedb info shpo.cute</c> would leave an empty database behind and then report that
+    /// it is empty, where a read-only open says there is no database there.
+    /// </param>
+    internal CuteDatabase Open(bool forceReadOnly = false) => CuteDatabase.Open(Database, new CuteDatabaseOptions
     {
-        ReadOnly = ReadOnly,
+        ReadOnly = ReadOnly || forceReadOnly,
         Durability = Durability?.ToLowerInvariant() switch
         {
             "buffered" => CuteDurability.Buffered,
@@ -50,25 +56,32 @@ internal class DatabaseSettings : CommandSettings
 /// Base class that opens the database, prints the banner and funnels failures through one place.
 /// </summary>
 /// <remarks>
+/// <para>
 /// Commands return an exit code and never throw: a CLI that dumps a stack trace at someone who
 /// mistyped a field name is a CLI they stop trusting. Everything CuteDB raises deliberately
 /// carries a message meant for a person, and <see cref="Theme.WriteError"/> shows it as-is.
+/// </para>
+/// <para>
+/// The console arrives through the constructor rather than from the static
+/// <see cref="AnsiConsole.Console"/>. Spectre registers the app's console with its type resolver,
+/// so in the real tool this is the terminal, and under test it is a <c>TestConsole</c> whose
+/// output can be read back — which is the only way the commands can be tested in-process.
+/// </para>
 /// </remarks>
-internal abstract class DatabaseCommand<TSettings> : Command<TSettings>
+internal abstract class DatabaseCommand<TSettings>(IAnsiConsole console) : Command<TSettings>
     where TSettings : DatabaseSettings
 {
     /// <inheritdoc />
     protected override int Execute(CommandContext context, TSettings settings, CancellationToken cancellationToken)
     {
-        var console = AnsiConsole.Console;
-        if (!settings.Quiet)
+        if (!settings.Quiet && !WritesData(settings))
         {
             Theme.WriteBanner(console, compact: true);
         }
 
         try
         {
-            using var database = settings.Open();
+            using var database = settings.Open(forceReadOnly: OnlyReads(settings));
             return Run(console, database, settings);
         }
         catch (Exception error) when (error is CuteDbException or IOException or UnauthorizedAccessException)
@@ -77,6 +90,20 @@ internal abstract class DatabaseCommand<TSettings> : Command<TSettings>
             return 1;
         }
     }
+
+    /// <summary>
+    /// True when the output is data for another program — JSON, CSV, an export on standard
+    /// output — rather than a report for a person.
+    /// </summary>
+    /// <remarks>
+    /// The banner is suppressed then, without needing <c>--quiet</c>: it is written to the same
+    /// stream, so <c>cutedb export shop.cute orders &gt; orders.jsonl</c> used to start the file
+    /// with the wordmark, and importing that file back failed on its first line.
+    /// </remarks>
+    protected virtual bool WritesData(TSettings settings) => false;
+
+    /// <summary>True when this invocation never modifies the database, so it is opened read-only.</summary>
+    protected virtual bool OnlyReads(TSettings settings) => false;
 
     /// <summary>Runs the command against an open database.</summary>
     protected abstract int Run(IAnsiConsole console, CuteDatabase database, TSettings settings);

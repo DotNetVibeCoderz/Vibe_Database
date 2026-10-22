@@ -39,7 +39,7 @@
     <Company>Gravicode Studios</Company>
     <Authors>Gravicode Studios, Kang Fadhil</Authors>
     <Copyright>Copyright (c) 2026 Gravicode Studios</Copyright>
-    <Version>2.1.0</Version>
+    <Version>2.2.0</Version>
 
     <PackageProjectUrl>https://github.com/DotNetVibeCoderz/Vibe_Database/tree/main/CuteDB</PackageProjectUrl>
     <RepositoryUrl>https://github.com/DotNetVibeCoderz/Vibe_Database/tree/main/CuteDB</RepositoryUrl>

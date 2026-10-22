@@ -1,6 +1,6 @@
 {
   "name": "cutedb",
-  "version": "2.0.1",
+  "version": "2.2.0",
   "description": "Node.js client for CuteDB, the cute embedded document database.",
   "type": "module",
   "main": "./src/index.js",

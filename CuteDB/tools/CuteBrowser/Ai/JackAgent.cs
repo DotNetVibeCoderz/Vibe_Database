@@ -333,15 +333,32 @@ public sealed partial class JackAgent : IDisposable
                 httpClient: http);
         }
 
-        builder.Plugins.AddFromObject(new DatabasePlugin(_workspace, _log), "cutedb");
-        builder.Plugins.AddFromObject(new ToolboxPlugin(_log), "toolbox");
-
-        if (_settings.WebToolsEnabled)
-        {
-            builder.Plugins.AddFromObject(_web, "web");
-        }
-
+        AddTools(builder.Plugins, _workspace, _settings, _log, _web);
         return builder.Build();
+    }
+
+    /// <summary>
+    /// Registers every tool Jack is offered.
+    /// </summary>
+    /// <remarks>
+    /// Separate from <see cref="BuildKernel"/> so the tests can build exactly the tool set the model
+    /// sees without a provider, a key or a network: a tool with no description, or a duplicate
+    /// name, is rejected by some providers and silently ignored by others.
+    /// </remarks>
+    internal static void AddTools(
+        IKernelBuilderPlugins plugins,
+        Workspace workspace,
+        BrowserSettings settings,
+        ActivityLog log,
+        WebPlugin web)
+    {
+        plugins.AddFromObject(new DatabasePlugin(workspace, log), "cutedb");
+        plugins.AddFromObject(new ToolboxPlugin(log), "toolbox");
+
+        if (settings.WebToolsEnabled)
+        {
+            plugins.AddFromObject(web, "web");
+        }
     }
 
     private PromptExecutionSettings ExecutionSettings(ProviderProfile profile, bool withTemperature = true)

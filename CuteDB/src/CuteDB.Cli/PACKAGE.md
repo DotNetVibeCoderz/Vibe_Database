@@ -14,6 +14,7 @@ cutedb seed shop.cute --scale demo       # 55,824 sample documents
 cutedb info shop.cute                    # collections, indexes, size, memory
 cutedb shell shop.cute                   # interactive CuteQL
 cutedb query shop.cute "SELECT address.city, COUNT(*) FROM orders GROUP BY address.city"
+cutedb explain shop.cute "SELECT * FROM orders WHERE address.city = 'Bandung'" --analyze
 cutedb export shop.cute orders --out orders.jsonl
 cutedb import shop.cute orders.jsonl --collection orders --decimal
 cutedb index create shop.cute orders address.city
@@ -28,6 +29,9 @@ cutedb bench --rows 250000
 - **`query`** — one statement, printed as a table, JSON, JSON Lines or CSV. `--explain` shows the
   access path instead of running it. `-p name=value` binds parameters, so user input never becomes
   syntax.
+- **`explain`** — how the planner would find a `SELECT`'s rows: index seek or scan, documents
+  examined and matched, and whether the native scanner ran. `--analyze` also runs it for rows
+  returned and engine time; `--format json` for scripts. Writes are refused, never executed.
 - **`import` / `export`** — JSON, JSON Lines or CSV. `--decimal` reads money exactly rather than as
   doubles; `--lossless` writes dates, decimals and ids in a form that round-trips.
 - **`index`** — create, list and drop secondary indexes, with key and entry counts.

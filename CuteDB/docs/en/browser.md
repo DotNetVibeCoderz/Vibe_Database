@@ -9,8 +9,12 @@ writes queries against the schema that is really there.
 ![The workbench](../images/browser/01-workbench.png)
 
 ```bash
-dotnet run --project tools/CuteBrowser
+dotnet tool install -g CuteDB.Browser
+cutebrowser
 ```
+
+From a clone of the repository, `dotnet run --project tools/CuteBrowser` does the same. Other ways
+to install it are [below](#installing).
 
 ---
 
@@ -75,8 +79,9 @@ as you typed it and the failure is reported — a format command that mangles te
 through typing is worse than no format command.
 
 A tab may hold several statements separated by semicolons. They all run, in order, and the grid
-shows the last one that returned rows — so "seed, then select" works in one tab. The split survives
-a semicolon inside a quoted string.
+shows the last one that returned rows — so "seed, then select" works in one tab. The split follows
+the lexer's own rules: a semicolon inside a quoted string or a comment does not end a statement, and
+a statement you have commented out is skipped rather than run as an empty one.
 
 ---
 
@@ -173,7 +178,7 @@ previous instructions" is a page, not an authority.
 
 ## Providers
 
-Six, all configured in `Tools ▸ Settings` and stored in `app.config`:
+Six, all configured in `Tools ▸ Settings` and stored in your [settings file](#settings):
 
 | Provider | Notes |
 | --- | --- |
@@ -184,7 +189,7 @@ Six, all configured in `Tools ▸ Settings` and stored in `app.config`:
 | **Ollama** | Local, no key needed |
 | **Compatible** | Anything else that speaks OpenAI's API — DeepSeek, Groq, Together, OpenRouter, vLLM |
 
-Keys may be left blank in `app.config` and supplied through the environment instead, so a shared
+Keys may be left blank in the settings and supplied through the environment instead, so a shared
 checkout never carries anybody's key:
 
 ```
@@ -254,8 +259,15 @@ not another.
 
 ## Settings
 
-`Tools ▸ Settings` writes back to `app.config` beside the executable, and everything in that file is
-editable by hand too.
+`Tools ▸ Settings` writes to a settings file of your own, in the application-data folder:
+`%APPDATA%\CuteDB\Browser\app.config` on Windows, `~/.config/CuteDB/Browser/app.config` elsewhere.
+`cutebrowser --help` prints the exact path. It is an ordinary `app.config` and editable by hand.
+
+It holds only what you changed. The defaults ship beside the executable in `CuteBrowser.dll.config`,
+which the app reads and never writes — so `dotnet tool update` or a newer archive keeps your
+settings, and an improved default still reaches every setting you never touched. Set
+`CUTEBROWSER_CONFIG` to a file path to keep the settings somewhere else, such as beside a portable
+copy on a USB stick.
 
 | Group | Settings |
 | --- | --- |
@@ -264,14 +276,43 @@ editable by hand too.
 | Tools | Whether the web tools are offered at all, and the Tavily key |
 | Workbench | Line numbers, word wrap, editor font size, rows in the grid |
 
-A failure to save is reported rather than thrown — a read-only install directory is a real
-situation, and losing what you just typed is worse than the app forgetting it after you close it.
+A failure to save is reported rather than thrown — a read-only home directory is a real situation,
+and losing what you just typed is worse than the app forgetting it after you close it.
 
 ---
 
 ## Installing
 
-**Windows:**
+**As a .NET tool** — the way to start, on any platform with .NET 10:
+
+```bash
+dotnet tool install -g CuteDB.Browser
+cutebrowser
+
+dotnet tool update -g CuteDB.Browser      # later; your settings are kept
+```
+
+One package for every platform, carrying the native accelerator for all six runtimes. On Linux,
+Avalonia needs the usual X11 libraries — `libx11-6 libice6 libsm6 libfontconfig1` on Debian and
+Ubuntu.
+
+**As a self-contained archive** — for a machine with no .NET at all. Every
+[GitHub release](https://github.com/DotNetVibeCoderz/Vibe_Database/releases) of CuteDB carries one
+per platform:
+
+| Platform | Archive |
+| --- | --- |
+| Windows | `cutebrowser-<version>-win-x64.zip`, `…-win-arm64.zip` |
+| Linux | `cutebrowser-<version>-linux-x64.tar.gz`, `…-linux-arm64.tar.gz` |
+| macOS | `cutebrowser-<version>-osx-arm64.tar.gz`, `…-osx-x64.tar.gz` |
+
+Unpack it anywhere and run `CuteBrowser` (`CuteBrowser.exe` on Windows). The archives are not
+code-signed: Windows SmartScreen asks once, and macOS quarantines a downloaded copy until
+`xattr -dr com.apple.quarantine <folder>` clears it.
+
+**From the repository**, with the install scripts, when you are working on the browser itself.
+
+Windows:
 
 ```powershell
 ./tools/CuteBrowser/scripts/install.ps1
@@ -280,7 +321,7 @@ situation, and losing what you just typed is worse than the app forgetting it af
 
 Publishes to `%LOCALAPPDATA%\CuteBrowser` and puts a shortcut on the Start menu.
 
-**Linux and macOS:**
+Linux and macOS:
 
 ```bash
 chmod +x tools/CuteBrowser/scripts/install.sh
@@ -292,16 +333,18 @@ Publishes to `~/.local/share/cutebrowser`, links `cutebrowser` into `~/.local/bi
 desktop entry on Linux. It names any missing X11 libraries rather than leaving you to find out at
 the first launch.
 
-Both scripts need the .NET 10 SDK and nothing else, both preserve an existing settings file across a
-reinstall, and `--self-contained` bundles the runtime for a machine that has no .NET.
+Both scripts need the .NET 10 SDK and nothing else, and `--self-contained` bundles the runtime for a
+machine that has no .NET. Settings live in the application-data folder rather than the install
+directory, so a reinstall never touches them.
 
 ---
 
 ## Checking the assistant without a window
 
 ```bash
-CuteBrowser --ask "Which city brought in the most revenue? Give me the CuteQL."
-CuteBrowser --ask "How many orders?" --db shop.cute
+cutebrowser --ask "Which city brought in the most revenue? Give me the CuteQL."
+cutebrowser --ask "How many orders?" --db shop.cute
+cutebrowser --help        # the switches, where settings live, whether the accelerator loaded
 ```
 
 One turn through the same agent, the same plugins and the same settings the panel uses, printed to
@@ -311,6 +354,10 @@ screenshot, and all of it breaks quietly.
 
 Without `--db` it seeds a temporary database from the Retail template, so the tools have something
 to find.
+
+On Windows the browser is a windowed program, and a terminal does not wait for one. The output still
+arrives, but after the prompt; in PowerShell, `cutebrowser --ask "…" | Out-Host` waits for the turn
+to finish and prints it in place.
 
 ---
 

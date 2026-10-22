@@ -118,6 +118,7 @@ jobs:
         run: |
           dotnet build CuteDB.slnx -c Release
           dotnet test tests/CuteDB.Tests -c Release --no-build
+          dotnet test tests/CuteBrowser.Tests -c Release --no-build
 
       - name: Pack
         run: dotnet pack CuteDB.slnx -c Release -o artifacts/packages
@@ -137,10 +138,98 @@ jobs:
             echo "  $rid ok"
           done
 
+      - name: Check the browser tool carries every runtime, and starts
+        # CuteDB.Browser is one package for every platform, so it carries all six accelerator
+        # builds under runtimes/<rid>/native. Installing it and asking for --help is the cheapest
+        # proof that the tool shim, the settings and the native resolver all work from the tool
+        # store, and on this runner the accelerator line must name the linux-x64 library.
+        run: |
+          version=$(grep -oPm1 '(?<=<Version>)[^<]+' Directory.Build.props)
+          nupkg="artifacts/packages/CuteDB.Browser.$version.nupkg"
+          if [ ! -f "$nupkg" ]; then
+            echo "::error::$nupkg was not produced."
+            exit 1
+          fi
+          for rid in win-x64 win-arm64 linux-x64 linux-arm64 osx-x64 osx-arm64; do
+            if ! unzip -l "$nupkg" | grep -q "tools/net10.0/any/runtimes/$rid/native/"; then
+              echo "::error::$nupkg is missing runtimes/$rid/native"
+              exit 1
+            fi
+            echo "  $rid ok"
+          done
+
+          # Only the local packages, so a same-numbered package already on nuget.org cannot be
+          # the one that gets tested.
+          printf '<configuration><packageSources><clear /><add key="local" value="%s" /></packageSources></configuration>\n' \
+            "$PWD/artifacts/packages" > /tmp/browser-nuget.config
+
+          dotnet tool install --tool-path /tmp/browser-tool --configfile /tmp/browser-nuget.config \
+            CuteDB.Browser --version "$version"
+          CUTEBROWSER_CONFIG=/tmp/browser-tool-settings.config /tmp/browser-tool/cutebrowser --help | tee /tmp/browser-help.txt
+          if ! grep -q "accelerator : cutedb_core" /tmp/browser-help.txt; then
+            echo "::error::The installed browser tool did not load the native accelerator."
+            exit 1
+          fi
+
+      # -------------------------------------------------------------------------------------------
+      # CuteDB Browser as self-contained archives, for a machine with no .NET at all. Each is a
+      # RID-specific publish, and CuteDbNativeRid makes CuteDB copy that RID's accelerator beside
+      # the executable rather than the build machine's.
+      # -------------------------------------------------------------------------------------------
+      - name: Publish the browser archives
+        run: |
+          version=$(grep -oPm1 '(?<=<Version>)[^<]+' Directory.Build.props)
+          mkdir -p artifacts/browser artifacts/browser-publish
+
+          for rid in win-x64 win-arm64 linux-x64 linux-arm64 osx-x64 osx-arm64; do
+            name="cutebrowser-$version-$rid"
+            out="artifacts/browser-publish/$name"
+            dotnet publish tools/CuteBrowser -c Release -r "$rid" --self-contained true \
+              -p:CuteDbNativeRid="$rid" -o "$out"
+
+            case "$rid" in
+              win-*) exe=CuteBrowser.exe; native=cutedb_core.dll ;;
+              osx-*) exe=CuteBrowser;     native=libcutedb_core.dylib ;;
+              *)     exe=CuteBrowser;     native=libcutedb_core.so ;;
+            esac
+
+            # An archive without its executable, its settings defaults or its accelerator would
+            # still unpack and look fine, so each is checked by name before anything is archived.
+            for file in "$exe" CuteBrowser.dll.config "$native"; do
+              if [ ! -f "$out/$file" ]; then
+                echo "::error::The $rid archive is missing $file."
+                exit 1
+              fi
+            done
+
+            if [[ "$rid" == win-* ]]; then
+              (cd artifacts/browser-publish && zip -qr "../browser/$name.zip" "$name")
+            else
+              # tar keeps the executable bit; a zip made here would not, and the first launch on
+              # Linux or macOS would be "Permission denied" again.
+              chmod +x "$out/$exe"
+              tar -czf "artifacts/browser/$name.tar.gz" -C artifacts/browser-publish "$name"
+            fi
+            echo "  $rid ok"
+          done
+
+          ls -la artifacts/browser
+          count=$(ls artifacts/browser | wc -l)
+          if [ "$count" -ne 6 ]; then
+            echo "::error::Expected 6 browser archives, found $count."
+            exit 1
+          fi
+
       - uses: actions/upload-artifact@v4
         with:
           name: packages
           path: CuteDB/artifacts/packages/*
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: browser-archives
+          path: CuteDB/artifacts/browser/*
+          if-no-files-found: error
 
       - name: Publish to NuGet
         if: startsWith(github.ref, 'refs/tags/') && github.event.inputs.dry-run != 'true'
@@ -157,10 +246,16 @@ jobs:
             --skip-duplicate
 
       - name: Draft the GitHub release
+        # The NuGet packages and the six browser archives. fail_on_unmatched_files keeps a release
+        # from being drafted with a pattern that silently matched nothing.
         if: startsWith(github.ref, 'refs/tags/') && github.event.inputs.dry-run != 'true'
         uses: softprops/action-gh-release@v2
         with:
-          files: CuteDB/artifacts/packages/*.nupkg
+          files: |
+            CuteDB/artifacts/packages/*.nupkg
+            CuteDB/artifacts/browser/*.zip
+            CuteDB/artifacts/browser/*.tar.gz
+          fail_on_unmatched_files: true
           generate_release_notes: true
           draft: true
 

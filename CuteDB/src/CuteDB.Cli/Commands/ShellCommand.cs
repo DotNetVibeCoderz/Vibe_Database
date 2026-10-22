@@ -20,7 +20,7 @@ namespace CuteDB.Cli.Commands;
 /// rest on the next open.
 /// </para>
 /// </remarks>
-internal sealed class ShellCommand : DatabaseCommand<ShellCommand.Settings>
+internal sealed class ShellCommand(IAnsiConsole console) : DatabaseCommand<ShellCommand.Settings>(console)
 {
     internal sealed class Settings : DatabaseSettings
     {

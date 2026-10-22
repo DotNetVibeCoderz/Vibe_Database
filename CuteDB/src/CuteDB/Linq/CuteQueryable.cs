@@ -197,6 +197,25 @@ public sealed class CuteQueryProvider : IQueryProvider
     {
         var materialized = new List<object?>(result.Rows.Count);
 
+        if (model.Expand is { } expand)
+        {
+            foreach (var row in result.Rows)
+            {
+                foreach (var element in expand(row))
+                {
+                    var shaped = element;
+                    foreach (var elementSelector in model.ElementSelectors)
+                    {
+                        shaped = elementSelector.DynamicInvoke(shaped);
+                    }
+
+                    materialized.Add(shaped);
+                }
+            }
+
+            return materialized;
+        }
+
         if (model.ClientSelector is { } selector)
         {
             // The projection could not be pushed down, so documents come back whole and are

@@ -11,7 +11,7 @@
     -->
     <AvaloniaVersion>11.3.13</AvaloniaVersion>
     <!--
-      Pinned to 0.55.0 across all three Spectre packages because Spectre.Console.Cli — which the
+      Pinned to 0.55.0 across all the Spectre packages because Spectre.Console.Cli — which the
       command routing is built on — has no release past that, while Spectre.Console itself has
       moved on to 0.57. Keeping them on one version avoids pairing a CLI host with a console
       library it was never compiled against.
@@ -24,6 +24,9 @@
     <PackageVersion Include="Spectre.Console" Version="$(SpectreVersion)" />
     <PackageVersion Include="Spectre.Console.Cli" Version="$(SpectreVersion)" />
     <PackageVersion Include="Spectre.Console.Json" Version="$(SpectreVersion)" />
+    <!-- The CLI's tests: TestConsole, and CommandAppTester to drive the real command tree. -->
+    <PackageVersion Include="Spectre.Console.Testing" Version="$(SpectreVersion)" />
+    <PackageVersion Include="Spectre.Console.Cli.Testing" Version="$(SpectreVersion)" />
 
     <!-- Tests and benchmarks -->
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
@@ -32,6 +35,13 @@
     <PackageVersion Include="BenchmarkDotNet" Version="0.15.8" />
     <PackageVersion Include="LiteDB" Version="5.0.21" />
     <PackageVersion Include="Newtonsoft.Json" Version="13.0.4" />
+    <!--
+      The server tests host the real application in memory. TestHost rather than
+      Microsoft.AspNetCore.Mvc.Testing: WebApplicationFactory re-runs the entry point with host
+      arguments the server's command line rejects, so the tests build the app through ServerHost
+      and need only the in-memory server. Kept on the same 10.0.x line as the shared framework.
+    -->
+    <PackageVersion Include="Microsoft.AspNetCore.TestHost" Version="10.0.12" />
 
     <!-- Avalonia demo and the offscreen screenshot renderer -->
     <PackageVersion Include="Avalonia" Version="$(AvaloniaVersion)" />

@@ -258,6 +258,28 @@ relational store would need a join for:
 | `o.Lines.Count()` | `ARRAY_LENGTH(lines)` |
 | `o.Lines.Count` (the property) | `LENGTH(lines)` |
 
+### Flattening an array: `SelectMany`
+
+`SelectMany` turns one row per order into one row per line. The statement fetches only the array —
+and, with a result selector, only the top-level fields of the order that the selector reads:
+
+```csharp
+orders.Query<Order>()
+    .Where(o => o.Customer.Tier == "gold")
+    .SelectMany(o => o.Lines, (o, l) => new { o.Code, City = o.Address.City, l.Sku, l.Qty });
+// SELECT lines AS __elements, code, address FROM orders WHERE customer.tier = 'gold'
+```
+
+The engine has no unnest, so it still returns one row per document and the array is flattened as
+the rows are materialised. Everything written *before* `SelectMany` — `Where`, `OrderBy`, `Take` —
+runs on the engine over documents, and the elements keep their document's order. A document with
+no array, or a null one, contributes nothing.
+
+After `SelectMany` only `Select` is allowed. A `Where`, `Take` or `Count` there could only run in
+memory, and `Count` would be answered by the engine as a count of *documents* — so they raise
+`CuteTranslationException` instead. Filter documents before flattening (`o.Lines.Any(l => …)`), or
+call `.AsEnumerable()` to say out loud that the rest runs in memory.
+
 ### Projection
 
 The projection is pushed into the statement, so only the fields you asked for come back:
