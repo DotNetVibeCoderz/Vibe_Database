@@ -87,7 +87,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/DotNetVibeCoderz/Vibe_Database/CuteDB/clients/go/cutedb"
+	"github.com/DotNetVibeCoderz/Vibe_Database/CuteDB/clients/go/v2/cutedb"
 )
 
 func main() {

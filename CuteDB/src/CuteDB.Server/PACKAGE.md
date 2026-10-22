@@ -62,7 +62,7 @@ any origin. One process owns the file; do not point two servers at the same data
 ## Clients
 
 - **Python** — `pip install cutedb`, standard library only
-- **Go** — `go get github.com/DotNetVibeCoderz/Vibe_Database/CuteDB/clients/go`
+- **Go** — `go get github.com/DotNetVibeCoderz/Vibe_Database/CuteDB/clients/go/v2@v2.2.0`
 - **Node.js** — `npm install cutedb`, ESM, Node 18+
 
 ## Links

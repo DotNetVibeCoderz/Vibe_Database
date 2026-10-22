@@ -6,7 +6,7 @@ embedded document database. Talks to `cutedb-server` over HTTP.
 Built by Gravicode Studios, led by Kang Fadhil.
 
 ```bash
-go get github.com/DotNetVibeCoderz/Vibe_Database/CuteDB/clients/go
+go get github.com/DotNetVibeCoderz/Vibe_Database/CuteDB/clients/go/v2@v2.2.0
 ```
 
 Standard library only. Go 1.22+.
@@ -14,7 +14,7 @@ Standard library only. Go 1.22+.
 ## Use
 
 ```go
-import "github.com/DotNetVibeCoderz/Vibe_Database/CuteDB/clients/go/cutedb"
+import "github.com/DotNetVibeCoderz/Vibe_Database/CuteDB/clients/go/v2/cutedb"
 
 client := cutedb.New("http://127.0.0.1:8420", cutedb.WithAPIKey("secret"))
 orders := client.Collection("orders")

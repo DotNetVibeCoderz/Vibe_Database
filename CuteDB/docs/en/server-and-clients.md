@@ -168,7 +168,7 @@ with CuteClient("http://127.0.0.1:8420", api_key="secret") as db:
 ## Go
 
 ```bash
-go get github.com/DotNetVibeCoderz/Vibe_Database/CuteDB/clients/go
+go get github.com/DotNetVibeCoderz/Vibe_Database/CuteDB/clients/go/v2@v2.2.0
 ```
 
 Standard library only. Every method takes a `context.Context`.

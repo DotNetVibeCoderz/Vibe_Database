@@ -173,7 +173,7 @@ melempar galat — "memang tidak ada" itu jawaban, bukan kesalahan.
 ## Go
 
 ```bash
-go get github.com/DotNetVibeCoderz/Vibe_Database/CuteDB/clients/go
+go get github.com/DotNetVibeCoderz/Vibe_Database/CuteDB/clients/go/v2@v2.2.0
 ```
 
 Hanya pustaka standar. Setiap metode menerima `context.Context`.
