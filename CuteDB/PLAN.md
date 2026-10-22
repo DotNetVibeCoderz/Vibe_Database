@@ -13,17 +13,22 @@ The checklist that tracks execution against this is [Progress.md](Progress.md).
 
 ## Where we are
 
-**2.1.0 released. The 2.2 work is merged and unreleased.**
+**2.2.0 released, everywhere at once.**
 
 | | Version | State |
 | --- | --- | --- |
-| Repository | 2.2.0 | Explain, query builders, paging, browser as a tool |
-| NuGet `CuteDB` | 2.1.0 → 2.2.0 | `SelectMany`; unique-index fix |
-| NuGet `CuteDB.Cli`, `CuteDB.Server` | 2.1.0 → 2.2.0 | `explain`; paging and NDJSON |
-| NuGet `CuteDB.Browser` | 2.2.0 | New in 2.2 |
-| npm `cutedb` | 2.0.1 | 2.2.0 in the repository with the query builder; not yet published |
-| PyPI `cutedb` | 2.0.0 | 2.2.0 in the repository with the query builder; not yet published |
-| Go client | — | Module path resolves from the repository |
+| Repository | 2.2.0 | Tagged `cutedb-v2.2.0` |
+| NuGet `CuteDB` | 2.2.0 | `SelectMany`; unique-index fix; native accelerator for all six runtimes |
+| NuGet `CuteDB.Cli`, `CuteDB.Server` | 2.2.0 | `explain`; paging and NDJSON |
+| NuGet `CuteDB.Browser` | 2.2.0 | New: the workbench as a dotnet tool, all six runtimes |
+| npm `cutedb` | 2.2.0 | Query builder |
+| PyPI `cutedb` | 2.2.0 | Query builder |
+| Go client | v2.2.0 | Module path is now `…/clients/go/v2`, tagged `CuteDB/clients/go/v2.2.0` |
+| GitHub release | 2.2.0 | Published, with six CuteDB Browser archives |
+
+2.2.0 is the first release where every artifact carries the same number. The Go client could not
+until now: Go refuses a v2 tag on a module path without `/v2`, so it had only ever resolved as a
+pseudo-version. Changing the path changes the import, which is why it waited for a release.
 
 2.0.0 shipped one native runtime out of six because it was packed on a workstation. 2.1.0 was cut by
 the release workflow, which builds all six and fails the job rather than publishing a package
@@ -51,10 +56,10 @@ The theme was **distribution**, not features.
 - [done] **Released 2.1.0 through the workflow**, all six runtime identifiers, verified in the
   downloaded package.
 - [done] **Tagged** `cutedb-v2.1.0`.
-- **Publish the drafted GitHub release.** The workflow drafts one; it is still a draft.
+- [done] **Published a GitHub release** — 2.2.0, with notes and the browser archives. The 2.1.0
+  draft is superseded by it and was never published.
 - [done] **CuteDB Browser is distributed both ways:** the `CuteDB.Browser` dotnet tool, and
-  per-platform archives attached to the release. The archives have not yet been through a real
-  release run, and the macOS ones are unsigned.
+  per-platform archives attached to the release. The macOS archives are unsigned.
 - [done] **Tested CuteDB Browser** — 83 headless tests, which found four bugs.
 
 ---

@@ -5,7 +5,7 @@
 What is done, what is not, and how each was checked. The reasoning behind the order is in
 [PLAN.md](PLAN.md).
 
-**Last reviewed:** 2026-10-23 · **Released:** 2.1.0 on NuGet; 2.2 work merged, unreleased · **Tests:** 450 passing
+**Last reviewed:** 2026-10-23 · **Released:** 2.2.0 — NuGet, npm, PyPI, Go, GitHub · **Tests:** 450 passing
 
 A box is ticked only when something was run and the output read. "It compiles" is not a tick — the
 LINQ provider compiled cleanly while emitting `placedAt.year` for `DateTime.Year`, and the browser's
@@ -108,8 +108,9 @@ editor compiled cleanly while rendering nothing at all.
 - [x] Distributed as the `CuteDB.Browser` dotnet tool (`cutebrowser`) — packed, installed into a
       tool path, `--help` and a live `--ask` run from the installed tool
 - [x] Settings live in the user's app-data folder, so `dotnet tool update` keeps them
-- [ ] Per-platform release archives — the release workflow builds six; not yet run in CI, and the
-      macOS archives are unsigned and untested on a Mac
+- [x] Per-platform release archives — six, built by the 2.2.0 release run and attached to the
+      GitHub release
+- [ ] The macOS archives are unsigned and have not been run on a Mac
 
 ## Jack — The Code Bender *(2.1)*
 
@@ -187,7 +188,17 @@ editor compiled cleanly while rendering nothing at all.
 - [x] All six native runtimes verified *in the downloaded package*, not just in the build log
 - [x] `cutedb-v2.1.0` tagged, so the published package traces to a commit
 - [x] npm 2.0.1, PyPI 2.0.0 — unchanged in 2.1, so not re-released
-- [ ] A GitHub release: the workflow drafts one, and the draft has not been published
+- [x] **2.2.0 published** — `CuteDB`, `CuteDB.Cli`, `CuteDB.Server`, `CuteDB.Browser` by the
+      release workflow, after a green CI run and a green dry run of the same commit
+- [x] Downloaded back from nuget.org: all four carry their icon; `CuteDB` and `CuteDB.Browser`
+      carry all six native runtimes
+- [ ] `CuteDB.Cli` and `CuteDB.Server` carry only the packing machine's native runtime — true
+      of 2.1.0 too; elsewhere they fall back to the managed scanner
+- [x] PyPI 2.2.0 and npm 2.2.0 — the clients' first release with the query builder
+- [x] Go v2.2.0 — module path moved to `…/clients/go/v2`, tagged `CuteDB/clients/go/v2.2.0`;
+      fetched through proxy.golang.org into a fresh module and run
+- [x] GitHub release 2.2.0 published with notes and the six browser archives; the 2.1.0
+      draft is superseded
 
 ---
 
