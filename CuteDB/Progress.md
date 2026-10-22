@@ -198,7 +198,7 @@ editor compiled cleanly while rendering nothing at all.
 - [x] Go v2.2.0 — module path moved to `…/clients/go/v2`, tagged `CuteDB/clients/go/v2.2.0`;
       fetched through proxy.golang.org into a fresh module and run
 - [x] GitHub release 2.2.0 published with notes and the six browser archives; the 2.1.0
-      draft is superseded
+      draft was deleted (its tag stays, so the 2.1.0 packages still trace to a commit)
 
 ---
 

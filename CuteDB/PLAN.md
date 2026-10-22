@@ -57,7 +57,7 @@ The theme was **distribution**, not features.
   downloaded package.
 - [done] **Tagged** `cutedb-v2.1.0`.
 - [done] **Published a GitHub release** — 2.2.0, with notes and the browser archives. The 2.1.0
-  draft is superseded by it and was never published.
+  draft was deleted unpublished; its tag stays.
 - [done] **CuteDB Browser is distributed both ways:** the `CuteDB.Browser` dotnet tool, and
   per-platform archives attached to the release. The macOS archives are unsigned.
 - [done] **Tested CuteDB Browser** — 83 headless tests, which found four bugs.
