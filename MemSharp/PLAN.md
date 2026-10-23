@@ -3,7 +3,7 @@
 By Gravicode Studios, led by Kang Fadhil.
 Companion document: [Progress.md](Progress.md), which tracks what is actually done.
 
-**Status: 1.1.0.** 1.0.0 shipped 2026-09-03 to nuget.org (`MemSharp`, `MemSharp.Cli`), PyPI and
+**Status: 1.1.0 released 2026-10-23** (nuget.org, PyPI; npm pending a one-time password). 1.0.0 shipped 2026-09-03 to nuget.org (`MemSharp`, `MemSharp.Cli`), PyPI and
 npm (`memsharp`). 1.1 delivered everything below that was planned for 1.1 *and* 1.2 — see
 [Delivered in 1.1](#delivered-in-11).
 

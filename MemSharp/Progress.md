@@ -3,7 +3,7 @@
 By Gravicode Studios, led by Kang Fadhil.
 Companion document: [PLAN.md](PLAN.md), which is where the project is going.
 
-**Version 1.1.0 — in release.** 1.0.0 shipped 2026-09-03. Everything ticked below was verified by
+**Version 1.1.0 — released 2026-10-23** (npm pending, see below). 1.0.0 shipped 2026-09-03. Everything ticked below was verified by
 running it, not by reading the code. Where something is unverified or only partly done, it says so.
 
 ---
@@ -45,7 +45,13 @@ Everything PLAN.md listed for 1.1 and 1.2, plus the memory profiler from "under 
 - [x] Client SDK helpers for every new command — Python 126 checks (was 55), Node 126 (was 53),
       Go 24 tests (was 16), all against a live 1.1 server; Node's `scan` no longer round-trips the
       cursor through `Number`; TypeScript definitions compiled under `--strict`
-- [ ] 1.1.0 published and verified from the public registries
+- [x] `MemSharp` and `MemSharp.Cli` 1.1.0 → nuget.org by the release workflow, verified by installing
+      the tool and running a consumer-group read and a rank query from the public feed; icon present
+- [x] `memsharp` 1.1.0 → PyPI by the release workflow, verified by a clean-venv install
+- [x] GitHub release `memsharp-v1.1.0`, with the packages attached
+- [ ] `memsharp` 1.1.0 → npm — **the workflow's npm job failed with EOTP**: the `NPM_TOKEN` secret
+      requires a one-time password. Publish by hand with `--otp`; replace the secret with an
+      Automation token so the next release is unattended
 
 ### Numbers
 

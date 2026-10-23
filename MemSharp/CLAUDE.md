@@ -192,7 +192,10 @@ node clients/nodejs/test/client.test.js         # 126 checks
 
 ## Published state
 
-Version 1.0.0 is **live on all four registries** as of 2026-09-03. Published versions are immutable,
+Version **1.1.0** is live on nuget.org and PyPI as of 2026-10-23, published by the release workflow;
+the npm job failed with EOTP because `NPM_TOKEN` needs a one-time password (publish npm by hand with
+`--otp` until it is replaced by an Automation token). 1.0.0 went to all four registries on 2026-09-03.
+Published versions are immutable,
 so any change now needs a version bump in `Directory.Build.props` (which drives both NuGet packages),
 `clients/python/pyproject.toml` and `clients/nodejs/package.json`.
 
