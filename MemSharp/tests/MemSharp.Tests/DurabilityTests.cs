@@ -71,31 +71,38 @@ public class DurabilityTests
         // idempotent: a lost write and a write replayed twice both show up as a wrong count.
         using var temp = new TestDb.TempDirectory();
         string snapshot = temp.File("db.msnap"), log = temp.File("db.aof");
-        const int Keys = 512, Rounds = 400;
+        const int Keys = 512, Saves = 10;
+        int rounds = 0;
 
         using (var db = new MemDb(new MemDbOptions { Persistence = Durable(snapshot, log), ShardCount = 64, ExpirySweepInterval = TimeSpan.Zero }))
         {
             for (int k = 0; k < Keys; k++) db.HashSet($"pad{k}", "f", new string('x', 16_000));   // make each save take a while
 
+            // The saves drive the test and the writer runs whole rounds until they are done, so
+            // every save overlaps writes however fast this machine's disk is relative to its CPU.
+            // A first version bounded the writer by rounds instead, and on a slower disk the writer
+            // could finish before the saves had overlapped it at all.
+            using var stop = new ManualResetEventSlim();
+            using var started = new ManualResetEventSlim();
             var writer = Task.Run(() =>
             {
-                for (int round = 0; round < Rounds; round++)
+                while (true)
                 {
                     for (int k = 0; k < Keys; k++) db.Increment($"n{k}");
+                    rounds++;
+                    started.Set();
+                    if (stop.IsSet) return;
                 }
             });
-            int saves = 0;
-            while (!writer.IsCompleted)
-            {
-                db.Save();
-                saves++;
-            }
-            writer.Wait();
-            Assert.True(saves > 2, $"only {saves} saves overlapped the writer; the test proved nothing");
+
+            started.Wait(TestContext.Current.CancellationToken);
+            for (int i = 0; i < Saves; i++) db.Save();
+            stop.Set();
+            writer.Wait(TestContext.Current.CancellationToken);
         }
 
         using var recovered = new MemDb(new MemDbOptions { Persistence = Durable(snapshot, log), ShardCount = 64, ExpirySweepInterval = TimeSpan.Zero });
-        for (int k = 0; k < Keys; k++) Assert.Equal(Rounds.ToString(), recovered.Get($"n{k}"));
+        for (int k = 0; k < Keys; k++) Assert.Equal(rounds.ToString(), recovered.Get($"n{k}"));
     }
 
     [Fact]
