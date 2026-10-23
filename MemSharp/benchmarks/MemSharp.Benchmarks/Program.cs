@@ -19,6 +19,7 @@ public static class Program
                   dotnet run -c Release -- --filter '*SingleOperation*'
                   dotnet run -c Release -- --filter '*Keyspace*'
                   dotnet run -c Release -- --filter '*Concurrency*'
+                  dotnet run -c Release -- --filter '*SortedSetRank*'
                   dotnet run -c Release -- --filter '*'            (everything; takes a while)
 
                 For aggregate throughput and latency percentiles instead, use the CLI:

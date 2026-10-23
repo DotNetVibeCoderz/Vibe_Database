@@ -236,6 +236,25 @@ func (c *Client) Type(key string) (string, error) {
 	return c.text(c.Do("TYPE", key))
 }
 
+// StrLen returns the length of a string in UTF-8 bytes, not characters: "héllo" is 6.
+func (c *Client) StrLen(key string) (int64, error) {
+	return c.number(c.Do("STRLEN", key))
+}
+
+// GetRange returns a substring by inclusive byte offsets. Negative offsets count back from the end.
+//
+// The server refuses a range that would split a multi-byte character rather than hand back invalid
+// UTF-8, so that case is an *Error.
+func (c *Client) GetRange(key string, start, end int) (string, error) {
+	return c.text(c.Do("GETRANGE", key, start, end))
+}
+
+// SetRange overwrites from a byte offset, zero-padding a short string, and returns the new length in
+// bytes.
+func (c *Client) SetRange(key string, offset int, value string) (int64, error) {
+	return c.number(c.Do("SETRANGE", key, offset, value))
+}
+
 // Incr atomically adds to an integer, treating a missing key as 0.
 func (c *Client) Incr(key string, amount int64) (int64, error) {
 	return c.number(c.Do("INCRBY", key, amount))
@@ -281,7 +300,9 @@ func (c *Client) Keys(pattern string) ([]string, error) {
 // Scan iterates the keyspace a page at a time, calling fn for each key.
 //
 // The loop runs until the server returns a zero cursor, which is the same contract Redis uses.
-// Returning an error from fn stops the walk and returns that error.
+// Returning an error from fn stops the walk and returns that error. The cursor is opaque, can
+// exceed 2^32, and is passed back exactly as the server sent it; a page can be empty while it is
+// not zero.
 func (c *Client) Scan(pattern string, count int, fn func(key string) error) error {
 	cursor := "0"
 	for {
@@ -360,6 +381,46 @@ func (c *Client) LTrim(key string, start, stop int) error {
 	return err
 }
 
+// LPosOptions narrows an LPos search. Zero values leave an option unset.
+type LPosOptions struct {
+	// Rank picks which match to start from; negative searches from the tail.
+	Rank int
+
+	// MaxLen compares at most this many elements.
+	MaxLen int
+}
+
+// LPos returns the index of a matching element. found is false when nothing matches.
+func (c *Client) LPos(key, element string, options LPosOptions) (index int64, found bool, err error) {
+	reply, err := c.Do(lposArgs(key, element, options)...)
+	if err != nil || reply == nil {
+		return 0, false, err
+	}
+	index, err = c.number(reply, nil)
+	return index, err == nil, err
+}
+
+// LPosCount returns the indices of up to count matches; count 0 means every match.
+func (c *Client) LPosCount(key, element string, count int, options LPosOptions) ([]int64, error) {
+	args := append(lposArgs(key, element, options), "COUNT", count)
+	reply, err := c.Do(args...)
+	if err != nil {
+		return nil, err
+	}
+	return toInts(reply), nil
+}
+
+func lposArgs(key, element string, options LPosOptions) []any {
+	args := []any{"LPOS", key, element}
+	if options.Rank != 0 {
+		args = append(args, "RANK", options.Rank)
+	}
+	if options.MaxLen > 0 {
+		args = append(args, "MAXLEN", options.MaxLen)
+	}
+	return args
+}
+
 // -- hashes ----------------------------------------------------------------------------
 
 // HSet sets fields and returns how many were new.
@@ -423,6 +484,25 @@ func (c *Client) SMembers(key string) ([]string, error) {
 func (c *Client) SIsMember(key, member string) (bool, error) {
 	value, err := c.number(c.Do("SISMEMBER", key, member))
 	return value == 1, err
+}
+
+// SInterStore stores the intersection of sets and returns its size. An empty result deletes
+// destination.
+func (c *Client) SInterStore(destination string, keys ...string) (int64, error) {
+	args := append([]any{"SINTERSTORE", destination}, toAny(keys)...)
+	return c.number(c.Do(args...))
+}
+
+// SUnionStore stores the union of sets and returns its size.
+func (c *Client) SUnionStore(destination string, keys ...string) (int64, error) {
+	args := append([]any{"SUNIONSTORE", destination}, toAny(keys)...)
+	return c.number(c.Do(args...))
+}
+
+// SDiffStore stores the members of the first set found in none of the others and returns its size.
+func (c *Client) SDiffStore(destination string, keys ...string) (int64, error) {
+	args := append([]any{"SDIFFSTORE", destination}, toAny(keys)...)
+	return c.number(c.Do(args...))
 }
 
 // -- sorted sets -----------------------------------------------------------------------
@@ -489,6 +569,40 @@ func (c *Client) ZCard(key string) (int64, error) {
 	return c.number(c.Do("ZCARD", key))
 }
 
+// ZStoreOptions configures ZUnionStore and ZInterStore. Zero values leave an option unset.
+type ZStoreOptions struct {
+	// Weights multiply each source's scores, in key order.
+	Weights []float64
+
+	// Aggregate is "sum" (the default), "min" or "max".
+	Aggregate string
+}
+
+// ZUnionStore stores the union of sorted sets and returns its size. A plain set among keys scores
+// every member 1.
+func (c *Client) ZUnionStore(destination string, keys []string, options ZStoreOptions) (int64, error) {
+	return c.number(c.Do(zstoreArgs("ZUNIONSTORE", destination, keys, options)...))
+}
+
+// ZInterStore stores the intersection of sorted sets and returns its size.
+func (c *Client) ZInterStore(destination string, keys []string, options ZStoreOptions) (int64, error) {
+	return c.number(c.Do(zstoreArgs("ZINTERSTORE", destination, keys, options)...))
+}
+
+func zstoreArgs(command, destination string, keys []string, options ZStoreOptions) []any {
+	args := append([]any{command, destination, len(keys)}, toAny(keys)...)
+	if len(options.Weights) > 0 {
+		args = append(args, "WEIGHTS")
+		for _, weight := range options.Weights {
+			args = append(args, weight)
+		}
+	}
+	if options.Aggregate != "" {
+		args = append(args, "AGGREGATE", strings.ToUpper(options.Aggregate))
+	}
+	return args
+}
+
 // -- streams ---------------------------------------------------------------------------
 
 // StreamEntry is one entry of a stream.
@@ -525,22 +639,460 @@ func (c *Client) XRange(key, start, end string, count int) ([]StreamEntry, error
 		return nil, err
 	}
 
-	rows, _ := reply.([]any)
-	entries := make([]StreamEntry, 0, len(rows))
-	for _, row := range rows {
-		parts, ok := row.([]any)
-		if !ok || len(parts) != 2 {
-			continue
-		}
-		id, _ := parts[0].(string)
-		entries = append(entries, StreamEntry{ID: id, Fields: toMap(parts[1])})
-	}
-	return entries, nil
+	return toEntries(reply), nil
 }
 
 // XLen returns the number of entries.
 func (c *Client) XLen(key string) (int64, error) {
 	return c.number(c.Do("XLEN", key))
+}
+
+// BlockForever is the Block value that waits with no timeout, which BLOCK 0 means on the wire. A
+// zero Block means "do not block at all", so the wire's 0 needs a name of its own.
+const BlockForever time.Duration = -1
+
+// XReadOptions configures XRead. Zero values leave an option unset.
+type XReadOptions struct {
+	Count int
+
+	// Block waits up to this long for an entry; BlockForever waits with no timeout. A blocked read
+	// holds the client's mutex, so other goroutines sharing the Client wait behind it.
+	Block time.Duration
+}
+
+// XRead returns entries after the given ids, keyed by stream. streams maps each key to the id to
+// read after; "" means "$", only what arrives from now on.
+//
+// The result is nil when nothing is new (or the block timed out). Only streams that returned
+// something appear in it.
+func (c *Client) XRead(streams map[string]string, options XReadOptions) (map[string][]StreamEntry, error) {
+	args := []any{"XREAD"}
+	if options.Count > 0 {
+		args = append(args, "COUNT", options.Count)
+	}
+	args = appendBlock(args, options.Block)
+	args = appendStreams(args, streams, "$")
+	return toStreamReply(c.Do(args...))
+}
+
+// XGroupCreate creates a consumer group that delivers entries after id ("" or "$": only new ones).
+//
+// mkStream creates an empty stream when the key is absent; without it that is an error. A group that
+// already exists is an *Error with Code "BUSYGROUP".
+func (c *Client) XGroupCreate(key, group, id string, mkStream bool) error {
+	if id == "" {
+		id = "$"
+	}
+	args := []any{"XGROUP", "CREATE", key, group, id}
+	if mkStream {
+		args = append(args, "MKSTREAM")
+	}
+	_, err := c.Do(args...)
+	return err
+}
+
+// XGroupDestroy removes a consumer group and its pending entries. Reports false if it did not exist.
+func (c *Client) XGroupDestroy(key, group string) (bool, error) {
+	value, err := c.number(c.Do("XGROUP", "DESTROY", key, group))
+	return value == 1, err
+}
+
+// XGroupCreateConsumer registers a consumer ahead of its first read. Reports false if it already
+// existed.
+func (c *Client) XGroupCreateConsumer(key, group, consumer string) (bool, error) {
+	value, err := c.number(c.Do("XGROUP", "CREATECONSUMER", key, group, consumer))
+	return value == 1, err
+}
+
+// XGroupDelConsumer removes a consumer and returns how many pending entries it still held - those
+// are dropped.
+func (c *Client) XGroupDelConsumer(key, group, consumer string) (int64, error) {
+	return c.number(c.Do("XGROUP", "DELCONSUMER", key, group, consumer))
+}
+
+// XGroupSetID moves a group's last-delivered id, to replay history ("0") or skip it ("" or "$").
+func (c *Client) XGroupSetID(key, group, id string) error {
+	if id == "" {
+		id = "$"
+	}
+	_, err := c.Do("XGROUP", "SETID", key, group, id)
+	return err
+}
+
+// XReadGroupOptions configures XReadGroup. Zero values leave an option unset.
+type XReadGroupOptions struct {
+	Count int
+
+	// Block works as in XReadOptions.
+	Block time.Duration
+
+	// NoAck delivers without adding to the pending list.
+	NoAck bool
+}
+
+// XReadGroup reads as consumer in group, in the same shape as XRead.
+//
+// An id of "" or ">" means entries never delivered to the group, and the result is nil if there are
+// none. An explicit id instead re-reads this consumer's own pending history, where an entry trimmed
+// from the stream since comes back with nil Fields.
+func (c *Client) XReadGroup(group, consumer string, streams map[string]string, options XReadGroupOptions) (map[string][]StreamEntry, error) {
+	args := []any{"XREADGROUP", "GROUP", group, consumer}
+	if options.Count > 0 {
+		args = append(args, "COUNT", options.Count)
+	}
+	args = appendBlock(args, options.Block)
+	if options.NoAck {
+		args = append(args, "NOACK")
+	}
+	args = appendStreams(args, streams, ">")
+	return toStreamReply(c.Do(args...))
+}
+
+// XAck acknowledges entries, removing them from the pending list, and returns how many were pending.
+func (c *Client) XAck(key, group string, ids ...string) (int64, error) {
+	args := append([]any{"XACK", key, group}, toAny(ids)...)
+	return c.number(c.Do(args...))
+}
+
+// PendingSummary is the summary form of XPENDING.
+type PendingSummary struct {
+	Count int64
+
+	// Lowest and Highest are "" when nothing is pending.
+	Lowest  string
+	Highest string
+
+	// Consumers is the pending count per consumer.
+	Consumers map[string]int64
+}
+
+// XPending returns a group's pending summary.
+func (c *Client) XPending(key, group string) (PendingSummary, error) {
+	reply, err := c.Do("XPENDING", key, group)
+	if err != nil {
+		return PendingSummary{}, err
+	}
+
+	parts, ok := reply.([]any)
+	if !ok || len(parts) != 4 {
+		return PendingSummary{}, errors.New("memsharp: malformed XPENDING reply")
+	}
+
+	summary := PendingSummary{Consumers: make(map[string]int64)}
+	summary.Count, _ = c.number(parts[0], nil)
+	summary.Lowest, _ = parts[1].(string)
+	summary.Highest, _ = parts[2].(string)
+
+	// The server sends each consumer's count as a bulk string, as Redis does; number parses both.
+	rows, _ := parts[3].([]any)
+	for _, row := range rows {
+		pair, ok := row.([]any)
+		if !ok || len(pair) != 2 {
+			continue
+		}
+		name, _ := pair[0].(string)
+		summary.Consumers[name], _ = c.number(pair[1], nil)
+	}
+	return summary, nil
+}
+
+// XPendingRangeOptions configures XPendingRange. Zero values leave an option unset.
+type XPendingRangeOptions struct {
+	// Start and End bound the id range; they default to "-" and "+".
+	Start string
+	End   string
+
+	// Count defaults to 100.
+	Count int
+
+	// Consumer limits the rows to one consumer's entries.
+	Consumer string
+
+	// Idle limits the rows to entries idle at least this long.
+	Idle time.Duration
+}
+
+// PendingEntry is one row of the range form of XPENDING.
+type PendingEntry struct {
+	ID       string
+	Consumer string
+
+	// Idle is the time since the entry was last delivered.
+	Idle time.Duration
+
+	// Deliveries is how many times it has been delivered.
+	Deliveries int64
+}
+
+// XPendingRange returns pending entries in an id range.
+func (c *Client) XPendingRange(key, group string, options XPendingRangeOptions) ([]PendingEntry, error) {
+	if options.Start == "" {
+		options.Start = "-"
+	}
+	if options.End == "" {
+		options.End = "+"
+	}
+	if options.Count <= 0 {
+		options.Count = 100
+	}
+
+	args := []any{"XPENDING", key, group}
+	if options.Idle > 0 {
+		args = append(args, "IDLE", options.Idle.Milliseconds())
+	}
+	args = append(args, options.Start, options.End, options.Count)
+	if options.Consumer != "" {
+		args = append(args, options.Consumer)
+	}
+
+	reply, err := c.Do(args...)
+	if err != nil {
+		return nil, err
+	}
+
+	rows, _ := reply.([]any)
+	result := make([]PendingEntry, 0, len(rows))
+	for _, row := range rows {
+		parts, ok := row.([]any)
+		if !ok || len(parts) != 4 {
+			continue
+		}
+		var entry PendingEntry
+		entry.ID, _ = parts[0].(string)
+		entry.Consumer, _ = parts[1].(string)
+		idle, _ := c.number(parts[2], nil)
+		entry.Idle = time.Duration(idle) * time.Millisecond
+		entry.Deliveries, _ = c.number(parts[3], nil)
+		result = append(result, entry)
+	}
+	return result, nil
+}
+
+// XClaimOptions configures XClaim and XClaimJustID. Zero values leave an option unset - so a
+// RetryCount of 0 cannot be requested, which is also the count a fresh entry starts from.
+type XClaimOptions struct {
+	// Idle sets the claimed entries' idle time.
+	Idle time.Duration
+
+	// Time sets their last-delivery time.
+	Time time.Time
+
+	// RetryCount sets their delivery count.
+	RetryCount int
+
+	// Force claims ids that are not pending at all.
+	Force bool
+
+	LastID string
+}
+
+// XClaim takes over pending entries that have been idle at least minIdle, and returns them.
+func (c *Client) XClaim(key, group, consumer string, minIdle time.Duration, ids []string, options XClaimOptions) ([]StreamEntry, error) {
+	reply, err := c.Do(xclaimArgs(key, group, consumer, minIdle, ids, options, false)...)
+	if err != nil {
+		return nil, err
+	}
+	return toEntries(reply), nil
+}
+
+// XClaimJustID is XClaim returning only the claimed ids, and leaving their delivery count alone.
+func (c *Client) XClaimJustID(key, group, consumer string, minIdle time.Duration, ids []string, options XClaimOptions) ([]string, error) {
+	reply, err := c.Do(xclaimArgs(key, group, consumer, minIdle, ids, options, true)...)
+	return toStrings(reply), err
+}
+
+func xclaimArgs(key, group, consumer string, minIdle time.Duration, ids []string, options XClaimOptions, justID bool) []any {
+	args := append([]any{"XCLAIM", key, group, consumer, minIdle.Milliseconds()}, toAny(ids)...)
+	if options.Idle > 0 {
+		args = append(args, "IDLE", options.Idle.Milliseconds())
+	}
+	if !options.Time.IsZero() {
+		args = append(args, "TIME", options.Time.UnixMilli())
+	}
+	if options.RetryCount > 0 {
+		args = append(args, "RETRYCOUNT", options.RetryCount)
+	}
+	if options.Force {
+		args = append(args, "FORCE")
+	}
+	if justID {
+		args = append(args, "JUSTID")
+	}
+	if options.LastID != "" {
+		args = append(args, "LASTID", options.LastID)
+	}
+	return args
+}
+
+// XAutoClaim scans the pending list from start ("" means "0-0") and claims up to count entries
+// (0: the server's default) idle at least minIdle.
+//
+// next is "0-0" once the sweep is complete. deleted lists ids that were pending but trimmed from the
+// stream; they are dropped from the pending list.
+func (c *Client) XAutoClaim(key, group, consumer string, minIdle time.Duration, start string, count int) (next string, claimed []StreamEntry, deleted []string, err error) {
+	parts, err := c.xautoclaim(key, group, consumer, minIdle, start, count, false)
+	if err != nil {
+		return "", nil, nil, err
+	}
+	next, _ = parts[0].(string)
+	return next, toEntries(parts[1]), toStrings(parts[2]), nil
+}
+
+// XAutoClaimJustID is XAutoClaim returning only the claimed ids.
+func (c *Client) XAutoClaimJustID(key, group, consumer string, minIdle time.Duration, start string, count int) (next string, claimed []string, deleted []string, err error) {
+	parts, err := c.xautoclaim(key, group, consumer, minIdle, start, count, true)
+	if err != nil {
+		return "", nil, nil, err
+	}
+	next, _ = parts[0].(string)
+	return next, toStrings(parts[1]), toStrings(parts[2]), nil
+}
+
+func (c *Client) xautoclaim(key, group, consumer string, minIdle time.Duration, start string, count int, justID bool) ([]any, error) {
+	if start == "" {
+		start = "0-0"
+	}
+	args := []any{"XAUTOCLAIM", key, group, consumer, minIdle.Milliseconds(), start}
+	if count > 0 {
+		args = append(args, "COUNT", count)
+	}
+	if justID {
+		args = append(args, "JUSTID")
+	}
+
+	reply, err := c.Do(args...)
+	if err != nil {
+		return nil, err
+	}
+	parts, ok := reply.([]any)
+	if !ok || len(parts) != 3 {
+		return nil, errors.New("memsharp: malformed XAUTOCLAIM reply")
+	}
+	return parts, nil
+}
+
+// GroupInfo is one row of XINFO GROUPS.
+type GroupInfo struct {
+	Name            string
+	Consumers       int64
+	Pending         int64
+	LastDeliveredID string
+}
+
+// XInfoGroups describes every consumer group on a stream.
+func (c *Client) XInfoGroups(key string) ([]GroupInfo, error) {
+	reply, err := c.Do("XINFO", "GROUPS", key)
+	if err != nil {
+		return nil, err
+	}
+
+	rows, _ := reply.([]any)
+	result := make([]GroupInfo, 0, len(rows))
+	for _, row := range rows {
+		fields := toAnyMap(row)
+		var info GroupInfo
+		info.Name, _ = fields["name"].(string)
+		info.Consumers, _ = c.number(fields["consumers"], nil)
+		info.Pending, _ = c.number(fields["pending"], nil)
+		info.LastDeliveredID, _ = fields["last-delivered-id"].(string)
+		result = append(result, info)
+	}
+	return result, nil
+}
+
+// ConsumerInfo is one row of XINFO CONSUMERS.
+type ConsumerInfo struct {
+	Name    string
+	Pending int64
+
+	// Idle is the time since the consumer last read.
+	Idle time.Duration
+}
+
+// XInfoConsumers describes every consumer in a group.
+func (c *Client) XInfoConsumers(key, group string) ([]ConsumerInfo, error) {
+	reply, err := c.Do("XINFO", "CONSUMERS", key, group)
+	if err != nil {
+		return nil, err
+	}
+
+	rows, _ := reply.([]any)
+	result := make([]ConsumerInfo, 0, len(rows))
+	for _, row := range rows {
+		fields := toAnyMap(row)
+		var info ConsumerInfo
+		info.Name, _ = fields["name"].(string)
+		info.Pending, _ = c.number(fields["pending"], nil)
+		idle, _ := c.number(fields["idle"], nil)
+		info.Idle = time.Duration(idle) * time.Millisecond
+		result = append(result, info)
+	}
+	return result, nil
+}
+
+// StreamInfo is the reply to XINFO STREAM.
+type StreamInfo struct {
+	Length          int64
+	LastGeneratedID string
+	Groups          int64
+
+	// FirstEntry and LastEntry are nil when the stream is empty.
+	FirstEntry *StreamEntry
+	LastEntry  *StreamEntry
+}
+
+// XInfoStream summarises a stream.
+func (c *Client) XInfoStream(key string) (StreamInfo, error) {
+	reply, err := c.Do("XINFO", "STREAM", key)
+	if err != nil {
+		return StreamInfo{}, err
+	}
+
+	fields := toAnyMap(reply)
+	var info StreamInfo
+	info.Length, _ = c.number(fields["length"], nil)
+	info.LastGeneratedID, _ = fields["last-generated-id"].(string)
+	info.Groups, _ = c.number(fields["groups"], nil)
+	if entry, ok := toEntry(fields["first-entry"]); ok {
+		info.FirstEntry = &entry
+	}
+	if entry, ok := toEntry(fields["last-entry"]); ok {
+		info.LastEntry = &entry
+	}
+	return info, nil
+}
+
+func appendBlock(args []any, block time.Duration) []any {
+	switch {
+	case block == BlockForever:
+		return append(args, "BLOCK", 0)
+	case block > 0:
+		// Rounded up: a sub-millisecond block would otherwise become BLOCK 0, which waits forever.
+		return append(args, "BLOCK", (block + time.Millisecond - 1).Milliseconds())
+	default:
+		return args
+	}
+}
+
+// appendStreams writes STREAMS key... id..., every key first and then every id in the same order.
+func appendStreams(args []any, streams map[string]string, defaultID string) []any {
+	keys := make([]string, 0, len(streams))
+	for key := range streams {
+		keys = append(keys, key)
+	}
+
+	args = append(args, "STREAMS")
+	for _, key := range keys {
+		args = append(args, key)
+	}
+	for _, key := range keys {
+		id := streams[key]
+		if id == "" {
+			id = defaultID
+		}
+		args = append(args, id)
+	}
+	return args
 }
 
 // -- time series -----------------------------------------------------------------------
@@ -704,8 +1256,12 @@ func (c *Client) SQLDelete(query string) (int64, error) {
 }
 
 // Info returns server statistics, parsed into a map. Section headings are dropped.
-func (c *Client) Info() (map[string]string, error) {
-	text, err := c.text(c.Do("INFO"))
+//
+// With no arguments every section is returned; name sections ("server", "memory", "keyspace", ...)
+// to fetch only those.
+func (c *Client) Info(sections ...string) (map[string]string, error) {
+	args := append([]any{"INFO"}, toAny(sections)...)
+	text, err := c.text(c.Do(args...))
 	if err != nil {
 		return nil, err
 	}
@@ -721,6 +1277,38 @@ func (c *Client) Info() (map[string]string, error) {
 		}
 	}
 	return result, nil
+}
+
+// ConfigGet returns configuration values whose names match the globs (default "*"). Read-only:
+// MemSharp is configured when it is constructed, so there is no ConfigSet.
+func (c *Client) ConfigGet(patterns ...string) (map[string]string, error) {
+	if len(patterns) == 0 {
+		patterns = []string{"*"}
+	}
+	args := append([]any{"CONFIG", "GET"}, toAny(patterns)...)
+	reply, err := c.Do(args...)
+	return toMap(reply), err
+}
+
+// ConfigResetStat zeroes the server's statistics counters.
+func (c *Client) ConfigResetStat() error {
+	_, err := c.Do("CONFIG", "RESETSTAT")
+	return err
+}
+
+// MemoryUsage returns the approximate bytes a key and its value occupy. found is false when the key
+// is absent. samples bounds how many elements of a collection are measured; 0 is the server default.
+func (c *Client) MemoryUsage(key string, samples int) (bytes int64, found bool, err error) {
+	args := []any{"MEMORY", "USAGE", key}
+	if samples > 0 {
+		args = append(args, "SAMPLES", samples)
+	}
+	reply, err := c.Do(args...)
+	if err != nil || reply == nil {
+		return 0, false, err
+	}
+	bytes, err = c.number(reply, nil)
+	return bytes, err == nil, err
 }
 
 // DBSize returns the number of keys in the database.
@@ -805,4 +1393,72 @@ func toSamples(reply any) []Sample {
 		samples = append(samples, Sample{Timestamp: timestamp, Value: value})
 	}
 	return samples
+}
+
+func toInts(reply any) []int64 {
+	items, _ := reply.([]any)
+	result := make([]int64, 0, len(items))
+	for _, item := range items {
+		if value, ok := item.(int64); ok {
+			result = append(result, value)
+		}
+	}
+	return result
+}
+
+// toAnyMap pairs a flat [k, v, k, v] reply into a map, keeping each value's reply type - XINFO mixes
+// integers, strings and nested entries.
+func toAnyMap(reply any) map[string]any {
+	items, _ := reply.([]any)
+	result := make(map[string]any, len(items)/2)
+	for i := 0; i+1 < len(items); i += 2 {
+		if name, ok := items[i].(string); ok {
+			result[name] = items[i+1]
+		}
+	}
+	return result
+}
+
+// toEntry converts [id, [field, value, ...]]. A trimmed entry in a pending-history read arrives as
+// [id, nil] and keeps nil Fields, which toMap would otherwise turn into an empty map.
+func toEntry(reply any) (StreamEntry, bool) {
+	parts, ok := reply.([]any)
+	if !ok || len(parts) != 2 {
+		return StreamEntry{}, false
+	}
+	id, _ := parts[0].(string)
+	if parts[1] == nil {
+		return StreamEntry{ID: id}, true
+	}
+	return StreamEntry{ID: id, Fields: toMap(parts[1])}, true
+}
+
+func toEntries(reply any) []StreamEntry {
+	rows, _ := reply.([]any)
+	entries := make([]StreamEntry, 0, len(rows))
+	for _, row := range rows {
+		if entry, ok := toEntry(row); ok {
+			entries = append(entries, entry)
+		}
+	}
+	return entries
+}
+
+// toStreamReply converts [[key, [entry...]], ...] into a map. A nil reply stays a nil map.
+func toStreamReply(reply any, err error) (map[string][]StreamEntry, error) {
+	if err != nil || reply == nil {
+		return nil, err
+	}
+
+	streams, _ := reply.([]any)
+	result := make(map[string][]StreamEntry, len(streams))
+	for _, stream := range streams {
+		parts, ok := stream.([]any)
+		if !ok || len(parts) != 2 {
+			continue
+		}
+		key, _ := parts[0].(string)
+		result[key] = toEntries(parts[1])
+	}
+	return result, nil
 }

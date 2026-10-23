@@ -55,13 +55,16 @@ public sealed partial class MemDb
             var stream = GetOrCreate(shard, key, MemType.Stream, now, static () => new StreamStore());
             assigned = stream.Append(id, nowMilliseconds, fields);
             if (maxLength > 0) stream.Trim(maxLength);
+
+            var logged = new string[fields.Length + 2];
+            logged[0] = key;
+            logged[1] = assigned.ToString();
+            Array.Copy(fields, 0, logged, 2, fields.Length);
+            RecordWrite(shard, "XADD", logged);
+            if (maxLength > 0) RecordWrite(shard, "XTRIM", key, "MAXLEN", maxLength.ToString(CultureInfo.InvariantCulture));
         }
 
-        var logged = new string[fields.Length + 2];
-        logged[0] = key;
-        logged[1] = assigned.ToString();
-        Array.Copy(fields, 0, logged, 2, fields.Length);
-        RecordWrite("XADD", logged);
+        SignalStreamAppend();
 
         return assigned;
     }
@@ -153,9 +156,8 @@ public sealed partial class MemDb
             {
                 dropped = stream.Trim(maxLength);
             }
+            if (dropped > 0) RecordWrite(shard, "XTRIM", key, "MAXLEN", maxLength.ToString(CultureInfo.InvariantCulture));
         }
-
-        if (dropped > 0) RecordWrite("XTRIM", key, "MAXLEN", maxLength.ToString(CultureInfo.InvariantCulture));
         return dropped;
     }
 }

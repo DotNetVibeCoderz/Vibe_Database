@@ -26,14 +26,20 @@ namespace MemSharp.Persistence;
 /// Strings are written with <see cref="System.IO.BinaryWriter"/>'s 7-bit-encoded length prefix
 /// followed by UTF-8 bytes.
 /// </para>
+/// <para>
+/// Version 2 (MemSharp 1.1) appends to each stream's payload its last-written id - which trimming
+/// can leave above the head, and which an <c>XADD</c> must stay above - and its consumer groups:
+/// name, cursor, consumers, and the pending-entry list. Every other kind is unchanged, and a
+/// version 1 file still loads; its streams simply have no groups.
+/// </para>
 /// </remarks>
 internal static class SnapshotFormat
 {
     /// <summary>File magic. The trailing digit is the format generation.</summary>
     public static ReadOnlySpan<byte> Magic => "MEMSHRP1"u8;
 
-    /// <summary>Current format version.</summary>
-    public const int Version = 1;
+    /// <summary>Current format version. 2 added stream consumer groups.</summary>
+    public const int Version = 2;
 
     /// <summary>Byte offset of the checksum field, so the writer can seek back and fill it in.</summary>
     public const int ChecksumOffset = 8 + 4 + 4 + 8;

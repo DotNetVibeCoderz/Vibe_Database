@@ -20,9 +20,8 @@ public sealed partial class MemDb
             {
                 if (set.Add(member)) added++;
             }
+            RecordWrite(shard, "SADD", Prepend(key, members));
         }
-
-        RecordWrite("SADD", Prepend(key, members));
         return added;
     }
 
@@ -44,9 +43,8 @@ public sealed partial class MemDb
                 if (set.Remove(member)) removed++;
             }
             RemoveIfEmpty(shard, key, set.Count);
+            if (removed > 0) RecordWrite(shard, "SREM", Prepend(key, members));
         }
-
-        if (removed > 0) RecordWrite("SREM", Prepend(key, members));
         return removed;
     }
 
@@ -113,9 +111,8 @@ public sealed partial class MemDb
                     RemoveIfEmpty(shard, key, set.Count);
                 }
             }
+            if (popped is not null) RecordWrite(shard, "SREM", key, popped);
         }
-
-        if (popped is not null) RecordWrite("SREM", key, popped);
         return popped;
     }
 
@@ -128,7 +125,78 @@ public sealed partial class MemDb
     /// <summary>Members of the first set that appear in none of the others.</summary>
     public HashSet<string> SetDifference(params string[] keys) => Combine(SetOperation.Difference, keys);
 
+    /// <summary>
+    /// Stores the intersection of <paramref name="keys"/> at <paramref name="destination"/>, replacing
+    /// it. Returns the size of the result; an empty result deletes the destination.
+    /// </summary>
+    /// <remarks>
+    /// Unlike <see cref="SetIntersect"/>, this is a point-in-time operation: every shard involved -
+    /// the sources and the destination - is locked, in shard order, for the whole computation. The
+    /// read-only algebra can afford a result stitched together from reads taken microseconds apart,
+    /// because it is gone as soon as the caller has looked at it. A stored result is durable, and
+    /// a looseness that was transient would become permanent - persisted, replicated into the
+    /// append-only log, and read back by everyone. Holding several locks costs throughput on those
+    /// shards for the length of the operation; that is the price of the result being true.
+    /// </remarks>
+    public int SetIntersectStore(string destination, params string[] keys) => CombineStore(SetOperation.Intersect, destination, keys);
+
+    /// <summary>Stores the union of <paramref name="keys"/> at <paramref name="destination"/>. See <see cref="SetIntersectStore"/>.</summary>
+    public int SetUnionStore(string destination, params string[] keys) => CombineStore(SetOperation.Union, destination, keys);
+
+    /// <summary>Stores the first set minus the others at <paramref name="destination"/>. See <see cref="SetIntersectStore"/>.</summary>
+    public int SetDifferenceStore(string destination, params string[] keys) => CombineStore(SetOperation.Difference, destination, keys);
+
     private enum SetOperation { Union, Intersect, Difference }
+
+    private int CombineStore(SetOperation operation, string destination, string[] keys)
+    {
+        ArgumentNullException.ThrowIfNull(destination);
+        ArgumentNullException.ThrowIfNull(keys);
+        if (keys.Length == 0) throw new MemSharpCommandException("at least one source key is required");
+
+        var shards = ShardsInOrder(destination, keys);
+        long now = NowTicks;
+
+        EnterAll(shards);
+        try
+        {
+            // Copy the first operand: it may be the destination itself, which is about to be replaced.
+            var result = ReadSetLocked(keys[0], now) is { } first
+                ? new HashSet<string>(first, StringComparer.Ordinal)
+                : new HashSet<string>(StringComparer.Ordinal);
+
+            for (int i = 1; i < keys.Length; i++)
+            {
+                if (result.Count == 0 && operation != SetOperation.Union) break;
+                var other = ReadSetLocked(keys[i], now);
+                switch (operation)
+                {
+                    case SetOperation.Union: if (other is not null) result.UnionWith(other); break;
+                    case SetOperation.Intersect: if (other is null) result.Clear(); else result.IntersectWith(other); break;
+                    case SetOperation.Difference: if (other is not null) result.ExceptWith(other); break;
+                }
+            }
+
+            var destinationShard = ShardFor(destination);
+            Overwrite(destinationShard, destination, MemType.Set, result.Count > 0 ? result : null);
+
+            // Logged as the result, not as the command. Replaying "SINTERSTORE" would recompute from
+            // whatever the sources hold at that point in the log, which is the same answer only if
+            // nothing about the sources' history ever differs from the live run. Only the
+            // destination is mutated, so only its shard decides whether a snapshot already has it.
+            RecordWrite(destinationShard, "DEL", destination);
+            if (result.Count > 0) RecordWrite(destinationShard, "SADD", Prepend(destination, [.. result]));
+            return result.Count;
+        }
+        finally
+        {
+            ExitAll(shards);
+        }
+    }
+
+    /// <summary>The live set at a key, or null if absent. Caller holds the key's gate.</summary>
+    private HashSet<string>? ReadSetLocked(string key, long now) =>
+        TryGetTyped<HashSet<string>>(ShardFor(key), key, MemType.Set, now, out var set) ? set : null;
 
     /// <summary>
     /// Applies a set operation across keys that may live on different shards.

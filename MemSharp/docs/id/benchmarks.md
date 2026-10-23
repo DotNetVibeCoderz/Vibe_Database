@@ -216,6 +216,7 @@ BenchmarkDotNet memberi alokasi berikut waktunya:
 dotnet run -c Release --project benchmarks/MemSharp.Benchmarks -- --filter '*SingleOperation*'
 dotnet run -c Release --project benchmarks/MemSharp.Benchmarks -- --filter '*Keyspace*'
 dotnet run -c Release --project benchmarks/MemSharp.Benchmarks -- --filter '*Concurrency*'
+dotnet run -c Release --project benchmarks/MemSharp.Benchmarks -- --filter '*SortedSetRank*'
 ```
 
 `SingleOperationBenchmarks` berjalan pada 10.000 dan 1.000.000 key, jadi Anda bisa melihat operasi
@@ -233,6 +234,27 @@ mana yang sensitif terhadap ukuran keyspace dan mana yang datar.
 Kalau yang pertama berhenti menskala, ada yang merusak sharding-nya. Tersangka biasanya false
 sharing: lock dua shard mendarat di satu cache line. `Shard` diberi padding justru untuk mencegahnya,
 dan menghapus padding itu adalah perubahan yang akan ditangkap suite ini.
+
+## Rank sorted set, 1.0 dibandingkan 1.1
+
+`SortedSetRankBenchmarks` ditulis *sebelum* pohon order-statistic 1.1, dan dijalankan terhadap
+keduanya, jadi perubahan itu harus membenarkan dirinya dengan sebuah angka. Yang diuji adalah anggota
+tengah: ujung terjauh sebuah penelusuran adalah tempat rank O(n) paling mahal, dan query top-10 akan
+membuat 1.0 tampak baik-baik saja.
+
+| Anggota | Operasi | 1.0 (`SortedSet<T>`) | 1.1 (AVL order-statistic) |
+|---:|---|---:|---:|
+| 100.000 | `ZRANK` anggota tengah | 1,30 ms | 187 ns |
+| 100.000 | `ZRANGE` 10 dari tengah | 1,04 ms | 638 ns |
+| 1.000.000 | `ZRANK` anggota tengah | 12,7 ms | **145 ns** |
+| 1.000.000 | `ZRANGE` 10 dari tengah | 11,4 ms | **610 ns** |
+| 1.000.000 | `ZRANGEBYSCORE` 10 dari tengah | 966 ns | 807 ns |
+| 1.000.000 | rescore anggota yang sudah ada | 637 ns | 708 ns |
+
+Rank tidak lagi bergantung pada ukuran set. Rentang score sudah logaritmik sejak awal dan tidak
+bergeser. Rescore — tulisan order book — memakan sekitar 10% lebih banyak, harga untuk menjaga setiap
+ukuran subtree tetap mutakhir melalui setiap insert, delete dan rotasi. Angka mentahnya ada di
+`benchmarks/results-sortedset-rank.json`.
 
 ## Pushdown query, terukur
 

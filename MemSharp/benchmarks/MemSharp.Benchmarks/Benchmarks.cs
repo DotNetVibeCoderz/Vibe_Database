@@ -232,3 +232,52 @@ public class ConcurrencyBenchmarks
             for (int i = 0; i < PerThread; i++) _db.Increment("shared");
         });
 }
+
+/// <summary>
+/// Rank-based sorted-set operations against set size - the benchmark PLAN.md asked for before the
+/// order-statistic tree was written.
+/// </summary>
+/// <remarks>
+/// A rank query on a tree that only knows ordering has to count from one end, so its cost grows with
+/// the set; on a tree whose nodes carry subtree sizes it is a descent. The middle member is the
+/// fair probe: the far end of a walk is where an O(n) rank costs most, and a top-N query (rank 0..9)
+/// would make the old structure look fine. Writes are included to show what maintaining the sizes
+/// costs the insert path.
+/// </remarks>
+[MemoryDiagnoser]
+[SimpleJob(RuntimeMoniker.Net10_0)]
+public class SortedSetRankBenchmarks
+{
+    private MemDb _db = null!;
+    private string _middle = null!;
+    private int _counter;
+
+    [Params(1_000, 100_000, 1_000_000)]
+    public int Members { get; set; }
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        _db = new MemDb(new MemDbOptions { ExpirySweepInterval = TimeSpan.Zero });
+        var members = new List<ScoredMember>(Members);
+        for (int i = 0; i < Members; i++) members.Add(new ScoredMember($"m{i}", i));
+        _db.SortedSetAdd("z", members);
+        _middle = $"m{Members / 2}";
+    }
+
+    [GlobalCleanup]
+    public void Cleanup() => _db.Dispose();
+
+    [Benchmark]
+    public int? RankOfMiddle() => _db.SortedSetRank("z", _middle);
+
+    [Benchmark]
+    public List<ScoredMember> RangeByRankMiddle10() => _db.SortedSetRangeByRank("z", Members / 2, Members / 2 + 9);
+
+    [Benchmark]
+    public List<ScoredMember> RangeByScoreMiddle10() => _db.SortedSetRangeByScore("z", Members / 2, Members / 2 + 9);
+
+    /// <summary>Rescoring an existing member: a remove and an insert, the order-book update.</summary>
+    [Benchmark]
+    public bool Rescore() => _db.SortedSetAdd("z", _middle, Members / 2 + ((++_counter & 1) * 0.5));
+}

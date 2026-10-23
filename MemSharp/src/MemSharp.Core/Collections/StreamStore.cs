@@ -77,7 +77,7 @@ public sealed record StreamEntry(StreamId Id, string[] Fields)
 ///
 /// Not thread-safe. Callers hold the owning shard's lock.
 /// </remarks>
-internal sealed class StreamStore
+internal sealed partial class StreamStore
 {
     private readonly Deque<StreamEntry> _entries = new(16);
     private StreamId _lastId = StreamId.Min;
@@ -94,7 +94,10 @@ internal sealed class StreamStore
         StreamId id;
         if (requestedId is { } explicitId)
         {
-            if (explicitId.CompareTo(_lastId) <= 0 && _entries.Count > 0)
+            // Against the last id ever written, not the current head: a stream trimmed empty must
+            // still refuse an id it has already handed out, or a consumer group's cursor - which is
+            // past that id - would silently never deliver the new entry.
+            if (explicitId.CompareTo(_lastId) <= 0)
             {
                 throw new MemSharpCommandException(
                     $"the id {explicitId} is not greater than the stream head {_lastId}");
@@ -153,6 +156,31 @@ internal sealed class StreamStore
     }
 
     public IEnumerable<StreamEntry> All() => _entries.Enumerate();
+
+    /// <summary>Bytes held, extrapolating entry sizes from <paramref name="samples"/> of them.</summary>
+    public long EstimateBytes(int samples) =>
+        MemoryEstimate.Header + 64 + (8L * _entries.Count) + GroupBytes() +
+        MemoryEstimate.Extrapolate(_entries.Enumerate(), _entries.Count, samples,
+            static entry => MemoryEstimate.Header + 24 + MemoryEstimate.StringArray(entry.Fields));
+
+    // Per pending entry: the PendingEntry object, its dictionary slot, and a node in each of the
+    // group's and the owner's sorted sets.
+    private long GroupBytes()
+    {
+        long total = 0;
+        foreach (var group in Groups)
+        {
+            total += 256 + (group.Pending.Count * 200L);
+            foreach (var consumer in group.Consumers.Values) total += 96 + MemoryEstimate.Of(consumer.Name);
+        }
+        return total;
+    }
+
+    /// <summary>Restores the highest id ever written, which trimming can leave above the head.</summary>
+    public void RestoreLastId(StreamId id)
+    {
+        if (id.CompareTo(_lastId) > 0) _lastId = id;
+    }
 
     /// <summary>Restores state after a snapshot load, bypassing the ordering check.</summary>
     public void AppendRaw(StreamEntry entry)

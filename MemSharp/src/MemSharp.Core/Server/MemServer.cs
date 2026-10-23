@@ -161,6 +161,7 @@ public sealed class MemServer : IAsyncDisposable
         {
             lock (_connectionsGate) _connections.Remove(connection);
             Interlocked.Decrement(ref _connectionCount);
+            _db.Statistics.RecordDisconnection();
             await connection.DisposeAsync().ConfigureAwait(false);
         }
     }

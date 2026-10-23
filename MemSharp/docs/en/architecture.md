@@ -119,10 +119,21 @@ lock (second.Gate)
 Without that ordering, two threads renaming `a → b` and `b → a` deadlock. `ConcurrentRenamesInOppositeDirectionsDoNotDeadlock`
 is the test that would catch its removal.
 
+The `*STORE` commands (`SINTERSTORE`, `ZUNIONSTORE` and the rest) generalise this to any number of
+keys: `ShardsInOrder` collects the distinct shards of the destination and every source, sorts them by
+index, and takes them all for the length of the operation. `FLUSHDB` does the same over every shard.
+
+### Writes are logged under their lock
+
+Every mutation calls `RecordWrite` *before* releasing the shard lock that applied it. The append-only
+log has its own lock, which never takes a shard lock, so shard-then-log is a fixed order and cannot
+deadlock. Logging after the release — what 1.0 did — let two writers to one key reach the log in the
+opposite order from the one they applied in. See [persistence.md](persistence.md#the-append-only-log).
+
 ### What is *not* atomic
 
-Set algebra (`SINTER`, `SUNION`, `SDIFF`), `KEYS`, `Query()` and snapshot writing each snapshot one
-shard at a time rather than holding every lock at once.
+Set algebra (`SINTER`, `SUNION`, `SDIFF`), `KEYS`, `SCAN`, `Query()` and snapshot writing each
+snapshot one shard at a time rather than holding every lock at once.
 
 **This means a cross-key read is not a point-in-time view.** A write to a later shard can land after
 an earlier shard was read. The alternative — holding N locks while doing O(total) work — would stall
@@ -131,6 +142,10 @@ the snapshot is the better trade.
 
 Single-key operations remain fully atomic. If you need a consistent cross-key image, stop writing
 first.
+
+The `*STORE` variants are the deliberate exception. Their result is written to a key and so becomes
+durable — persisted, logged, read back by everyone — and a looseness that is harmless in a transient
+read would become permanent. They pay for several locks to be true.
 
 ## The keyspace entry
 
@@ -264,9 +279,9 @@ request path is designed not to allocate:
 
 - **No dependencies in `MemSharp.Core`.** A database that drags a dependency graph into every
   consumer is a liability, and everything needed — hashing, pipelines, intrinsics — is in the BCL.
-- **No skip list for sorted sets.** A red-black tree gives the same O(log n) insert, delete and
-  score-range seek with a fraction of the code. The trade is that rank is O(n) rather than O(log n);
-  see [data-types.md](data-types.md#sortedset).
+- **No skip list for sorted sets.** An order-statistic AVL tree gives the same O(log n) insert,
+  delete, score seek *and* rank, with no random level choice. 1.0's `SortedSet<T>` made rank O(n);
+  1.1 replaced it once a benchmark showed what that cost — see [data-types.md](data-types.md#sortedset).
 - **No `MULTI`/`EXEC`.** Multi-key atomicity would need either a global lock or a real transaction
   manager, and the first defeats the sharding while the second is a much larger project.
 - **No cluster mode.** One process, one keyspace.
@@ -279,7 +294,7 @@ request path is designed not to allocate:
 | `StoreEntry.cs` | The keyspace entry layout |
 | `MemDb.cs` | Keyspace operations, locking helpers, the sweeper |
 | `MemDb.*.cs` | One partial per value type |
-| `Collections/*.cs` | The four hand-written structures |
+| `Collections/*.cs` | The hand-written structures, including the order-statistic tree and the consumer-group PEL |
 | `Commands/CommandTable.cs` | The dispatch table |
 | `Server/ClientConnection.cs` | The pipelines read loop |
 | `Persistence/*.cs` | Snapshot format, log, coordinator |

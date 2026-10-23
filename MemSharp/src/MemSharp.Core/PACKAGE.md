@@ -115,9 +115,9 @@ Full tables and methodology are in the repository.
 | List | ring buffer | O(1) push and pop at both ends |
 | Hash | `Dictionary` | Atomic per-field arithmetic |
 | Set | `HashSet` | Union, intersect, difference |
-| SortedSet | red-black tree + map | O(log n) score-range seek |
+| SortedSet | order-statistic AVL tree + map | O(log n) score seek and rank |
 | TimeSeries | two primitive arrays | Bounded retention, in-engine bucket aggregation |
-| Stream | ring buffer | Monotonic `ms-seq` ids, O(1) head trim |
+| Stream | ring buffer + pending-entry lists | Monotonic `ms-seq` ids, O(1) head trim, consumer groups |
 
 ## Documentation
 

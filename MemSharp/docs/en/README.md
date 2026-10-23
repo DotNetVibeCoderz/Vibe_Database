@@ -74,7 +74,7 @@ learning how one is built — yes. For production caching at scale, use Redis.
 
 ```bash
 dotnet build -c Release
-dotnet test tests/MemSharp.Tests/MemSharp.Tests.csproj -c Release    # 214 tests
+dotnet test tests/MemSharp.Tests/MemSharp.Tests.csproj -c Release    # 280 tests
 python .github/scripts/check_docs.py .
 ```
 

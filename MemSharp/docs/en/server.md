@@ -58,7 +58,8 @@ one by accident.
 
 ### Connection and server
 
-`PING` · `ECHO` · `QUIT` · `DBSIZE` · `FLUSHDB` · `INFO` · `COMMAND`
+`PING` · `ECHO` · `QUIT` · `DBSIZE` · `FLUSHDB` · `INFO` (with sections) · `COMMAND` ·
+`CONFIG GET` · `CONFIG RESETSTAT` · `MEMORY USAGE`
 
 ### Persistence
 
@@ -72,12 +73,15 @@ one by accident.
 ### Strings
 
 `SET` (with `EX`, `PX`, `NX`) · `SETNX` · `GET` · `GETSET` · `MGET` · `MSET` · `INCR` · `DECR` ·
-`INCRBY` · `DECRBY` · `INCRBYFLOAT` · `APPEND` · `STRLEN`
+`INCRBY` · `DECRBY` · `INCRBYFLOAT` · `APPEND` · `STRLEN` · `GETRANGE` · `SETRANGE`
+
+Lengths and offsets are UTF-8 bytes. A range that would split a multi-byte character is an error
+rather than partial bytes — see [data-types.md](data-types.md#string).
 
 ### Lists
 
 `LPUSH` · `RPUSH` · `LPOP` · `RPOP` · `LRANGE` · `LLEN` · `LINDEX` · `LSET` · `LTRIM` · `LREM` ·
-`RPOPLPUSH`
+`RPOPLPUSH` · `LPOS` (with `RANK`, `COUNT`, `MAXLEN`)
 
 ### Hashes
 
@@ -86,20 +90,29 @@ one by accident.
 
 ### Sets
 
-`SADD` · `SREM` · `SMEMBERS` · `SISMEMBER` · `SCARD` · `SPOP` · `SINTER` · `SUNION` · `SDIFF`
+`SADD` · `SREM` · `SMEMBERS` · `SISMEMBER` · `SCARD` · `SPOP` · `SINTER` · `SUNION` · `SDIFF` ·
+`SINTERSTORE` · `SUNIONSTORE` · `SDIFFSTORE`
 
 ### Sorted sets
 
 `ZADD` · `ZREM` · `ZSCORE` · `ZINCRBY` · `ZCARD` · `ZRANK` · `ZREVRANK` · `ZRANGE` · `ZREVRANGE` ·
-`ZRANGEBYSCORE` · `ZREVRANGEBYSCORE` · `ZCOUNT` · `ZREMRANGEBYSCORE`
+`ZRANGEBYSCORE` · `ZREVRANGEBYSCORE` · `ZCOUNT` · `ZREMRANGEBYSCORE` · `ZUNIONSTORE` · `ZINTERSTORE`
+(with `WEIGHTS` and `AGGREGATE SUM|MIN|MAX`)
 
 Score bounds accept `-inf` and `+inf`. `WITHSCORES` interleaves members and scores.
 
 ### Streams
 
-`XADD` (with `MAXLEN`) · `XLEN` · `XRANGE` (with `COUNT`) · `XREVRANGE` · `XTRIM`
+`XADD` (with `MAXLEN`) · `XLEN` · `XRANGE` (with `COUNT`) · `XREVRANGE` · `XTRIM` · `XREAD` (with
+`COUNT`, `BLOCK`)
 
-`-` and `+` mean the ends of the stream. `*` asks the server to generate the id.
+Consumer groups: `XGROUP CREATE|DESTROY|CREATECONSUMER|DELCONSUMER|SETID` · `XREADGROUP` (with
+`COUNT`, `BLOCK`, `NOACK`) · `XACK` · `XPENDING` (summary and extended, with `IDLE`) · `XCLAIM` (with
+`IDLE`, `TIME`, `RETRYCOUNT`, `FORCE`, `JUSTID`, `LASTID`) · `XAUTOCLAIM` · `XINFO STREAM|GROUPS|CONSUMERS`
+
+`-` and `+` mean the ends of the stream. `*` asks the server to generate the id. In `XREAD` and
+`XGROUP`, `$` means "after the current last entry"; in `XREADGROUP`, `>` means "entries this group
+has not delivered yet".
 
 ### Time series
 
@@ -115,21 +128,43 @@ Score bounds accept `-inf` and `+inf`. `WITHSCORES` interleaves members and scor
 
 `SQL <query>` — see [query-language.md](query-language.md).
 
-`COMMAND` lists everything the running server supports, which is the authoritative answer for the
-version you have.
+`COMMAND` lists everything the running server supports — 114 commands in 1.1 — which is the
+authoritative answer for the version you have.
+
+### Blocking reads
+
+`XREAD` and `XREADGROUP` accept `BLOCK milliseconds`, with `0` meaning "wait forever". When the read
+finds nothing, the connection is parked until the next `XADD` anywhere in the database or until the
+timeout, which replies nil. While parked it reads nothing further from its socket — the Redis
+contract: a blocked client's later commands wait their turn — but any replies already owed to earlier
+commands in the same pipelined batch are sent first.
+
+Two details are deliberate. `$` in a blocking `XREAD` is pinned to the last id when the read starts;
+re-evaluated after a wake-up it would mean the *new* last id, and the client would sleep through
+exactly the entry that woke it. And a parked connection wakes at least once a second to check
+whether its client has hung up, so an abandoned `BLOCK 0` does not hold a connection for the life of
+the server. `INFO` reports parked connections as `blocked_clients`.
+
+Blocking is a server feature only. The command table is synchronous — it is also what replays the
+append-only log — so embedded callers and replay always get the non-blocking answer.
 
 ## Differences from Redis
 
 | | MemSharp |
 |---|---|
-| `SCAN` cursor | An offset into a stable scan order rather than a rehash-safe cursor. The usual "loop until the cursor is 0" contract holds; a key added mid-iteration may be missed. |
+| `SCAN` cursor | Rehash-safe as in Redis, but the value is MemSharp's own: a shard index in the high 32 bits and a hash threshold in the low 32. Treat it as opaque. It does not survive a restart. |
 | `XADD MAXLEN ~` | The `~` approximate form is accepted and treated as **exact**. |
+| `GETRANGE` / `SETRANGE` | A range that would split a multi-byte UTF-8 character is an error. Redis would return or write the partial bytes. |
+| `CONFIG SET` | Refused. MemSharp is configured through `MemDbOptions` at construction; `CONFIG GET` reports those options. |
+| `MEMORY USAGE` | An estimate from the CLR's object layout, not allocator-exact. |
+| `INFO` `redis_version` | Reports `6.2.0`, the Redis release whose command surface MemSharp's most closely matches, so clients that pick features by version stay inside it. It is a compatibility level, not a claim to be Redis; `memsharp_version` is the real version. |
+| Streams | No `XDEL` or `XSETID`; no lag or `entries-read` tracking in `XINFO`. `XAUTOCLAIM` replies in Redis 7's three-element shape (with the deleted ids), although `redis_version` says 6.2. |
 | `SELECT` | Not implemented. One keyspace per server. |
 | `MULTI` / `EXEC` | Not implemented. Single-key operations are atomic. |
 | `AUTH` | Not implemented. |
 | RESP3 / `HELLO` | Not implemented. RESP2 only. |
 | Keyspace notifications | Not implemented; use `PUBLISH` yourself. |
-| `SINTER` etc. | Not a point-in-time view across keys. See [architecture.md](architecture.md#what-is-not-atomic). |
+| `SINTER` etc. | Not a point-in-time view across keys. See [architecture.md](architecture.md#what-is-not-atomic). The `*STORE` variants *are* point-in-time. |
 
 ## Pipelining
 
@@ -234,34 +269,58 @@ type so you can catch it specifically.
 ## Monitoring
 
 ```
-INFO
+INFO [section ...]
 ```
+
+`INFO` uses Redis's section and field names — `server`, `clients`, `memory`, `persistence`, `stats`,
+`replication`, `cpu`, `keyspace` — so existing dashboards and exporters can read it. Ask for one or
+more sections to get only those. The 1.0 field names (`product`, `keys`, `uptime_seconds`,
+`commands_processed` and the rest) are still present, because the published 1.0 clients parse them.
+Abridged, from a real server:
 
 ```
 # Server
+redis_version:6.2.0
+memsharp_version:1.1.0
+redis_mode:standalone
+runtime:.NET 10.0.12
+uptime_in_seconds:151
 product:MemSharp
 vendor:Gravicode Studios
-version:1.0.0.0
 
-# Keyspace
-keys:1048576
-shards:64
+# Clients
+connected_clients:1
+blocked_clients:0
 
-# Stats
-uptime_seconds:3600
-commands_processed:19283746
-connections_accepted:42
-keyspace_hits:18000000
-keyspace_misses:1283746
-hit_rate:0.9334
-writes:5000000
-expired_keys:120394
-pubsub_messages:88000
+# Memory
+used_memory:1783344
+used_memory_human:1.70M
+used_memory_rss:40140800
+maxmemory:0
+mem_allocator:dotnet-server-gc
 
 # Persistence
-last_save:1788434080
-pending_changes:2841
+rdb_changes_since_last_save:0
+rdb_last_save_time:0
+aof_enabled:0
+
+# Stats
+total_connections_received:5
+total_commands_processed:69
+keyspace_hits:0
+keyspace_misses:0
+expired_keys:0
+
+# Keyspace
+db0:keys=14,expires=0,avg_ttl=0
+keys:14
+shards:32
 ```
+
+`CONFIG GET pattern` answers the parameters monitoring tools ask for — `maxmemory`, `save`,
+`appendonly`, `appendfsync`, `dir`, `dbfilename`, `databases`, plus MemSharp's `shards` — from the
+options the database was built with. `CONFIG RESETSTAT` zeroes the counters. `MEMORY USAGE key
+[SAMPLES n]` estimates a key's footprint (see [data-types.md](data-types.md#keyspace-operations)).
 
 Embedded, the same counters are on `db.Statistics`. They cost one interlocked add each, which is why
 they are on by default; set `EnableStatistics = false` to turn them off.

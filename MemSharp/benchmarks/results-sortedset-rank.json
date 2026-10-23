@@ -1,0 +1,21 @@
+{
+  "note": "SortedSetRankBenchmarks (BenchmarkDotNet, default job), before and after the 1.1 order-statistic tree. 'before' is the 1.0 SortedSet<T>-backed store, whose rank queries count from one end; 'after' is the AVL tree with subtree sizes. The probe is the middle member, where an O(n) walk costs most - a top-N query would hide the difference.",
+  "machine": {
+    "cpu": "AMD Ryzen, 8 cores",
+    "os": "Windows 11 Pro 26200"
+  },
+  "runtime": ".NET 10.0, Release",
+  "captured": "2026-10-23",
+  "command": "dotnet run -c Release --project benchmarks/MemSharp.Benchmarks -- --filter '*SortedSetRank*'",
+  "unit": "nanoseconds, mean",
+  "before_1_0": {
+    "100000": { "RankOfMiddle": 1300709, "RangeByRankMiddle10": 1035671, "RangeByScoreMiddle10": 942, "Rescore": 566 },
+    "1000000": { "RankOfMiddle": 12695574, "RangeByRankMiddle10": 11407902, "RangeByScoreMiddle10": 966, "Rescore": 637 }
+  },
+  "after_1_1": {
+    "1000": { "RankOfMiddle": 90, "RangeByRankMiddle10": 570, "RangeByScoreMiddle10": 570, "Rescore": 458 },
+    "100000": { "RankOfMiddle": 187, "RangeByRankMiddle10": 638, "RangeByScoreMiddle10": 884, "Rescore": 685 },
+    "1000000": { "RankOfMiddle": 145, "RangeByRankMiddle10": 610, "RangeByScoreMiddle10": 807, "Rescore": 708 }
+  },
+  "reading": "Rank and rank-range become independent of set size (12.7 ms -> 145 ns at a million members). Score ranges, already O(log n), are unchanged within noise. Rescoring - the order-book write - is about 10% slower, the cost of maintaining subtree sizes on every insert and delete. The 1.0 run at 1,000 members was not captured."
+}

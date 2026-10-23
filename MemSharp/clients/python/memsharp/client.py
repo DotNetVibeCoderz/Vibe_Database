@@ -148,6 +148,22 @@ class MemSharpClient:
         """The kind of value a key holds, or ``none``."""
         return self.execute("TYPE", key)
 
+    def strlen(self, key: str) -> int:
+        """Length of a string in UTF-8 bytes, not characters: ``"héllo"`` is 6."""
+        return self.execute("STRLEN", key)
+
+    def getrange(self, key: str, start: int, end: int) -> str:
+        """A substring by inclusive byte offsets. Negative offsets count back from the end.
+
+        The server refuses a range that would split a multi-byte character rather than hand back
+        invalid UTF-8, so that case raises :class:`MemSharpError`.
+        """
+        return self.execute("GETRANGE", key, start, end)
+
+    def setrange(self, key: str, offset: int, value: Any) -> int:
+        """Overwrite from a byte offset, zero-padding a short string. Returns the new length in bytes."""
+        return self.execute("SETRANGE", key, offset, value)
+
     def incr(self, key: str, amount: int = 1) -> int:
         """Atomically add to an integer, treating a missing key as 0."""
         return self.execute("INCRBY", key, amount)
@@ -177,6 +193,7 @@ class MemSharpClient:
         """Iterate the keyspace a page at a time.
 
         The loop runs until the server returns a zero cursor, which is the same contract Redis uses.
+        The cursor is opaque and can exceed 2^32, and a page can be empty while the cursor is not.
         """
         cursor = 0
         while True:
@@ -215,6 +232,22 @@ class MemSharpClient:
     def ltrim(self, key: str, start: int, stop: int) -> None:
         """Keep only an index range - the way to cap a feed at a fixed length."""
         self.execute("LTRIM", key, start, stop)
+
+    def lpos(self, key: str, element: Any, rank: int | None = None, count: int | None = None,
+             maxlen: int | None = None) -> Any:
+        """Index of a matching element, or ``None``.
+
+        With ``count`` the reply is a list of indices instead (``count=0`` means every match).
+        A negative ``rank`` searches from the tail; ``maxlen`` caps how many elements are compared.
+        """
+        args: list[Any] = ["LPOS", key, element]
+        if rank is not None:
+            args += ["RANK", rank]
+        if count is not None:
+            args += ["COUNT", count]
+        if maxlen is not None:
+            args += ["MAXLEN", maxlen]
+        return self.execute(*args)
 
     # -- hashes ----------------------------------------------------------------------------
 
@@ -261,6 +294,18 @@ class MemSharpClient:
         """True if a set contains a member."""
         return bool(self.execute("SISMEMBER", key, member))
 
+    def sinterstore(self, destination: str, *keys: str) -> int:
+        """Store the intersection of sets. Returns its size; an empty result deletes ``destination``."""
+        return self.execute("SINTERSTORE", destination, *keys)
+
+    def sunionstore(self, destination: str, *keys: str) -> int:
+        """Store the union of sets. Returns its size."""
+        return self.execute("SUNIONSTORE", destination, *keys)
+
+    def sdiffstore(self, destination: str, *keys: str) -> int:
+        """Store the members of the first set found in none of the others. Returns its size."""
+        return self.execute("SDIFFSTORE", destination, *keys)
+
     # -- sorted sets -----------------------------------------------------------------------
 
     def zadd(self, key: str, mapping: Mapping[str, float]) -> int:
@@ -302,6 +347,31 @@ class MemSharpClient:
         """Number of members."""
         return self.execute("ZCARD", key)
 
+    def zunionstore(self, destination: str, keys: Sequence[str], weights: Sequence[float] | None = None,
+                    aggregate: str | None = None) -> int:
+        """Store the union of sorted sets. Returns its size.
+
+        ``weights`` multiply each source's scores; ``aggregate`` is ``sum`` (default), ``min`` or
+        ``max``. A plain set counts as every member scoring 1.
+        """
+        return self._zstore("ZUNIONSTORE", destination, keys, weights, aggregate)
+
+    def zinterstore(self, destination: str, keys: Sequence[str], weights: Sequence[float] | None = None,
+                    aggregate: str | None = None) -> int:
+        """Store the intersection of sorted sets. Same options as :meth:`zunionstore`."""
+        return self._zstore("ZINTERSTORE", destination, keys, weights, aggregate)
+
+    def _zstore(self, command: str, destination: str, keys: Sequence[str], weights: Sequence[float] | None,
+                aggregate: str | None) -> int:
+        if isinstance(keys, str):
+            keys = [keys]                   # a bare string would otherwise be split into characters
+        args: list[Any] = [command, destination, len(keys), *keys]
+        if weights is not None:
+            args += ["WEIGHTS", *weights]
+        if aggregate is not None:
+            args += ["AGGREGATE", aggregate.upper()]
+        return self.execute(*args)
+
     # -- streams ---------------------------------------------------------------------------
 
     def xadd(self, key: str, fields: Mapping[str, Any], maxlen: int | None = None) -> str:
@@ -319,11 +389,188 @@ class MemSharpClient:
         if count is not None:
             args += ["COUNT", count]
 
-        return [(entry_id, dict(zip(flat[::2], flat[1::2]))) for entry_id, flat in self.execute(*args)]
+        return [_entry(raw) for raw in self.execute(*args)]
 
     def xlen(self, key: str) -> int:
         """Number of entries."""
         return self.execute("XLEN", key)
+
+    def xread(self, streams: Mapping[str, str] | Sequence[str] | str, count: int | None = None,
+              block: float | None = None) -> dict[str, list[tuple[str, dict[str, str] | None]]] | None:
+        """Entries after the given ids, as ``{key: [(id, fields), ...]}``, or ``None`` if nothing is new.
+
+        ``streams`` maps each key to the id to read after; a bare key or a list of keys means ``$``,
+        "only what arrives from now on". ``block`` is how many seconds to wait for an entry (``0``
+        waits forever); only streams that returned something appear in the result.
+        """
+        args: list[Any] = ["XREAD"]
+        if count is not None:
+            args += ["COUNT", count]
+        if block is not None:
+            args += ["BLOCK", int(block * 1000)]
+        args += _streams_clause(streams, "$")
+        return _stream_reply(self._execute_blocking(block, *args))
+
+    def xgroup_create(self, key: str, group: str, id: str = "$", mkstream: bool = False) -> None:
+        """Create a consumer group that delivers entries after ``id`` (``$``: only new ones).
+
+        ``mkstream`` creates an empty stream when the key is absent; without it that is an error. A
+        group that already exists raises with code ``BUSYGROUP``.
+        """
+        args: list[Any] = ["XGROUP", "CREATE", key, group, id]
+        if mkstream:
+            args.append("MKSTREAM")
+        self.execute(*args)
+
+    def xgroup_destroy(self, key: str, group: str) -> bool:
+        """Remove a consumer group and its pending entries. False if it did not exist."""
+        return bool(self.execute("XGROUP", "DESTROY", key, group))
+
+    def xgroup_createconsumer(self, key: str, group: str, consumer: str) -> bool:
+        """Register a consumer ahead of its first read. False if it already existed."""
+        return bool(self.execute("XGROUP", "CREATECONSUMER", key, group, consumer))
+
+    def xgroup_delconsumer(self, key: str, group: str, consumer: str) -> int:
+        """Remove a consumer. Returns how many pending entries it still held - those are dropped."""
+        return self.execute("XGROUP", "DELCONSUMER", key, group, consumer)
+
+    def xgroup_setid(self, key: str, group: str, id: str = "$") -> None:
+        """Move a group's last-delivered id, to replay history (``0``) or skip it (``$``)."""
+        self.execute("XGROUP", "SETID", key, group, id)
+
+    def xreadgroup(self, group: str, consumer: str, streams: Mapping[str, str] | Sequence[str] | str,
+                   count: int | None = None, block: float | None = None,
+                   noack: bool = False) -> dict[str, list[tuple[str, dict[str, str] | None]]] | None:
+        """Read as ``consumer`` in ``group``, in the same shape as :meth:`xread`.
+
+        A bare key or a list of keys means ``>``: entries never delivered to the group, or ``None`` if
+        there are none. An explicit id instead re-reads this consumer's own pending history, where an
+        entry trimmed from the stream since comes back with ``None`` for its fields. ``noack`` skips
+        the pending list entirely.
+        """
+        args: list[Any] = ["XREADGROUP", "GROUP", group, consumer]
+        if count is not None:
+            args += ["COUNT", count]
+        if block is not None:
+            args += ["BLOCK", int(block * 1000)]
+        if noack:
+            args.append("NOACK")
+        args += _streams_clause(streams, ">")
+        return _stream_reply(self._execute_blocking(block, *args))
+
+    def xack(self, key: str, group: str, *ids: str) -> int:
+        """Acknowledge entries, removing them from the pending list. Returns how many were pending."""
+        return self.execute("XACK", key, group, *ids)
+
+    def xpending(self, key: str, group: str) -> dict[str, Any]:
+        """A group's pending summary.
+
+        ``{"count": n, "min": id, "max": id, "consumers": {name: n}}``; ``min`` and ``max`` are
+        ``None`` when nothing is pending.
+        """
+        count, lowest, highest, consumers = self.execute("XPENDING", key, group)
+        return {
+            "count": count,
+            "min": lowest,
+            "max": highest,
+            # The server sends each consumer's count as a bulk string, as Redis does.
+            "consumers": {name: int(n) for name, n in consumers or []},
+        }
+
+    def xpending_range(self, key: str, group: str, start: str = "-", end: str = "+", count: int = 100,
+                       consumer: str | None = None, idle: float | None = None) -> list[dict[str, Any]]:
+        """Pending entries in an id range, one dict each: ``id``, ``consumer``, ``idle`` (seconds since
+        last delivered) and ``deliveries``. ``idle`` filters to entries idle at least that long."""
+        args: list[Any] = ["XPENDING", key, group]
+        if idle is not None:
+            args += ["IDLE", int(idle * 1000)]
+        args += [start, end, count]
+        if consumer is not None:
+            args.append(consumer)
+        return [
+            {"id": entry_id, "consumer": owner, "idle": idle_ms / 1000.0, "deliveries": deliveries}
+            for entry_id, owner, idle_ms, deliveries in self.execute(*args)
+        ]
+
+    def xclaim(self, key: str, group: str, consumer: str, min_idle: float, *ids: str,
+               idle: float | None = None, time: float | None = None, retrycount: int | None = None,
+               force: bool = False, justid: bool = False, lastid: str | None = None) -> list[Any]:
+        """Take over pending entries idle for at least ``min_idle`` seconds.
+
+        Returns the claimed entries as ``(id, fields)``, or just their ids with ``justid``. ``idle``
+        (seconds) or ``time`` (a Unix timestamp, as from ``time.time()``) set the new idle clock;
+        ``force`` claims ids that are not pending at all.
+        """
+        args: list[Any] = ["XCLAIM", key, group, consumer, int(min_idle * 1000), *ids]
+        if idle is not None:
+            args += ["IDLE", int(idle * 1000)]
+        if time is not None:
+            args += ["TIME", int(time * 1000)]
+        if retrycount is not None:
+            args += ["RETRYCOUNT", retrycount]
+        if force:
+            args.append("FORCE")
+        if justid:
+            args.append("JUSTID")
+        if lastid is not None:
+            args += ["LASTID", lastid]
+
+        reply = self.execute(*args)
+        return reply if justid else [_entry(raw) for raw in reply]
+
+    def xautoclaim(self, key: str, group: str, consumer: str, min_idle: float, start: str = "0-0",
+                   count: int | None = None, justid: bool = False) -> tuple[str, list[Any], list[str]]:
+        """Scan the pending list from ``start`` and claim what has been idle ``min_idle`` seconds.
+
+        Returns ``(next_start, claimed, deleted_ids)``. ``next_start`` is ``0-0`` once the sweep is
+        complete; ``deleted_ids`` were pending but trimmed from the stream, and are dropped.
+        """
+        args: list[Any] = ["XAUTOCLAIM", key, group, consumer, int(min_idle * 1000), start]
+        if count is not None:
+            args += ["COUNT", count]
+        if justid:
+            args.append("JUSTID")
+
+        next_start, claimed, deleted = self.execute(*args)
+        return next_start, claimed if justid else [_entry(raw) for raw in claimed], deleted
+
+    def xinfo_groups(self, key: str) -> list[dict[str, Any]]:
+        """Every consumer group on a stream: ``name``, ``consumers``, ``pending``, ``last-delivered-id``."""
+        return [_pairs(flat) for flat in self.execute("XINFO", "GROUPS", key)]
+
+    def xinfo_consumers(self, key: str, group: str) -> list[dict[str, Any]]:
+        """Every consumer in a group: ``name``, ``pending`` and ``idle`` (seconds since it last read)."""
+        consumers = [_pairs(flat) for flat in self.execute("XINFO", "CONSUMERS", key, group)]
+        for consumer in consumers:
+            consumer["idle"] = consumer["idle"] / 1000.0
+        return consumers
+
+    def xinfo_stream(self, key: str) -> dict[str, Any]:
+        """A stream's summary: ``length``, ``last-generated-id``, ``groups``, and ``first-entry`` /
+        ``last-entry`` as ``(id, fields)`` or ``None`` when the stream is empty."""
+        info = _pairs(self.execute("XINFO", "STREAM", key))
+        for name in ("first-entry", "last-entry"):
+            if info.get(name) is not None:
+                info[name] = _entry(info[name])
+        return info
+
+    def _execute_blocking(self, block: float | None, *args: Any) -> Any:
+        """Run a command that may park on the server for ``block`` seconds.
+
+        The socket timeout is lifted for the duration, or a long BLOCK would surface as a client-side
+        timeout - and leave the late reply in the stream to be mistaken for the next one.
+        """
+        if block is None:
+            return self.execute(*args)
+
+        self.connect()
+        assert self._socket is not None
+        self._socket.settimeout(None if block == 0 or self._timeout is None else block + self._timeout)
+        try:
+            return self.execute(*args)
+        finally:
+            if self._socket is not None:
+                self._socket.settimeout(self._timeout)
 
     # -- time series -----------------------------------------------------------------------
 
@@ -400,16 +647,37 @@ class MemSharpClient:
         reply = self.execute("SQL", query)
         return reply if isinstance(reply, int) else 0
 
-    def info(self) -> dict[str, str]:
-        """Server statistics, parsed into a dict. Section headings are dropped."""
+    def info(self, *sections: str) -> dict[str, str]:
+        """Server statistics, parsed into a dict. Section headings are dropped.
+
+        With no arguments every section is returned; name sections (``server``, ``memory``,
+        ``keyspace``, ...) to fetch only those.
+        """
         result: dict[str, str] = {}
-        for line in self.execute("INFO").splitlines():
+        for line in self.execute("INFO", *sections).splitlines():
             line = line.strip()
             if not line or line.startswith("#"):
                 continue
             name, _, value = line.partition(":")
             result[name] = value
         return result
+
+    def config_get(self, *patterns: str) -> dict[str, str]:
+        """Configuration values whose names match the globs (default ``*``). Read-only: MemSharp is
+        configured when it is constructed, so there is no ``config_set``."""
+        flat = self.execute("CONFIG", "GET", *(patterns or ("*",)))
+        return dict(zip(flat[::2], flat[1::2]))
+
+    def config_resetstat(self) -> None:
+        """Zero the server's statistics counters."""
+        self.execute("CONFIG", "RESETSTAT")
+
+    def memory_usage(self, key: str, samples: int | None = None) -> int | None:
+        """Approximate bytes a key and its value occupy, or ``None`` if the key is absent."""
+        args: list[Any] = ["MEMORY", "USAGE", key]
+        if samples is not None:
+            args += ["SAMPLES", samples]
+        return self.execute(*args)
 
     def dbsize(self) -> int:
         """Number of keys in the database."""
@@ -422,3 +690,34 @@ class MemSharpClient:
     def save(self) -> None:
         """Write a snapshot synchronously."""
         self.execute("SAVE")
+
+
+# -- stream reply shapes --------------------------------------------------------------------
+
+
+def _pairs(flat: list[Any]) -> dict[str, Any]:
+    """Pair a flat ``[name, value, name, value, ...]`` reply into a dict."""
+    return dict(zip(flat[::2], flat[1::2]))
+
+
+def _entry(raw: list[Any]) -> tuple[str, dict[str, str] | None]:
+    """``[id, [field, value, ...]]`` as ``(id, fields)``. A trimmed entry in a pending-history read
+    arrives as ``[id, nil]`` and keeps its ``None``."""
+    entry_id, flat = raw
+    return entry_id, None if flat is None else _pairs(flat)
+
+
+def _streams_clause(streams: Mapping[str, str] | Sequence[str] | str, default_id: str) -> list[Any]:
+    """``STREAMS key... id...``: every key first, then every id, in the same order."""
+    if isinstance(streams, str):
+        streams = {streams: default_id}
+    elif not isinstance(streams, Mapping):
+        streams = {key: default_id for key in streams}
+    return ["STREAMS", *streams.keys(), *streams.values()]
+
+
+def _stream_reply(reply: Any) -> dict[str, list[tuple[str, dict[str, str] | None]]] | None:
+    """``[[key, [entry, ...]], ...]`` as ``{key: [(id, fields), ...]}``; nil stays ``None``."""
+    if reply is None:
+        return None
+    return {key: [_entry(raw) for raw in entries] for key, entries in reply}

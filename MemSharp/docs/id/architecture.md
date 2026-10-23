@@ -122,10 +122,23 @@ lock (second.Gate)
 Tanpa pengurutan itu, dua thread yang me-rename `a → b` dan `b → a` akan deadlock.
 `ConcurrentRenamesInOppositeDirectionsDoNotDeadlock` adalah tes yang akan menangkap penghapusannya.
 
+Perintah `*STORE` (`SINTERSTORE`, `ZUNIONSTORE` dan lainnya) memperluas ini ke sejumlah key berapa pun:
+`ShardsInOrder` mengumpulkan shard-shard berbeda milik tujuan dan setiap sumber, mengurutkannya menurut
+indeks, lalu memegang semuanya selama operasi berlangsung. `FLUSHDB` melakukan hal yang sama atas
+setiap shard.
+
+### Tulisan dicatat di bawah lock-nya
+
+Setiap mutasi memanggil `RecordWrite` *sebelum* melepas lock shard yang menerapkannya. Log append-only
+punya lock sendiri, yang tidak pernah mengambil lock shard, jadi shard-lalu-log adalah urutan tetap dan
+tidak bisa deadlock. Mencatat setelah lock dilepas — yang dilakukan 1.0 — membuat dua penulis ke satu
+key bisa mencapai log dalam urutan yang berlawanan dengan urutan penerapannya. Lihat
+[persistence.md](persistence.md#log-append-only).
+
 ### Yang *bukan* atomik
 
-Aljabar himpunan (`SINTER`, `SUNION`, `SDIFF`), `KEYS`, `Query()` dan penulisan snapshot masing-masing
-mengambil snapshot satu shard pada satu waktu, bukan memegang semua lock sekaligus.
+Aljabar himpunan (`SINTER`, `SUNION`, `SDIFF`), `KEYS`, `SCAN`, `Query()` dan penulisan snapshot
+masing-masing mengambil snapshot satu shard pada satu waktu, bukan memegang semua lock sekaligus.
 
 **Artinya baca lintas-key bukan pandangan point-in-time.** Tulisan ke shard yang lebih belakang bisa
 mendarat setelah shard yang lebih depan dibaca. Alternatifnya — memegang N lock sambil melakukan
@@ -134,6 +147,10 @@ analitik yang mayoritas baca seperti operasi-operasi ini, snapshot adalah piliha
 
 Operasi satu key tetap sepenuhnya atomik. Kalau Anda butuh citra lintas-key yang konsisten, hentikan
 penulisan lebih dulu.
+
+Varian `*STORE` adalah pengecualian yang disengaja. Hasilnya ditulis ke sebuah key sehingga menjadi
+tahan lama — dipersistenkan, dicatat di log, dibaca kembali oleh semua orang — dan kelonggaran yang
+tak berbahaya pada bacaan sesaat akan menjadi permanen. Mereka membayar beberapa lock supaya benar.
 
 ## Entri keyspace
 
@@ -273,9 +290,10 @@ jalur permintaan dirancang untuk tidak mengalokasikan:
 - **Tanpa dependensi di `MemSharp.Core`.** Database yang menyeret graf dependensi ke setiap
   konsumennya adalah beban, dan semua yang dibutuhkan — hashing, pipelines, intrinsics — sudah ada
   di BCL.
-- **Tanpa skip list untuk sorted set.** Pohon merah-hitam memberi insert, delete dan seek rentang
-  score O(log n) yang sama dengan sebagian kecil kode. Tukar-tambahnya: rank menjadi O(n) bukan
-  O(log n); lihat [data-types.md](data-types.md#sortedset).
+- **Tanpa skip list untuk sorted set.** Pohon AVL order-statistic memberi insert, delete, seek score
+  *dan* rank O(log n) yang sama, tanpa pilihan level acak. `SortedSet<T>` di 1.0 membuat rank O(n);
+  1.1 menggantinya begitu sebuah benchmark menunjukkan berapa biayanya — lihat
+  [data-types.md](data-types.md#sortedset).
 - **Tanpa `MULTI`/`EXEC`.** Atomisitas multi-key memerlukan lock global atau manajer transaksi
   sungguhan, dan yang pertama meniadakan sharding sementara yang kedua proyek jauh lebih besar.
 - **Tanpa mode cluster.** Satu proses, satu keyspace.
@@ -288,7 +306,7 @@ jalur permintaan dirancang untuk tidak mengalokasikan:
 | `StoreEntry.cs` | Tata letak entri keyspace |
 | `MemDb.cs` | Operasi keyspace, pembantu locking, penyapu |
 | `MemDb.*.cs` | Satu partial per tipe nilai |
-| `Collections/*.cs` | Empat struktur tulisan tangan |
+| `Collections/*.cs` | Struktur tulisan tangan, termasuk pohon order-statistic dan PEL consumer group |
 | `Commands/CommandTable.cs` | Tabel dispatch |
 | `Server/ClientConnection.cs` | Loop baca berbasis pipelines |
 | `Persistence/*.cs` | Format snapshot, log, koordinator |

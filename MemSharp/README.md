@@ -1,3 +1,5 @@
+<img src="assets/icon-128.png" alt="MemSharp" width="96" align="right">
+
 # MemSharp
 
 **An embeddable in-memory database for .NET.** Sharded key/value storage with seven value types,
@@ -22,9 +24,25 @@ MemSharp database, with the order book, tape, chart and positions all read back 
 ```bash
 dotnet add package MemSharp                 # the library
 dotnet tool install -g MemSharp.Cli         # the command-line tools
+pip install memsharp                        # Python client
+npm install memsharp                        # Node.js client
 ```
 
 Targets **.NET 10** and runs on Windows, Linux and macOS.
+
+## New in 1.1
+
+- **Stream consumer groups** — `XGROUP`, `XREADGROUP`, `XACK`, `XPENDING`, `XCLAIM`, `XAUTOCLAIM`,
+  `XINFO`, plus `XREAD` and blocking reads (`BLOCK`) over TCP. A stream is now a work queue as well as
+  a log, and its groups survive a snapshot and replay exactly from the append-only log.
+- **Sorted-set rank is O(log n)** — an order-statistic tree replaced `SortedSet<T>`. The rank of the
+  middle member of a million went from 12.7 ms to 145 ns.
+- **Rehash-safe `SCAN`** — a key present for the whole iteration is returned at least once.
+- **`SINTERSTORE`, `SUNIONSTORE`, `SDIFFSTORE`, `ZUNIONSTORE`, `ZINTERSTORE`** — point-in-time.
+- **`GETRANGE`, `SETRANGE`, `LPOS`**, and `STRLEN` in UTF-8 bytes, as in Redis.
+- **`INFO` sections, `CONFIG GET`, `MEMORY USAGE`** — readable by existing Redis dashboards.
+- **Three durability fixes** in the append-only log, each found and pinned by a test — see
+  [Progress.md](Progress.md#bugs-found-and-fixed-during-11).
 
 ## Thirty seconds
 
@@ -135,10 +153,10 @@ Full methodology and caveats: **[docs/en/benchmarks.md](docs/en/benchmarks.md)**
 | **String** | `string` | Also the numeric type — `INCR` parses and rewrites it |
 | **List** | ring buffer | O(1) at both ends; a `List<T>` makes `LPUSH` O(n) and a capped feed quadratic |
 | **Hash** | `Dictionary` | Atomic per-field arithmetic without rewriting the record |
-| **Set** | `HashSet` | Union, intersect, difference |
-| **SortedSet** | red-black tree + map | O(log n) score-range seek — the order-book primitive |
+| **Set** | `HashSet` | Union, intersect, difference — and the `*STORE` forms, point-in-time |
+| **SortedSet** | order-statistic AVL tree + map | O(log n) score seek *and* rank — the order-book primitive |
 | **TimeSeries** | two primitive arrays | 16 bytes a sample, no per-sample object header, bounded retention |
-| **Stream** | ring buffer | Monotonic `ms-seq` ids, O(1) head trim |
+| **Stream** | ring buffer + pending-entry lists | Monotonic `ms-seq` ids, O(1) head trim, consumer groups |
 
 ## Persistence
 
@@ -228,7 +246,7 @@ More: **[docs/en/trading-demo.md](docs/en/trading-demo.md)**.
 src/MemSharp.Core        the engine, the RESP server and client       → NuGet: MemSharp
 src/MemSharp.Cli         repl, serve, browse, bench, demo            → NuGet: MemSharp.Cli
 samples/…TradingDemo     the Avalonia demo and its screenshot runner
-tests/MemSharp.Tests     214 tests
+tests/MemSharp.Tests     280 tests
 benchmarks/…             BenchmarkDotNet suites
 clients/{python,go,nodejs}   client SDKs, each with an integration suite
 docs/{en,id}             full documentation, mirrored
@@ -242,10 +260,13 @@ Worth knowing before you reach for this:
   Do not put it on an untrusted network.
 - **No clustering or replication.** One process, one keyspace.
 - **No multi-key transactions.** Single-key operations are atomic; `MULTI`/`EXEC` is not implemented.
-- **Cross-key reads are not point-in-time.** Set algebra, `KEYS` and snapshots take one shard lock at
-  a time, so a concurrent write can land between shards. This is deliberate — the alternative stalls
-  every writer — and per-key consistency is preserved. See
-  [docs/en/architecture.md](docs/en/architecture.md).
+- **Cross-key reads are not point-in-time.** Set algebra, `KEYS`, `SCAN` and snapshots take one shard
+  lock at a time, so a concurrent write can land between shards. This is deliberate — the alternative
+  stalls every writer — and per-key consistency is preserved. The `*STORE` commands, whose result is
+  durable, are the exception. See [docs/en/architecture.md](docs/en/architecture.md).
+- **Strings are text, not bytes.** Lengths and ranges count UTF-8 bytes as Redis does, but a
+  `GETRANGE`/`SETRANGE` that would split a multi-byte character is an error rather than partial
+  bytes. See [docs/en/data-types.md](docs/en/data-types.md#string).
 - **The SQL layer is a keyspace browser, not a relational engine.** One table, no joins, no
   aggregates.
 - **For production caching at scale, use Redis.** MemSharp is for embedding a fast store inside a

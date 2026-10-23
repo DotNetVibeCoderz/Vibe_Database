@@ -260,7 +260,7 @@ public class CommandTableTests
         var reply = Run(db, "SCAN", "0", "COUNT", "100");
 
         Assert.Equal(2, reply.Items!.Length);
-        Assert.Equal("100", reply.Items[0].Text);           // more to come
+        Assert.NotEqual("0", reply.Items[0].Text);          // more to come; the cursor itself is opaque
         Assert.Equal(100, reply.Items[1].Items!.Length);
     }
 

@@ -34,6 +34,18 @@ internal sealed class Shard
     /// <summary>Rotating cursor so successive sweeps sample different keys.</summary>
     public int SweepCursor;
 
+    /// <summary>
+    /// True once the snapshot in progress has written this shard. Read and written under
+    /// <see cref="Gate"/>.
+    /// </summary>
+    /// <remarks>
+    /// A write to a shard the snapshot has already captured is missing from that snapshot, so it
+    /// must survive the log truncation that follows the save; a write to a shard not yet captured
+    /// is in the snapshot, and replaying it again would apply it twice. This flag is how the
+    /// append-only log tells the two apart. See <see cref="Persistence.AppendOnlyLog"/>.
+    /// </remarks>
+    public bool Captured;
+
 #pragma warning disable CS0169, IDE0051 // deliberate cache-line padding
     private readonly long _pad0, _pad1, _pad2, _pad3, _pad4, _pad5;
 #pragma warning restore CS0169, IDE0051

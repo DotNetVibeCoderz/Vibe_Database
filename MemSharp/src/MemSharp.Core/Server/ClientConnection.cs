@@ -94,7 +94,23 @@ internal sealed class ClientConnection : ICommandSession, IAsyncDisposable
                     consumedTotal += consumed;
                     if (command.Length == 0) continue;
 
-                    var reply = CommandTable.Execute(new CommandContext(_db, this), command);
+                    RespValue reply;
+                    if (CommandTable.TryGetBlockTimeout(command, out var timeout))
+                    {
+                        // Send what this batch has already answered before parking: a client that
+                        // pipelined a SET ahead of a blocking read is owed that reply now, not
+                        // whenever the read wakes.
+                        if (replies.WrittenCount > 0)
+                        {
+                            await WriteAsync(replies.WrittenMemory, cancellationToken).ConfigureAwait(false);
+                            replies.Clear();
+                        }
+                        reply = await ExecuteBlockingAsync(command, timeout, cancellationToken).ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        reply = CommandTable.Execute(new CommandContext(_db, this), command);
+                    }
                     _db.Statistics.RecordCommand();
 
                     // A subscribe reply is written like any other; what changes is that further
@@ -115,6 +131,75 @@ internal sealed class ClientConnection : ICommandSession, IAsyncDisposable
         finally
         {
             await reader.CompleteAsync().ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// Runs a blocking <c>XREAD</c>/<c>XREADGROUP</c>: try it, and while it finds nothing, wait for
+    /// the next stream append and try again, until the timeout (0 meaning forever).
+    /// </summary>
+    /// <remarks>
+    /// The signal is fetched before each attempt, never after - see <see cref="MemDb.StreamAppendSignal"/>.
+    /// While parked, this connection reads nothing further from its socket, which is the Redis
+    /// contract: a blocked client's later commands wait their turn. It does wake at least once a
+    /// second to check whether the client has hung up, so an abandoned <c>BLOCK 0</c> does not pin
+    /// a connection for the life of the server.
+    /// </remarks>
+    private async ValueTask<RespValue> ExecuteBlockingAsync(string[] command, TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        command = CommandTable.ResolveForBlocking(_db, command);
+        var context = new CommandContext(_db, this);
+        long deadline = timeout == TimeSpan.Zero ? long.MaxValue : Environment.TickCount64 + (long)timeout.TotalMilliseconds;
+        bool parked = false;
+
+        try
+        {
+            while (true)
+            {
+                var appended = _db.StreamAppendSignal();
+                var reply = CommandTable.Execute(context, command);
+                if (!reply.IsNull) return reply;
+
+                long remaining = deadline - Environment.TickCount64;
+                if (remaining <= 0 || _closeRequested) return reply;
+
+                if (!parked)
+                {
+                    _db.Statistics.RecordBlocked(1);
+                    parked = true;
+                }
+
+                try
+                {
+                    await appended.WaitAsync(TimeSpan.FromMilliseconds(Math.Min(remaining, 1000)), cancellationToken).ConfigureAwait(false);
+                }
+                catch (TimeoutException)
+                {
+                }
+
+                if (PeerHungUp())
+                {
+                    _closeRequested = true;
+                    return RespValue.Null;
+                }
+            }
+        }
+        finally
+        {
+            if (parked) _db.Statistics.RecordBlocked(-1);
+        }
+    }
+
+    /// <summary>True if the peer has closed its end: readable, with nothing to read.</summary>
+    private bool PeerHungUp()
+    {
+        try
+        {
+            return _socket.Poll(0, SelectMode.SelectRead) && _socket.Available == 0;
+        }
+        catch (Exception ex) when (ex is SocketException or ObjectDisposedException)
+        {
+            return true;
         }
     }
 

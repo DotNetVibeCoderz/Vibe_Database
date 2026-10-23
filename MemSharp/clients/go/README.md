@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/DotNetVibeCoderz/Vibe_Database/main/MemSharp/assets/icon-128.png" width="96" alt="MemSharp">
+
 # MemSharp client for Go
 
 A dependency-free client for [MemSharp](../../README.md), an in-memory database for .NET that speaks
@@ -48,6 +50,54 @@ Two Go-specific notes:
   the epoch unwritable, so `TSAddNow` is a separate method.
 - **`Subscribe` blocks.** Run it on its own connection and its own goroutine.
 
+## Streams and consumer groups
+
+Durations are `time.Duration`, as elsewhere in the package. In every streams map an empty id means
+the natural default: `$` for `XRead`, `>` for `XReadGroup`.
+
+```go
+db.XGroupCreate("jobs", "workers", "", true) // "" = "$"; true = MKSTREAM
+
+// map[key][]StreamEntry, or nil if nothing arrived within Block
+batch, err := db.XReadGroup("workers", "w1", map[string]string{"jobs": ""},
+    memsharp.XReadGroupOptions{Count: 10, Block: 5 * time.Second})
+for _, entry := range batch["jobs"] {
+    // ...
+    db.XAck("jobs", "workers", entry.ID)
+}
+
+summary, _ := db.XPending("jobs", "workers") // Count, Lowest, Highest, Consumers
+rows, _ := db.XPendingRange("jobs", "workers", memsharp.XPendingRangeOptions{Count: 10})
+
+// recover what a crashed consumer left behind
+next, claimed, deleted, _ := db.XAutoClaim("jobs", "workers", "w2", time.Minute, "", 100)
+ids, _ := db.XClaimJustID("jobs", "workers", "w2", time.Minute, []string{"1700000000000-0"}, memsharp.XClaimOptions{})
+
+// plain tail, no group
+db.XRead(map[string]string{"prices": "$"}, memsharp.XReadOptions{Block: memsharp.BlockForever})
+```
+
+- **A zero `Block` means "do not block"**, so the wire's `BLOCK 0` is spelled `memsharp.BlockForever`.
+- **A blocked read holds the client's mutex.** Other goroutines sharing the `Client` wait behind it;
+  give a long-blocking reader its own.
+- **A trimmed entry has nil `Fields`.** That is how a pending-history read reports an entry removed
+  from the stream since it was delivered.
+
+Also: `XGroupDestroy`, `XGroupCreateConsumer`, `XGroupDelConsumer`, `XGroupSetID`, `XInfoGroups`,
+`XInfoConsumers`, `XInfoStream` (typed structs rather than maps).
+
+## Also in 1.1
+
+| Method | Notes |
+|---|---|
+| `StrLen`, `GetRange`, `SetRange` | Byte offsets. A range that would split a UTF-8 character is an `*Error`, not half a character. |
+| `LPos`, `LPosCount` | `LPos` reports `found`; `LPosCount` returns every index up to `count` (`0` is all). |
+| `SInterStore`, `SUnionStore`, `SDiffStore` | Return the result size; an empty result deletes the destination. |
+| `ZUnionStore`, `ZInterStore` | `ZStoreOptions{Weights, Aggregate}`; `Aggregate` is `sum`, `min` or `max`. |
+| `Info(sections...)` | No argument still means everything. |
+| `ConfigGet(patterns...)`, `ConfigResetStat()` | `ConfigGet` returns a map. There is no `CONFIG SET`. |
+| `MemoryUsage(key, samples)` | Bytes, with `found` false for a missing key. |
+
 ## Tests
 
 They run against a live server rather than a mock, and skip cleanly when none is running — so
@@ -55,7 +105,7 @@ They run against a live server rather than a mock, and skip cleanly when none is
 
 ```bash
 memsharp serve --port 6391 --quiet &
-go test ./...
+go test ./...                               # 24 tests
 ```
 
 ## Notes

@@ -20,9 +20,8 @@ public sealed partial class MemDb
             var hash = GetOrCreate(shard, key, MemType.Hash, now, static () => new Dictionary<string, string>(StringComparer.Ordinal));
             added = !hash.ContainsKey(field);
             hash[field] = value;
+            RecordWrite(shard, "HSET", key, field, value);
         }
-
-        RecordWrite("HSET", key, field, value);
         return added;
     }
 
@@ -47,9 +46,8 @@ public sealed partial class MemDb
                 flattened.Add(pair.Key);
                 flattened.Add(pair.Value);
             }
+            if (flattened.Count > 1) RecordWrite(shard, "HSET", flattened.ToArray());
         }
-
-        if (flattened.Count > 1) RecordWrite("HSET", flattened.ToArray());
         return added;
     }
 
@@ -134,9 +132,8 @@ public sealed partial class MemDb
                 if (hash.Remove(field)) removed++;
             }
             RemoveIfEmpty(shard, key, hash.Count);
+            if (removed > 0) RecordWrite(shard, "HDEL", Prepend(key, fields));
         }
-
-        if (removed > 0) RecordWrite("HDEL", Prepend(key, fields));
         return removed;
     }
 
@@ -217,9 +214,8 @@ public sealed partial class MemDb
 
             updated = current + delta;
             hash[field] = updated.ToString(CultureInfo.InvariantCulture);
+            RecordWrite(shard, "HINCRBY", key, field, delta.ToString(CultureInfo.InvariantCulture));
         }
-
-        RecordWrite("HINCRBY", key, field, delta.ToString(CultureInfo.InvariantCulture));
         return updated;
     }
 
@@ -246,9 +242,8 @@ public sealed partial class MemDb
 
             updated = current + delta;
             hash[field] = Format(updated);
+            RecordWrite(shard, "HINCRBYFLOAT", key, field, Format(delta));
         }
-
-        RecordWrite("HINCRBYFLOAT", key, field, Format(delta));
         return updated;
     }
 }

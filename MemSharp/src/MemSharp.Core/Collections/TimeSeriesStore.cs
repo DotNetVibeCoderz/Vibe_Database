@@ -55,6 +55,10 @@ internal sealed class TimeSeriesStore
 
     public int Count => _count;
     public int Retention => _retention;
+
+    /// <summary>Bytes held: the store plus both sample arrays at their allocated length.</summary>
+    public long EstimateBytes() =>
+        MemoryEstimate.Header + 32 + (2 * (MemoryEstimate.Header + 8)) + (16L * _timestamps.Length);
     public long FirstTimestamp => _count == 0 ? 0 : _timestamps[_head];
     public long LastTimestamp => _count == 0 ? 0 : _timestamps[(_head + _count - 1) % _timestamps.Length];
 

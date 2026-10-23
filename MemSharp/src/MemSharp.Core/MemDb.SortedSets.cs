@@ -19,9 +19,8 @@ public sealed partial class MemDb
         {
             var set = GetOrCreate(shard, key, MemType.SortedSet, now, static () => new SortedSetStore());
             added = set.Add(member, score);
+            RecordWrite(shard, "ZADD", key, Format(score), member);
         }
-
-        RecordWrite("ZADD", key, Format(score), member);
         return added;
     }
 
@@ -45,9 +44,8 @@ public sealed partial class MemDb
                 flattened.Add(Format(entry.Score));
                 flattened.Add(entry.Member);
             }
+            if (flattened.Count > 1) RecordWrite(shard, "ZADD", flattened.ToArray());
         }
-
-        if (flattened.Count > 1) RecordWrite("ZADD", flattened.ToArray());
         return added;
     }
 
@@ -69,9 +67,8 @@ public sealed partial class MemDb
                 if (set.Remove(member)) removed++;
             }
             RemoveIfEmpty(shard, key, set.Count);
+            if (removed > 0) RecordWrite(shard, "ZREM", Prepend(key, members));
         }
-
-        if (removed > 0) RecordWrite("ZREM", Prepend(key, members));
         return removed;
     }
 
@@ -108,9 +105,8 @@ public sealed partial class MemDb
         {
             var set = GetOrCreate(shard, key, MemType.SortedSet, now, static () => new SortedSetStore());
             updated = set.IncrementBy(member, delta);
+            RecordWrite(shard, "ZINCRBY", key, Format(delta), member);
         }
-
-        RecordWrite("ZINCRBY", key, Format(delta), member);
         return updated;
     }
 
@@ -204,6 +200,155 @@ public sealed partial class MemDb
         }
     }
 
+    /// <summary>
+    /// Stores the union of sorted sets (or plain sets, whose members score 1) at
+    /// <paramref name="destination"/>, replacing it. Returns the size of the result.
+    /// </summary>
+    /// <param name="destination">Where the result goes. An empty result deletes it.</param>
+    /// <param name="keys">Source keys.</param>
+    /// <param name="weights">Per-source score multipliers, or null for all 1.</param>
+    /// <param name="aggregate">How a member's scores from several sources combine.</param>
+    /// <remarks>
+    /// Point-in-time, like <see cref="SetIntersectStore"/>: every involved shard is locked in shard
+    /// order for the whole operation, because a stored result is durable.
+    /// </remarks>
+    public int SortedSetUnionStore(
+        string destination, string[] keys, double[]? weights = null, ScoreAggregate aggregate = ScoreAggregate.Sum) =>
+        CombineSortedStore(intersect: false, destination, keys, weights, aggregate);
+
+    /// <summary>
+    /// Stores the members present in every source at <paramref name="destination"/>. See
+    /// <see cref="SortedSetUnionStore"/>.
+    /// </summary>
+    public int SortedSetIntersectStore(
+        string destination, string[] keys, double[]? weights = null, ScoreAggregate aggregate = ScoreAggregate.Sum) =>
+        CombineSortedStore(intersect: true, destination, keys, weights, aggregate);
+
+    private int CombineSortedStore(bool intersect, string destination, string[] keys, double[]? weights, ScoreAggregate aggregate)
+    {
+        ArgumentNullException.ThrowIfNull(destination);
+        ArgumentNullException.ThrowIfNull(keys);
+        if (keys.Length == 0) throw new MemSharpCommandException("at least one source key is required");
+        if (weights is not null && weights.Length != keys.Length)
+        {
+            throw new MemSharpCommandException("WEIGHTS must give one weight per source key");
+        }
+
+        var shards = ShardsInOrder(destination, keys);
+        long now = NowTicks;
+
+        EnterAll(shards);
+        try
+        {
+            Dictionary<string, double>? result = null;
+
+            for (int i = 0; i < keys.Length; i++)
+            {
+                double weight = weights?[i] ?? 1;
+                var source = ReadScoredLocked(keys[i], now);
+
+                if (result is null)
+                {
+                    result = new Dictionary<string, double>(StringComparer.Ordinal);
+                    foreach (var (member, score) in source) result[member] = Weigh(score, weight);
+                    continue;
+                }
+
+                if (intersect)
+                {
+                    var narrowed = new Dictionary<string, double>(StringComparer.Ordinal);
+                    foreach (var (member, score) in source)
+                    {
+                        if (result.TryGetValue(member, out double existing))
+                        {
+                            narrowed[member] = Aggregate(existing, Weigh(score, weight), aggregate);
+                        }
+                    }
+                    result = narrowed;
+                    if (result.Count == 0) break;
+                }
+                else
+                {
+                    foreach (var (member, score) in source)
+                    {
+                        double weighed = Weigh(score, weight);
+                        result[member] = result.TryGetValue(member, out double existing)
+                            ? Aggregate(existing, weighed, aggregate)
+                            : weighed;
+                    }
+                }
+            }
+
+            SortedSetStore? stored = null;
+            var logged = new List<string>(1 + (result!.Count * 2)) { destination };
+            if (result.Count > 0)
+            {
+                stored = new SortedSetStore();
+                foreach (var (member, score) in result)
+                {
+                    stored.Add(member, score);
+                    logged.Add(Format(score));
+                    logged.Add(member);
+                }
+            }
+
+            var destinationShard = ShardFor(destination);
+            Overwrite(destinationShard, destination, MemType.SortedSet, stored);
+
+            // The result, not the command - see CombineStore in MemDb.Sets.cs for why.
+            RecordWrite(destinationShard, "DEL", destination);
+            if (stored is not null) RecordWrite(destinationShard, "ZADD", logged.ToArray());
+            return result.Count;
+        }
+        finally
+        {
+            ExitAll(shards);
+        }
+    }
+
+    /// <summary>
+    /// A source for the sorted-set algebra: a sorted set's members with their scores, or a plain
+    /// set's members scored 1, as Redis does. Absent keys are empty. Caller holds the key's gate.
+    /// </summary>
+    private List<(string Member, double Score)> ReadScoredLocked(string key, long now)
+    {
+        var shard = ShardFor(key);
+        var members = new List<(string, double)>();
+        if (!TryGetLive(shard, key, now, out var entry)) return members;
+
+        switch (entry.Type)
+        {
+            case MemType.SortedSet:
+                foreach (var member in ((SortedSetStore)entry.Value).All()) members.Add((member.Member, member.Score));
+                break;
+            case MemType.Set:
+                foreach (var member in (HashSet<string>)entry.Value) members.Add((member, 1));
+                break;
+            default:
+                throw new WrongTypeException(key, entry.Type, MemType.SortedSet);
+        }
+        return members;
+    }
+
+    // Infinity times zero is NaN, and a NaN score would poison the tree's ordering. Redis defines
+    // the product as 0 in that case; so does this.
+    private static double Weigh(double score, double weight)
+    {
+        double product = score * weight;
+        return double.IsNaN(product) ? 0 : product;
+    }
+
+    private static double Aggregate(double a, double b, ScoreAggregate how)
+    {
+        double combined = how switch
+        {
+            ScoreAggregate.Min => Math.Min(a, b),
+            ScoreAggregate.Max => Math.Max(a, b),
+            _ => a + b,
+        };
+        return double.IsNaN(combined) ? 0 : combined;   // +inf plus -inf
+    }
+
     /// <summary>Removes every member whose score falls in an inclusive range. Returns how many went.</summary>
     public int SortedSetRemoveByScore(string key, double min, double max)
     {
@@ -224,13 +369,8 @@ public sealed partial class MemDb
                 if (set.Remove(entry.Member)) removed++;
             }
             RemoveIfEmpty(shard, key, set.Count);
-        }
 
-        if (removed > 0)
-        {
-            RecordWrite("ZREMRANGEBYSCORE", key,
-                min.ToString("R", CultureInfo.InvariantCulture),
-                max.ToString("R", CultureInfo.InvariantCulture));
+            if (removed > 0) RecordWrite(shard, "ZREMRANGEBYSCORE", key, Format(min), Format(max));
         }
         return removed;
     }

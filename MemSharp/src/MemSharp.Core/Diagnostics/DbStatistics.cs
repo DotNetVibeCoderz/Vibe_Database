@@ -28,6 +28,8 @@ public sealed class DbStatistics
     private long _messagesDelivered;
     private long _commandsProcessed;
     private long _connectionsAccepted;
+    private long _connectedClients;
+    private long _blockedClients;
 
     internal DbStatistics(bool enabled, DateTimeOffset startedAt)
     {
@@ -61,6 +63,12 @@ public sealed class DbStatistics
 
     /// <summary>TCP connections accepted since startup.</summary>
     public long ConnectionsAccepted => Interlocked.Read(ref _connectionsAccepted);
+
+    /// <summary>TCP connections open right now. A gauge: unaffected by <see cref="Reset"/>.</summary>
+    public long ConnectedClients => Interlocked.Read(ref _connectedClients);
+
+    /// <summary>Connections waiting in a blocking <c>XREAD</c> or <c>XREADGROUP</c>. A gauge.</summary>
+    public long BlockedClients => Interlocked.Read(ref _blockedClients);
 
     /// <summary>How long this database has been alive.</summary>
     public TimeSpan Uptime => DateTimeOffset.UtcNow - _startedAt;
@@ -97,7 +105,17 @@ public sealed class DbStatistics
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal void RecordCommand() { if (_enabled) Interlocked.Increment(ref _commandsProcessed); }
 
-    internal void RecordConnection() { if (_enabled) Interlocked.Increment(ref _connectionsAccepted); }
+    internal void RecordConnection()
+    {
+        // The gauge is maintained even with statistics off: INFO's connected_clients would otherwise
+        // read 0 on a busy server, which is a wrong answer rather than a missing one.
+        Interlocked.Increment(ref _connectedClients);
+        if (_enabled) Interlocked.Increment(ref _connectionsAccepted);
+    }
+
+    internal void RecordDisconnection() => Interlocked.Decrement(ref _connectedClients);
+
+    internal void RecordBlocked(int delta) => Interlocked.Add(ref _blockedClients, delta);
 
     /// <summary>Resets every counter to zero. Uptime is unaffected.</summary>
     public void Reset()
@@ -115,7 +133,11 @@ public sealed class DbStatistics
     /// <summary>A point-in-time copy, for rendering.</summary>
     public StatisticsSnapshot Snapshot() => new(
         Hits, Misses, Writes, ExpiredKeys, Publishes, MessagesDelivered,
-        CommandsProcessed, ConnectionsAccepted, Uptime, HitRate);
+        CommandsProcessed, ConnectionsAccepted, Uptime, HitRate)
+    {
+        ConnectedClients = ConnectedClients,
+        BlockedClients = BlockedClients,
+    };
 }
 
 /// <summary>An immutable copy of <see cref="DbStatistics"/> at one instant.</summary>
@@ -129,4 +151,11 @@ public readonly record struct StatisticsSnapshot(
     long CommandsProcessed,
     long ConnectionsAccepted,
     TimeSpan Uptime,
-    double HitRate);
+    double HitRate)
+{
+    /// <summary>TCP connections open at the instant of the snapshot.</summary>
+    public long ConnectedClients { get; init; }
+
+    /// <summary>Connections waiting in a blocking stream read.</summary>
+    public long BlockedClients { get; init; }
+}

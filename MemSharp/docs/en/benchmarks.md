@@ -212,6 +212,7 @@ allocation alongside timing:
 dotnet run -c Release --project benchmarks/MemSharp.Benchmarks -- --filter '*SingleOperation*'
 dotnet run -c Release --project benchmarks/MemSharp.Benchmarks -- --filter '*Keyspace*'
 dotnet run -c Release --project benchmarks/MemSharp.Benchmarks -- --filter '*Concurrency*'
+dotnet run -c Release --project benchmarks/MemSharp.Benchmarks -- --filter '*SortedSetRank*'
 ```
 
 `SingleOperationBenchmarks` runs at 10,000 and 1,000,000 keys, so you can see which operations are
@@ -229,6 +230,26 @@ sensitive to keyspace size and which are flat.
 If the first stops scaling, something has broken the sharding. The usual culprit is false sharing:
 two shards' locks landing in one cache line. `Shard` is padded to prevent exactly that, and removing
 the padding is the change this suite would catch.
+
+## Sorted-set rank, 1.0 against 1.1
+
+`SortedSetRankBenchmarks` was written *before* the 1.1 order-statistic tree, and run against both, so
+the change had to justify itself with a number. The probe is the middle member: the far end of a walk
+is where an O(n) rank costs most, and a top-10 query would have made 1.0 look fine.
+
+| Members | Operation | 1.0 (`SortedSet<T>`) | 1.1 (order-statistic AVL) |
+|---:|---|---:|---:|
+| 100,000 | `ZRANK` of the middle member | 1.30 ms | 187 ns |
+| 100,000 | `ZRANGE` 10 from the middle | 1.04 ms | 638 ns |
+| 1,000,000 | `ZRANK` of the middle member | 12.7 ms | **145 ns** |
+| 1,000,000 | `ZRANGE` 10 from the middle | 11.4 ms | **610 ns** |
+| 1,000,000 | `ZRANGEBYSCORE` 10 from the middle | 966 ns | 807 ns |
+| 1,000,000 | rescore an existing member | 637 ns | 708 ns |
+
+Rank stops depending on the size of the set. Score ranges were already logarithmic and do not move.
+Rescoring — the order-book write — costs about 10% more, the price of keeping every subtree size
+current through each insert, delete and rotation. Raw figures are in
+`benchmarks/results-sortedset-rank.json`.
 
 ## Query pushdown, measured
 

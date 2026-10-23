@@ -30,6 +30,29 @@ deliberately, so knowing one is most of knowing the others:
 - **Subscribing takes over the connection.** The server may push a message between a request and its
   reply, so a subscribed client cannot also run ordinary commands. Use a second client.
 
+### New in 1.1
+
+Every command MemSharp 1.1 added has a typed helper in all three clients:
+
+| | Python | Node.js | Go |
+|---|---|---|---|
+| Strings | `strlen` `getrange` `setrange` | `strlen` `getrange` `setrange` | `StrLen` `GetRange` `SetRange` |
+| Lists | `lpos` | `lpos` | `LPos` `LPosCount` |
+| Stores | `sinterstore` … `zunionstore` | `sinterstore` … `zunionstore` | `SInterStore` … `ZUnionStore` |
+| Streams | `xread` | `xread` | `XRead` |
+| Groups | `xgroup_create` … `xreadgroup` `xack` | `xgroupCreate` … `xreadGroup` `xack` | `XGroupCreate` … `XReadGroup` `XAck` |
+| Recovery | `xpending` `xpending_range` `xclaim` `xautoclaim` | `xpending` `xpendingRange` `xclaim` `xautoClaim` | `XPending` `XPendingRange` `XClaim` `XAutoClaim` |
+| Introspection | `info(*sections)` `config_get` `memory_usage` `xinfo_*` | `info(...sections)` `configGet` `memoryUsage` `xinfo*` | `Info(sections...)` `ConfigGet` `MemoryUsage` `XInfo*` |
+
+Durations follow each client's existing convention: **seconds** in Python (as `ex=` and `ttl()`
+already are), **milliseconds** in Node (`blockMs`, `minIdleMs`), `time.Duration` in Go (where
+`memsharp.BlockForever` is the wire's `BLOCK 0`, because a zero `Duration` means "do not block").
+
+**Give a blocking read its own client.** `BLOCK` parks the server side of the connection until an
+entry arrives, so nothing else can use that connection meanwhile — the same reason subscribing
+needs a second client. A trimmed entry in a group's history comes back with its fields as `None` /
+`null` / `nil`, so it can still be acknowledged.
+
 ---
 
 ## Python
@@ -108,7 +131,7 @@ threading.Thread(target=listen, daemon=True).start()
 Run its suite:
 
 ```bash
-python clients/python/test_client.py     # 55 checks against a live server
+python clients/python/test_client.py     # 126 checks against a live server
 ```
 
 ---
@@ -328,7 +351,7 @@ await subscriber.psubscribe('fills.*');
 Run its suite:
 
 ```bash
-node clients/nodejs/test/client.test.js     # 53 checks against a live server
+node clients/nodejs/test/client.test.js     # 126 checks against a live server
 ```
 
 ---

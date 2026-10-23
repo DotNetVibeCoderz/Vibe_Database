@@ -1,0 +1,22 @@
+{
+  "note": "BenchmarkDotNet 0.15.8, default job. Other work was running on the machine during the run, so absolute figures are inflated; compare within a table, not across documents.",
+  "machine": { "cpu": "AMD Ryzen, 8 cores", "os": "Windows 11 Pro 26200" },
+  "runtime": ".NET 10.0.12 (SDK 10.0.401), rustc 1.97.1, release + LTO",
+  "captured": "2026-10-23",
+  "unit": "nanoseconds, mean (checksum: milliseconds)",
+  "boundary": {
+    "ManagedNoOp": 0.60,
+    "PInvokeNoOp": 6.91,
+    "PInvokeNoOpSuppressGCTransition": 1.18
+  },
+  "key_value_get": {
+    "MemDbGet": { "mean": 242.1, "allocated_bytes": 0 },
+    "RustMapGet": { "mean": 468.5, "allocated_bytes": 71 }
+  },
+  "checksum_64mb_ms": {
+    "Fnv1aManaged": 85.43,
+    "Fnv1aRust": 84.14,
+    "Xxh3Managed": 5.86,
+    "Xxh3Rust": 6.20
+  }
+}

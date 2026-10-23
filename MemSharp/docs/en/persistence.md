@@ -100,7 +100,7 @@ clients can talk to a server holding one without a .NET runtime in sight.
 
 ```
 magic     8 bytes   "MEMSHRP1"
-version   int32     format version
+version   int32     format version: 2 since MemSharp 1.1, 1 before
 flags     int32     reserved, currently 0
 count     int64     number of entries
 checksum  uint64    FNV-1a over every byte after this field
@@ -118,7 +118,21 @@ type:
 | Set | `count:int32`, then each member |
 | SortedSet | `count:int32`, then member/score (`double`) pairs |
 | TimeSeries | `retention:int32`, `count:int32`, then timestamp/value pairs |
-| Stream | `count:int32`, then per entry: `ms:int64`, `seq:int64`, `fieldCount:int32`, fields |
+| Stream | `count:int32`, then per entry: `ms:int64`, `seq:int64`, `fieldCount:int32`, fields; then, from format 2, the group section below |
+
+From format 2 a stream's payload continues with its consumer-group state:
+
+```
+lastId     ms:int64, seq:int64            highest id ever issued (trimming can leave it above the head)
+groups     int32, then per group:
+  name       string
+  cursor     ms:int64, seq:int64          last id delivered by the group
+  consumers  int32, then name:string, seenAt:int64 (Unix ms)
+  pending    int32, then id (ms, seq), owner:string, deliveredAt:int64 (Unix ms), deliveries:int64
+```
+
+**Format 1 files still load**; their streams simply have no groups. A 1.0 build refuses a format-2
+file with a clear "written by a newer MemSharp" error rather than misreading it.
 
 `MemType` numeric values are part of the format. Never renumber an existing member; append new kinds
 with the next free value.
@@ -153,6 +167,21 @@ Each mutating command is appended in **RESP request form** — the same bytes a 
 sent. That makes the log replayable through the ordinary `CommandTable` with no second parser, and
 readable with any RESP tool.
 
+**A command is logged under the lock that applied it.** That is what makes the log's order the order
+the writes happened in. 1.0 logged after releasing the lock, so two writers to one key could reach the
+log in the opposite order: replay then produced a different final value, and for a stream or time
+series — which refuse an out-of-order id — a `PersistenceException` that stopped the restore outright.
+
+**What is logged is what makes replay deterministic**, which is not always the command as typed:
+
+| Command | Logged as |
+|---|---|
+| `SET ... EX/PX` | `SET`, then `PEXPIREAT` with the absolute expiry — a relative TTL would restart on every replay |
+| `SET ... NX` with a TTL | the same; 1.0 dropped the TTL and the key came back permanent |
+| `SINTERSTORE`, `ZUNIONSTORE`, … | `DEL dest` and the result written out — not a recomputation from sources |
+| `XADD ... MAXLEN` | `XADD` with the assigned id, then `XTRIM` |
+| `XREADGROUP`, `XCLAIM`, `XAUTOCLAIM` | one `XCLAIM ... TIME RETRYCOUNT FORCE JUSTID` per delivery — see below |
+
 ```csharp
 new AppendOnlyOptions
 {
@@ -177,11 +206,37 @@ That is deliberate: a partial command is not corruption, it is the write that wa
 power went. Refusing to start because of it would be worse than losing it. Everything before the
 tear is kept.
 
-### Saving truncates the log
+### Consumer groups in the log
 
-Right after a snapshot, the log starts over — the snapshot already contains everything the log was
-holding. Doing it in the other order would leave a window where a crash loses the commands the log
-had but the snapshot did not.
+A group's state depends on its cursor and on the clock: replaying `XREADGROUP` verbatim could deliver
+different entries than the live run did, and replaying `XCLAIM` would decide idleness against the
+replay's clock. So, as Redis does, each delivery is logged as the claim that reproduces it exactly —
+owner, delivery time, delivery count and, for a new delivery, the cursor it advanced. Replay gives
+the same pending list, with the same counts, whenever it runs. `GroupsReplayFromTheAppendOnlyLogExactly`
+replays two minutes after the fact and checks every pending entry.
+
+### Saving rewrites the log
+
+A snapshot is taken one shard at a time while writes continue, so "truncate the log once the
+snapshot is saved" — what 1.0 did — deleted every write that landed on a shard after the snapshot had
+already passed it. Those writes were in neither file, and a crash lost them.
+`WritesDuringASnapshotSurviveTheLogTruncation` reproduced it: counters that should have reached 400
+came back at 366.
+
+Since 1.1 a save works like this:
+
+1. Each shard's *captured* flag is cleared.
+2. A rewrite segment (`<log>.rewrite`) is opened beside the log.
+3. The snapshot is written; each shard is flagged as captured under the same lock that serialises it.
+4. Meanwhile every write still goes to the live log, and a write to an already-captured shard is
+   *also* copied to the segment, because the snapshot does not contain it.
+5. Once the snapshot has been moved into place, the segment replaces the log.
+
+A crash before step 5 recovers from the old snapshot and the whole old log; a crash after it, from the
+new snapshot and exactly the writes it missed. A write to a not-yet-captured shard is in the snapshot
+and not in the segment, so nothing replays twice — which matters for `INCR` and `XADD`, which are not
+idempotent. `FLUSHDB` takes every shard lock at once and marks every shard captured, so a flush in the
+middle of a save is a single point in both files.
 
 ## Startup order
 

@@ -62,11 +62,17 @@ internal sealed class PersistenceCoordinator : IDisposable
     }
 
     /// <summary>Notes a mutation: counts it and, if a log is configured, records it.</summary>
-    public void RecordWrite(string command, string[] arguments)
+    /// <param name="command">The command, as it should replay.</param>
+    /// <param name="arguments">Its arguments.</param>
+    /// <param name="captured">
+    /// True if the mutated shard was already written by a snapshot in progress, so the write must
+    /// outlive that snapshot's log truncation.
+    /// </param>
+    public void RecordWrite(string command, string[] arguments, bool captured)
     {
         if (_disposed) return;
 
-        _log?.Append(command, arguments);
+        _log?.Append(command, arguments, captured);
 
         long pending = Interlocked.Increment(ref _pendingChanges);
 
@@ -93,14 +99,29 @@ internal sealed class PersistenceCoordinator : IDisposable
         // move that follows it.
         lock (_saveGate)
         {
-            _db.WriteSnapshot(path);
+            // Reset before the rewrite starts, not after: a stale flag from the previous save would
+            // send a write the new snapshot is about to include into the rewritten log as well, and
+            // it would replay twice.
+            _db.ResetCaptured();
+            _log?.BeginRewrite();
+
+            try
+            {
+                _db.WriteSnapshot(path, markCaptured: true);
+            }
+            catch
+            {
+                _log?.AbandonRewrite();
+                throw;
+            }
+
             Interlocked.Exchange(ref _pendingChanges, 0);
             Interlocked.Exchange(ref _lastSaveTicks, DateTimeOffset.UtcNow.UtcTicks);
 
-            // The snapshot now covers everything the log was holding, so the log starts over. Doing
-            // this in the other order would leave a window where a crash loses the commands the log
-            // had but the snapshot did not.
-            _log?.Truncate();
+            // The snapshot is in place, so the log becomes just the writes it missed. Swapping only
+            // after the move means a crash at any point leaves either the old snapshot with the
+            // whole old log, or the new snapshot with the writes it does not contain.
+            _log?.CompleteRewrite();
         }
     }
 

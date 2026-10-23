@@ -1,3 +1,5 @@
+<img src="assets/icon-128.png" alt="MemSharp" width="96" align="right">
+
 # MemSharp
 
 **Database in-memory yang bisa ditanam langsung ke aplikasi .NET.** Penyimpanan key/value ber-shard
@@ -23,9 +25,25 @@ yang hidup, dengan order book, tape, chart dan posisi semuanya dibaca kembali da
 ```bash
 dotnet add package MemSharp                 # library-nya
 dotnet tool install -g MemSharp.Cli         # perkakas command-line
+pip install memsharp                        # klien Python
+npm install memsharp                        # klien Node.js
 ```
 
 Menyasar **.NET 10** dan berjalan di Windows, Linux dan macOS.
+
+## Baru di 1.1
+
+- **Consumer group stream** — `XGROUP`, `XREADGROUP`, `XACK`, `XPENDING`, `XCLAIM`, `XAUTOCLAIM`,
+  `XINFO`, plus `XREAD` dan bacaan blocking (`BLOCK`) lewat TCP. Stream kini adalah antrean kerja
+  sekaligus log, dan group-nya bertahan melewati snapshot serta di-replay persis dari log append-only.
+- **Rank sorted set kini O(log n)** — pohon order-statistic menggantikan `SortedSet<T>`. Rank anggota
+  tengah dari sejuta anggota turun dari 12,7 ms menjadi 145 ns.
+- **`SCAN` yang aman terhadap rehash** — key yang ada sepanjang iterasi dikembalikan setidaknya sekali.
+- **`SINTERSTORE`, `SUNIONSTORE`, `SDIFFSTORE`, `ZUNIONSTORE`, `ZINTERSTORE`** — point-in-time.
+- **`GETRANGE`, `SETRANGE`, `LPOS`**, dan `STRLEN` dalam byte UTF-8, seperti di Redis.
+- **Bagian-bagian `INFO`, `CONFIG GET`, `MEMORY USAGE`** — bisa dibaca dashboard Redis yang sudah ada.
+- **Tiga perbaikan durabilitas** di log append-only, masing-masing ditemukan dan dikunci oleh satu
+  tes — lihat [Progress.md](Progress.md#bugs-found-and-fixed-during-11).
 
 ## Tiga puluh detik
 
@@ -140,10 +158,10 @@ Metodologi lengkap dan catatannya: **[docs/id/benchmarks.md](docs/id/benchmarks.
 | **String** | `string` | Sekaligus tipe numerik — `INCR` mem-parse lalu menulisnya ulang |
 | **List** | ring buffer | O(1) di kedua ujung; `List<T>` membuat `LPUSH` jadi O(n) dan feed berbatas jadi kuadratik |
 | **Hash** | `Dictionary` | Aritmetika per-field yang atomik tanpa menulis ulang seluruh record |
-| **Set** | `HashSet` | Union, irisan, selisih |
-| **SortedSet** | pohon merah-hitam + map | Seek rentang score O(log n) — primitif order book |
+| **Set** | `HashSet` | Union, irisan, selisih — dan bentuk `*STORE`-nya, point-in-time |
+| **SortedSet** | pohon AVL order-statistic + map | Seek score *dan* rank O(log n) — primitif order book |
 | **TimeSeries** | dua array primitif | 16 byte per sampel, tanpa header objek per sampel, retensi berbatas |
-| **Stream** | ring buffer | Id `ms-seq` monoton, pemangkasan kepala O(1) |
+| **Stream** | ring buffer + pending-entry list | Id `ms-seq` monoton, pemangkasan kepala O(1), consumer group |
 
 ## Persistensi
 
@@ -234,7 +252,7 @@ Selengkapnya: **[docs/id/trading-demo.md](docs/id/trading-demo.md)**.
 src/MemSharp.Core        engine, server dan klien RESP               → NuGet: MemSharp
 src/MemSharp.Cli         repl, serve, browse, bench, demo            → NuGet: MemSharp.Cli
 samples/…TradingDemo     demo Avalonia dan perekam layarnya
-tests/MemSharp.Tests     214 tes
+tests/MemSharp.Tests     280 tes
 benchmarks/…             suite BenchmarkDotNet
 clients/{python,go,nodejs}   SDK klien, masing-masing dengan suite integrasi
 docs/{en,id}             dokumentasi lengkap, dicerminkan
@@ -248,10 +266,13 @@ Perlu diketahui sebelum Anda memakainya:
   bila Anda mengikat lebih luas. Jangan letakkan di jaringan yang tidak dipercaya.
 - **Tanpa clustering atau replikasi.** Satu proses, satu keyspace.
 - **Tanpa transaksi multi-key.** Operasi satu key bersifat atomik; `MULTI`/`EXEC` tidak ada.
-- **Baca lintas-key bukan point-in-time.** Aljabar himpunan, `KEYS` dan snapshot mengambil satu lock
-  shard pada satu waktu, jadi tulisan bersamaan bisa mendarat di antara shard. Ini disengaja —
-  alternatifnya menghentikan semua penulis — dan konsistensi per-key tetap terjaga. Lihat
-  [docs/id/architecture.md](docs/id/architecture.md).
+- **Baca lintas-key bukan point-in-time.** Aljabar himpunan, `KEYS`, `SCAN` dan snapshot mengambil
+  satu lock shard pada satu waktu, jadi tulisan bersamaan bisa mendarat di antara shard. Ini disengaja —
+  alternatifnya menghentikan semua penulis — dan konsistensi per-key tetap terjaga. Perintah `*STORE`,
+  yang hasilnya tahan lama, adalah pengecualiannya. Lihat [docs/id/architecture.md](docs/id/architecture.md).
+- **String adalah teks, bukan byte.** Panjang dan rentang dihitung dalam byte UTF-8 seperti Redis,
+  tetapi `GETRANGE`/`SETRANGE` yang akan membelah karakter multi-byte menjadi error, bukan byte parsial.
+  Lihat [docs/id/data-types.md](docs/id/data-types.md#string).
 - **Lapisan SQL-nya penjelajah keyspace, bukan engine relasional.** Satu tabel, tanpa join, tanpa
   agregat.
 - **Untuk caching produksi berskala besar, pakai Redis.** MemSharp untuk menanam penyimpanan cepat

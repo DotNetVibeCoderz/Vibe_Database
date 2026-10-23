@@ -25,6 +25,20 @@ function same(a, b) {
   return JSON.stringify(a) === JSON.stringify(b);
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Resolves with the error a promise rejected with, or null if it resolved. */
+async function rejects(promise) {
+  try {
+    await promise;
+    return null;
+  } catch (error) {
+    return error;
+  }
+}
+
 async function main() {
   const db = new MemSharpClient({ port: PORT });
   await db.connect();
@@ -188,6 +202,198 @@ async function main() {
   check('info parses', info.product === 'MemSharp' && 'keys' in info);
   check('dbsize', (await db.dbsize()) > 0);
 
+  const keyspace = await db.info('keyspace');
+  check('info section', (keyspace.db0 ?? '').startsWith('keys=') && !('redis_version' in keyspace),
+    JSON.stringify(keyspace));
+  const two = await db.info('server', 'memory');
+  check('info several sections', 'memsharp_version' in two && 'used_memory' in two);
+
+  const config = await db.configGet();
+  check('configGet all', config['maxmemory-policy'] === 'noeviction' && 'shards' in config);
+  check('configGet pattern', same(await db.configGet('maxmemory', 'nope'), { maxmemory: '0' }));
+  check('config set refused', await rejects(db.execute('CONFIG', 'SET', 'maxmemory', '1')));
+  check('configResetStat', (await db.configResetStat()) === 'OK');
+
+  check('memoryUsage', (await db.memoryUsage('h')) > 0 && (await db.memoryUsage('absent')) === null);
+  check('memoryUsage samples', (await db.memoryUsage('r', { samples: 2 })) > 0);
+
+  // -- 1.1: strings ----------------------------------------------------------------
+  await db.set('utf', 'héllo');
+  check('strlen counts bytes', (await db.strlen('utf')) === 6);
+  check('getrange', (await db.getrange('utf', 0, 2)) === 'hé' && (await db.getrange('utf', -3, -1)) === 'llo');
+  check('getrange missing key', (await db.getrange('absent', 0, 5)) === '');
+  const split = await rejects(db.getrange('utf', 0, 1));
+  check('getrange refuses split char', split && split.detail.includes('multi-byte'), split && split.detail);
+  check('setrange pads', (await db.setrange('sr', 3, 'ab')) === 5 && (await db.get('sr')) === '\0\0\0ab');
+  check('setrange overwrites', (await db.setrange('utf', 3, 'LO')) === 6 && (await db.get('utf')) === 'héLOo');
+
+  // -- 1.1: lists ------------------------------------------------------------------
+  await db.rpush('pos', 'a', 'b', 'c', 'b', 'b');
+  check('lpos', (await db.lpos('pos', 'b')) === 1 && (await db.lpos('pos', 'q')) === null);
+  check('lpos rank', (await db.lpos('pos', 'b', { rank: -1 })) === 4 && (await db.lpos('pos', 'b', { rank: 2 })) === 3);
+  check('lpos count', same(await db.lpos('pos', 'b', { count: 0 }), [1, 3, 4])
+    && same(await db.lpos('pos', 'b', { count: 2 }), [1, 3]));
+  check('lpos count none', same(await db.lpos('pos', 'q', { count: 1 }), []));
+  check('lpos maxLen', same(await db.lpos('pos', 'b', { count: 0, maxLen: 3 }), [1]));
+
+  // -- 1.1: set and sorted-set stores ----------------------------------------------
+  await db.sadd('sa', '1', '2', '3');
+  await db.sadd('sb', '2', '3', '4');
+  check('sinterstore', (await db.sinterstore('si', 'sa', 'sb')) === 2
+    && (await db.smembers('si')).sort().join(',') === '2,3');
+  check('sunionstore', (await db.sunionstore('su', 'sa', 'sb')) === 4);
+  check('sdiffstore', (await db.sdiffstore('sd', 'sa', 'sb')) === 1 && same(await db.smembers('sd'), ['1']));
+  check('empty store deletes', (await db.sinterstore('si', 'sa', 'absent')) === 0 && (await db.exists('si')) === 0);
+
+  await db.zadd('z1', { x: 1, y: 2 });
+  await db.zadd('z2', { y: 10, w: 20 });
+  check('zunionstore', (await db.zunionstore('zu', ['z1', 'z2'])) === 3 && (await db.zscore('zu', 'y')) === 12);
+  check('zunionstore weights/max', (await db.zunionstore('zw', ['z1', 'z2'], { weights: [1, 2], aggregate: 'max' })) === 3
+    && same(await db.zrange('zw', 0, -1, { withScores: true }),
+      [{ member: 'x', score: 1 }, { member: 'y', score: 20 }, { member: 'w', score: 40 }]));
+  check('zinterstore', (await db.zinterstore('zi', ['z1', 'z2'], { aggregate: 'min' })) === 1
+    && (await db.zscore('zi', 'y')) === 2);
+  await db.sadd('plain', 'x');
+  check('zinterstore plain set scores 1', (await db.zinterstore('zp', ['z1', 'plain'])) === 1
+    && (await db.zscore('zp', 'x')) === 2);
+
+  // -- 1.1: scan cursor ------------------------------------------------------------
+  // The shard index rides in the cursor's high 32 bits, so any cursor past the first shard is above
+  // 2^32. Walk the raw cursors to prove one was, then that scan() survives it.
+  let cursor = '0';
+  let largest = 0n;
+  do {
+    [cursor] = await db.execute('SCAN', cursor, 'COUNT', 1);
+    if (BigInt(cursor) > largest) largest = BigInt(cursor);
+  } while (cursor !== '0');
+  check('scan cursor exceeds 2^32', largest > 2n ** 32n, String(largest));
+  const p49 = [];
+  for await (const key of db.scan('p49*', 1)) p49.push(key);
+  check('scan follows large cursors', p49.length === 11, String(p49.length));
+
+  // -- 1.1: xread ------------------------------------------------------------------
+  await db.del('rs', 'rs2');
+  const a = await db.xadd('rs', { n: '1' });
+  const b = await db.xadd('rs', { n: '2' });
+  const read = await db.xread({ rs: '0', rs2: '0' });
+  check('xread from 0', same(read, { rs: [{ id: a, fields: { n: '1' } }, { id: b, fields: { n: '2' } }] }),
+    JSON.stringify(read));
+  check('xread count', same(await db.xread({ rs: '0' }, { count: 1 }), { rs: [{ id: a, fields: { n: '1' } }] }));
+  check('xread after id', same(await db.xread({ rs: a }), { rs: [{ id: b, fields: { n: '2' } }] }));
+  check('xread nothing new', (await db.xread('rs')) === null);
+
+  let started = Date.now();
+  check('xread block times out to null', (await db.xread('rs', { blockMs: 150 })) === null);
+  check('xread block waited', Date.now() - started >= 100);
+
+  // A second connection adds while the first is parked; only that XADD can end a BLOCK 0.
+  const other = new MemSharpClient({ port: PORT });
+  await other.connect();
+  const addLater = (key) => sleep(300).then(() => other.xadd(key, { n: 'woke' }));
+
+  started = Date.now();
+  addLater('rs');
+  const woken = await db.xread('rs', { blockMs: 0 });
+  check('xread block woken by xadd', woken !== null && same(woken.rs[0].fields, { n: 'woke' }), JSON.stringify(woken));
+  check('xread block was parked', Date.now() - started >= 200);
+  check('connection fine after block', (await db.ping()) === 'PONG');
+
+  // -- 1.1: consumer groups --------------------------------------------------------
+  await db.del('jobs');
+  check('xgroupCreate needs key', !!(await rejects(db.xgroupCreate('jobs', 'workers'))));
+  await db.xgroupCreate('jobs', 'workers', '$', { mkStream: true });
+  const busy = await rejects(db.xgroupCreate('jobs', 'workers'));
+  check('xgroupCreate busygroup', busy && busy.code === 'BUSYGROUP');
+
+  check('xgroupCreateConsumer', (await db.xgroupCreateConsumer('jobs', 'workers', 'spare'))
+    && !(await db.xgroupCreateConsumer('jobs', 'workers', 'spare')));
+
+  const j1 = await db.xadd('jobs', { task: 'a' });
+  const j2 = await db.xadd('jobs', { task: 'b' });
+  let got = await db.xreadGroup('workers', 'w1', 'jobs', { count: 1 });
+  check('xreadGroup >', same(got, { jobs: [{ id: j1, fields: { task: 'a' } }] }), JSON.stringify(got));
+  got = await db.xreadGroup('workers', 'w1', ['jobs']);
+  check('xreadGroup next', same(got, { jobs: [{ id: j2, fields: { task: 'b' } }] }));
+  check('xreadGroup none left', (await db.xreadGroup('workers', 'w1', 'jobs')) === null);
+  check('xreadGroup block times out', (await db.xreadGroup('workers', 'w1', 'jobs', { blockMs: 100 })) === null);
+  const history = await db.xreadGroup('workers', 'w1', { jobs: '0' });
+  check('xreadGroup history', same(history.jobs.map((e) => e.id), [j1, j2]));
+  check('xreadGroup history elsewhere empty', same(await db.xreadGroup('workers', 'w2', { jobs: '0' }), { jobs: [] }));
+  const nogroup = await rejects(db.xreadGroup('nogroup', 'w1', 'jobs'));
+  check('xreadGroup nogroup', nogroup && nogroup.code === 'NOGROUP');
+
+  const summary = await db.xpending('jobs', 'workers');
+  check('xpending summary', same(summary, { count: 2, min: j1, max: j2, consumers: { w1: 2 } }), JSON.stringify(summary));
+
+  // Two deliveries each: the history re-read above counts as one, as it does in Redis.
+  const pending = await db.xpendingRange('jobs', 'workers');
+  check('xpendingRange', same(pending.map((p) => p.id), [j1, j2])
+    && pending[0].consumer === 'w1' && pending[0].deliveries === 2, JSON.stringify(pending));
+  check('xpendingRange consumer', same(await db.xpendingRange('jobs', 'workers', { consumer: 'w2' }), []));
+
+  check('xack', (await db.xack('jobs', 'workers', j1, '9-9')) === 1);
+
+  await sleep(60);
+  check('xpendingRange idle', (await db.xpendingRange('jobs', 'workers', { idleMs: 50 })).length === 1);
+  check('xclaim too fresh', same(await db.xclaim('jobs', 'workers', 'w2', 60000, [j2]), []));
+  const claimed = await db.xclaim('jobs', 'workers', 'w2', 50, [j2]);
+  check('xclaim', same(claimed, [{ id: j2, fields: { task: 'b' } }]), JSON.stringify(claimed));
+  check('xclaim moved owner', same((await db.xpending('jobs', 'workers')).consumers, { w2: 1 }));
+  check('xclaim justId', same(await db.xclaim('jobs', 'workers', 'w3', 0, [j2], { justId: true }), [j2]));
+  await db.xclaim('jobs', 'workers', 'w3', 0, [j2], { idleMs: 5000, retryCount: 7, justId: true });
+  const row = (await db.xpendingRange('jobs', 'workers'))[0];
+  check('xclaim idle/retryCount', row.deliveries === 7 && row.idleMs >= 5000, JSON.stringify(row));
+  check('xclaim force', same(await db.xclaim('jobs', 'workers', 'w3', 0, [j1], { force: true, justId: true }), [j1]));
+
+  const j3 = await db.xadd('jobs', { task: 'c' });
+  await db.xreadGroup('workers', 'w1', 'jobs');
+  await sleep(60);
+  let auto = await db.xautoClaim('jobs', 'workers', 'w4', 50, '0-0', { count: 1 });
+  check('xautoClaim page', auto.next !== '0-0' && same(auto.claimed, [{ id: j1, fields: { task: 'a' } }])
+    && same(auto.deleted, []), JSON.stringify(auto));
+  auto = await db.xautoClaim('jobs', 'workers', 'w4', 0, auto.next, { justId: true });
+  check('xautoClaim justId completes', auto.next === '0-0' && same(auto.claimed, [j2, j3]), JSON.stringify(auto));
+
+  const groups = await db.xinfoGroups('jobs');
+  check('xinfoGroups', groups[0].name === 'workers' && groups[0].pending === 3
+    && groups[0]['last-delivered-id'] === j3, JSON.stringify(groups));
+  const consumers = Object.fromEntries((await db.xinfoConsumers('jobs', 'workers')).map((c) => [c.name, c]));
+  check('xinfoConsumers', consumers.w4.pending === 3 && consumers.spare.pending === 0
+    && typeof consumers.w4.idle === 'number', JSON.stringify(consumers));
+  const stream = await db.xinfoStream('jobs');
+  check('xinfoStream', stream.length === 3 && stream.groups === 1
+    && same(stream['first-entry'], { id: j1, fields: { task: 'a' } }) && stream['last-entry'].id === j3,
+    JSON.stringify(stream));
+
+  check('xgroupDelConsumer', (await db.xgroupDelConsumer('jobs', 'workers', 'w4')) === 3);
+  await db.xgroupSetId('jobs', 'workers', '0');
+  const replay = await db.xreadGroup('workers', 'w5', 'jobs');
+  check('xgroupSetId replays', same(replay.jobs.map((e) => e.id), [j1, j2, j3]));
+  await db.xgroupSetId('jobs', 'workers');
+  check('xgroupSetId $', (await db.xreadGroup('workers', 'w5', 'jobs')) === null);
+
+  await db.xgroupCreate('jobs', 'fire', '0');
+  check('xreadGroup noAck', (await db.xreadGroup('fire', 'f', 'jobs', { noAck: true })).jobs.length === 3
+    && same(await db.xpending('jobs', 'fire'), { count: 0, min: null, max: null, consumers: {} }));
+
+  // An entry trimmed while pending: history shows it with no fields, autoclaim reports it deleted.
+  await db.del('trim');
+  await db.xgroupCreate('trim', 'g', '$', { mkStream: true });
+  const t1 = await db.xadd('trim', { n: '1' });
+  await db.xreadGroup('g', 'c', 'trim');
+  for (let i = 0; i < 3; i++) await db.xadd('trim', { n: String(i) }, { maxLen: 2 });
+  check('trimmed entry in history', same(await db.xreadGroup('g', 'c', { trim: '0' }), { trim: [{ id: t1, fields: null }] }));
+  check('xautoClaim reports deleted', same(await db.xautoClaim('trim', 'g', 'c2', 0), { next: '0-0', claimed: [], deleted: [t1] }));
+
+  // Woken from a second connection while parked in XREADGROUP.
+  addLater('jobs');
+  const wokenGroup = await db.xreadGroup('workers', 'w5', 'jobs', { blockMs: 5000 });
+  check('xreadGroup block woken by xadd', wokenGroup !== null && same(wokenGroup.jobs[0].fields, { n: 'woke' }),
+    JSON.stringify(wokenGroup));
+
+  check('xgroupDestroy', (await db.xgroupDestroy('jobs', 'workers')) && !(await db.xgroupDestroy('jobs', 'workers')));
+
+  await other.close();
   await db.close();
 
   console.log();

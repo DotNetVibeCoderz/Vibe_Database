@@ -74,7 +74,7 @@ Redis. [Batasan yang jujur](../../README.id.md#batasan-yang-jujur).
 
 ```bash
 dotnet build -c Release
-dotnet test tests/MemSharp.Tests/MemSharp.Tests.csproj -c Release    # 214 tes
+dotnet test tests/MemSharp.Tests/MemSharp.Tests.csproj -c Release    # 280 tes
 python .github/scripts/check_docs.py .
 ```
 

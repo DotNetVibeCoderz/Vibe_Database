@@ -16,4 +16,4 @@ from ._resp import ConnectionClosedError, MemSharpError, WrongTypeError
 from .client import MemSharpClient
 
 __all__ = ["MemSharpClient", "MemSharpError", "WrongTypeError", "ConnectionClosedError"]
-__version__ = "1.0.0"
+__version__ = "1.1.0"

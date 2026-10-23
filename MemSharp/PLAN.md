@@ -3,8 +3,9 @@
 By Gravicode Studios, led by Kang Fadhil.
 Companion document: [Progress.md](Progress.md), which tracks what is actually done.
 
-**Status: 1.0.0 shipped.** Live on nuget.org (`MemSharp`, `MemSharp.Cli`), PyPI (`memsharp`) and
-npm (`memsharp`). CI is green on Linux, Windows and macOS.
+**Status: 1.1.0.** 1.0.0 shipped 2026-09-03 to nuget.org (`MemSharp`, `MemSharp.Cli`), PyPI and
+npm (`memsharp`). 1.1 delivered everything below that was planned for 1.1 *and* 1.2 — see
+[Delivered in 1.1](#delivered-in-11).
 
 ---
 
@@ -24,7 +25,7 @@ not worth entering.
 
 ---
 
-## Where 1.0 deliberately stops
+## Where 1.1 deliberately stops
 
 These are not oversights. Each is a decision with a reason, and each is documented where a user
 would hit it.
@@ -34,82 +35,76 @@ would hit it.
 | No `AUTH`, no TLS | Server binds loopback and warns when you widen it | Moderate — but see [Not planned](#not-planned) |
 | No `MULTI`/`EXEC` | Multi-key atomicity needs a global lock or a real transaction manager | High — the first defeats sharding entirely |
 | No cluster, no replication | One process, one keyspace | Very high; a different project |
-| `SCAN` cursor is an offset | Not rehash-safe: a key added mid-iteration may be missed | Moderate |
-| Sorted-set rank is O(n) | Ranks are counted by walking the tree, not indexed | Moderate — an order-statistic tree |
+| Strings are text, not bytes | A `GETRANGE`/`SETRANGE` that splits a UTF-8 character is refused | Moderate — store `byte[]`, pay a decode on every `GET` |
 | SQL has no joins or aggregates | It is a keyspace browser, not a relational engine | High, and LINQ already covers it |
 | RESP2 only, no `HELLO`/RESP3 | Nothing in the feature set needs RESP3's typing | Low |
 | No keyspace notifications | `PUBLISH` yourself | Low |
-| Python and npm publishing is manual | Would need PyPI and npm tokens in repository secrets | Low |
+| Blocking reads are server-only | The command table is synchronous; it also replays the log | Moderate — an async embedded API |
 
-96 commands are implemented. Absent and reasonable to want: `SETRANGE`/`GETRANGE`, `LPOS`,
-`SINTERSTORE`/`ZUNIONSTORE` and the other `*STORE` variants, `BITCOUNT` and the bitmap family,
-`OBJECT`, `CONFIG`, `CLIENT`, consumer groups (`XGROUP`/`XACK`), HyperLogLog, geo.
-
----
-
-## Next — 1.1
-
-Small, well-understood, and each closes a gap a real user will hit.
-
-### Store variants: `SINTERSTORE`, `SUNIONSTORE`, `SDIFFSTORE`, `ZUNIONSTORE`, `ZINTERSTORE`
-
-The set algebra already exists; these write the result to a key instead of returning it. The catch
-worth thinking about first is locking: the destination may be on a third shard, so this needs the
-same ordered multi-shard acquisition `Rename` uses, and the existing algebra deliberately is *not*
-point-in-time across keys. Writing a result computed from a non-atomic read into a key makes that
-looseness durable rather than transient. Decide and document which it is before implementing.
-
-### String range operations: `SETRANGE`, `GETRANGE`, `STRLEN` on bytes
-
-Straightforward, and it exposes a question the engine has so far avoided: `string` values are UTF-16,
-so a byte range is not a character range. Either commit to byte semantics like Redis (and store
-`byte[]` for strings, which changes `StoreEntry`) or document the divergence loudly. **Do not ship
-this silently doing the wrong thing** — a `GETRANGE` that disagrees with Redis on multi-byte text is
-exactly the kind of quiet wrong answer this project has avoided elsewhere.
-
-### `LPOS`
-
-Trivial against `Deque<T>`. No design questions.
-
-### Automate the client-SDK releases
-
-The release workflow publishes both NuGet packages but not PyPI or npm — those went out by hand.
-Needs `PYPI_API_TOKEN` and `NPM_TOKEN` in repository secrets, gated on the same `nuget` environment.
-
-### `INFO` sections and `CONFIG GET`
-
-Monitoring tools expect `INFO memory` and friends. Cheap, and it makes MemSharp legible to existing
-Redis dashboards.
+114 commands are implemented. Absent and reasonable to want: `XDEL`, `XSETID`, consumer-group lag
+(`entries-read`), `BITCOUNT` and the bitmap family, `OBJECT`, `CLIENT`, `BLPOP` and the other blocking
+list commands, HyperLogLog, geo.
 
 ---
 
-## Then — 1.2
+## Delivered in 1.1
 
-### An order-statistic tree for sorted sets
+Recorded so the reasoning is not re-derived. Details in [Progress.md](Progress.md#110).
 
-`SortedSetRank` and rank-based `ZRANGE` are O(n) because ranks are counted by walking. Augmenting
-each node with a subtree size makes both O(log n). This is the single largest remaining algorithmic
-gap, and the one place MemSharp is meaningfully worse than Redis on complexity rather than constants.
+- **`*STORE` variants** — decided as **point-in-time** (every involved shard locked in index order),
+  because a stored result is durable and the read-only algebra's looseness would become permanent.
+- **String ranges** — committed to **byte semantics** like Redis, *without* changing `StoreEntry`:
+  a range that would split a character is refused loudly. That kept the 1.0 memory layout and
+  avoided the "quiet wrong answer" this plan warned against.
+- **`LPOS`**, **`INFO` sections**, **`CONFIG GET`**, **`MEMORY USAGE`** (the "memory profiler" that
+  was under consideration — it turned out to be as cheap as expected).
+- **Client-SDK releases automated** — PyPI and npm are separate jobs in the release workflow.
+- **Order-statistic tree** — built only after `SortedSetRankBenchmarks` showed 12.7 ms per rank at a
+  million members, as this plan required. AVL rather than the red-black tree guessed at here: the
+  order statistics only need subtree sizes, and AVL is the shorter correct implementation. 145 ns now.
+- **Rehash-safe `SCAN`** — exactly the design sketched here: shard index + intra-shard position,
+  where "position" is a hash threshold so that no insert or delete can move a key behind it.
+- **Consumer groups** — asked for, so built. The design point worth keeping: the log records
+  deliveries as `XCLAIM … FORCE JUSTID` effects, never the `XREADGROUP` that caused them, because
+  replaying a cursor- and clock-dependent command does not reproduce it.
 
-It means replacing `System.Collections.Generic.SortedSet<T>` with a hand-written red-black tree —
-roughly 400 lines, and the reason 1.0 did not do it. Worth it only if profiling on a real workload
-shows rank queries mattering; score ranges, which is what order books use, are already O(log n).
+Building them surfaced five durability faults in 1.0 — see
+[Progress.md](Progress.md#bugs-found-and-fixed-during-11). The lesson is in the principles below.
 
-**Do not start this without a benchmark that would show the improvement.**
+---
 
-### A rehash-safe `SCAN` cursor
+## Next — 1.2
 
-Encode the shard index and an intra-shard position into the cursor rather than treating it as a flat
-offset. Guarantees every key present for the whole iteration is returned at least once, which the
-current offset cursor does not.
+Small, and each closes a gap a real user will hit.
 
-### Consumer groups: `XGROUP`, `XREADGROUP`, `XACK`
+### `XDEL` and `XSETID`
 
-The largest genuinely-missing feature for the streams type. Streams without consumer groups are a
-log; with them they are a work queue. Substantial: pending-entry lists, per-consumer state,
-claim/idle semantics.
+The two stream commands consumer groups make people reach for. `XDEL` needs the `Deque` to tolerate
+holes (a tombstone, or a compaction pass), and has to leave pending entries that point at deleted ids
+reporting `nil`, which the group code already handles for trimmed entries.
 
-Worth doing only if someone actually wants MemSharp as a queue. Ask before building.
+### Blocking list pops: `BLPOP`, `BRPOP`, `BLMOVE`
+
+The blocking machinery from `XREAD` generalises: a per-database append signal, fetched before the
+attempt. Lists need their own signal so a stream append does not wake every list waiter.
+
+### An async embedded API for blocking reads
+
+`await db.StreamReadGroupAsync(..., block: TimeSpan)` — so an in-process consumer does not have to poll.
+The signal already exists; this is the public surface over it.
+
+### A faster snapshot checksum
+
+The Rust experiment's real finding: FNV-1a is one dependent multiply per byte and runs at ~750 MB/s
+in any language; XXH3 runs 14× faster in C#. On a several-hundred-megabyte snapshot that is most of
+a load's verification time. Use hardware CRC32C from `System.Runtime.Intrinsics` (no package — the
+Core has no dependencies, and `System.IO.Hashing` would be one) or a hand-written XXH3. It changes the
+format, so it is **format 3**, with 1 and 2 still readable.
+
+### Keyspace notifications
+
+`notify-keyspace-events`-style publishes on writes. Cheap given pub/sub already exists, but it puts a
+branch on every write's hot path, so it should be off by default and measured.
 
 ---
 
@@ -126,8 +121,20 @@ string one it replaces. Prototype before committing.
 **Vector search.** `FAISS.Net`, a sibling project in this repository, already does this properly. A
 half-implementation here would be worse than composing the two.
 
-**A memory profiler command.** `MEMORY USAGE`-style per-key accounting. Genuinely useful for a
-database you embed and then wonder about, and cheap: `Describe` already computes sizes.
+**Byte strings.** Storing strings as `byte[]` would make `GETRANGE`/`SETRANGE` exact on any
+offset and binary values safe. It costs a UTF-8 decode on every `GET` that returns a .NET string, and
+a format change. Worth it only if someone needs binary values in practice.
+
+**A native (Rust) layer.** Measured rather than argued — see
+[experiments/native-rust](experiments/native-rust/README.md). A P/Invoke call costs 6.9 ns before it
+does anything; a `GET` served from a Rust hash map was **2× slower** than `MemDb.Get`, because every
+read must copy the value back and allocate a new .NET string. FNV-1a ran at the same speed in Rust as
+in C#. The one large win, a 14× faster checksum, came from switching to XXH3, which is just as fast
+in managed code. So: **not on the per-operation path, ever.** What remains plausible is bulk work
+amortised over megabytes — snapshot compression — or an off-heap arena for keyspaces large enough
+that GC tracing dominates, each as an optional `MemSharp.Native` package and only behind a benchmark
+that shows the win, because shipping native code means a seven-RID build matrix and gives up "runs
+anywhere .NET runs".
 
 ---
 
@@ -173,6 +180,15 @@ Learned building 1.0, and worth keeping:
 
 5. **The demo is a test.** It surfaced two real bugs 214 unit tests did not: a crossed order book
    from trimming only one side, and volatility scaled for the wrong clock.
+
+6. **Log the effect, under the lock.** Every 1.1 durability fault was a write whose log record either
+   reached the log in a different order from the write itself, or replayed to a different result
+   than the live run. Log while holding the lock that applied the write, and log what happened —
+   the absolute expiry, the computed result, the exact claim — not the command that asked for it.
+
+7. **A test that cannot fail proves nothing.** The first version of the snapshot-truncation test
+   passed against the bug it was written for. Break the fix on purpose and watch the test go red
+   before trusting it.
 
 ---
 

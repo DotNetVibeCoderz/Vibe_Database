@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/DotNetVibeCoderz/Vibe_Database/main/MemSharp/assets/icon-128.png" width="96" alt="MemSharp">
+
 # MemSharp client for Node.js
 
 A dependency-free client for [MemSharp](../../README.md), an in-memory database for .NET that speaks
@@ -44,6 +46,49 @@ subscriber.on('message', (channel, message) => console.log(channel, message));
 await subscriber.subscribe('fills.BTC');
 ```
 
+## Streams and consumer groups
+
+Durations in these methods are milliseconds, and say so in their names (`blockMs`, `minIdleMs`).
+
+```javascript
+await db.xgroupCreate('jobs', 'workers', '$', { mkStream: true });
+
+// {key: [{id, fields}, ...]}, or null if nothing arrived within blockMs
+const batch = await db.xreadGroup('workers', 'w1', 'jobs', { count: 10, blockMs: 5000 });
+for (const { id, fields } of batch?.jobs ?? []) {
+  // ...
+  await db.xack('jobs', 'workers', id);
+}
+
+await db.xpending('jobs', 'workers');                    // {count, min, max, consumers: {name: n}}
+await db.xpendingRange('jobs', 'workers', { count: 10 }); // [{id, consumer, idleMs, deliveries}]
+
+// recover what a crashed consumer left behind
+const { next, claimed, deleted } = await db.xautoClaim('jobs', 'workers', 'w2', 60_000);
+await db.xclaim('jobs', 'workers', 'w2', 60_000, ['1700000000000-0'], { justId: true });
+
+await db.xread({ prices: '$' }, { blockMs: 0 });          // plain tail, no group; 0 waits forever
+```
+
+A blocked read holds its connection - replies come back in order, so anything sent behind it
+waits too. Give a long-blocking reader its own client. Also: `xgroupDestroy`,
+`xgroupCreateConsumer`, `xgroupDelConsumer`, `xgroupSetId`, `xinfoGroups`, `xinfoConsumers`,
+`xinfoStream`.
+
+## Also in 1.1
+
+| Method | Notes |
+|---|---|
+| `strlen`, `getrange`, `setrange` | Byte offsets. A range that would split a UTF-8 character rejects rather than returning half of it. |
+| `lpos(key, el, {rank, count, maxLen})` | An index or `null`; with `count`, an array (`count: 0` is every match). |
+| `sinterstore`, `sunionstore`, `sdiffstore` | Resolve with the result size; an empty result deletes the destination. |
+| `zunionstore`, `zinterstore(dest, keys, {weights, aggregate})` | `aggregate` is `sum`, `min` or `max`. |
+| `info(...sections)` | No argument still means everything. |
+| `configGet(...patterns)`, `configResetStat()` | `configGet` resolves with an object. There is no `CONFIG SET`. |
+| `memoryUsage(key, {samples})` | Bytes, or `null` for a missing key. |
+
+`scan` passes the cursor back as the string the server sent: it can exceed 2^32.
+
 ## Tests
 
 They run against a live server rather than a mock, because the only thing worth testing in a
@@ -51,7 +96,7 @@ protocol client is that its bytes match what the server actually sends back.
 
 ```bash
 memsharp serve --port 6391 --quiet &
-node clients/nodejs/test/client.test.js     # 53 checks
+node clients/nodejs/test/client.test.js     # 126 checks
 ```
 
 ## Notes

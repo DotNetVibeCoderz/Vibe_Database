@@ -31,7 +31,7 @@ public sealed partial class MemDb
     public void SaveTo(string path)
     {
         ArgumentNullException.ThrowIfNull(path);
-        WriteSnapshot(path);
+        WriteSnapshot(path, markCaptured: false);
     }
 
     /// <summary>Replaces the contents of this database with a snapshot from disk.</summary>
@@ -56,8 +56,14 @@ public sealed partial class MemDb
     /// - holding every shard lock for the length of a multi-hundred-megabyte write - would stop the
     /// database dead for the duration. Per-key consistency is preserved, which is what a key/value
     /// store's snapshot actually needs; if a cross-key atomic image is required, stop writing first.
+    /// <para>
+    /// With <paramref name="markCaptured"/>, each shard is flagged <see cref="Shard.Captured"/> under
+    /// the same lock that serialises it, which is what lets the append-only log keep exactly the
+    /// writes this snapshot misses. Only the coordinator's save passes it; an ad-hoc
+    /// <see cref="SaveTo"/> has no log to reconcile.
+    /// </para>
     /// </remarks>
-    internal void WriteSnapshot(string path)
+    internal void WriteSnapshot(string path, bool markCaptured)
     {
         string? directory = Path.GetDirectoryName(Path.GetFullPath(path));
         if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
@@ -88,6 +94,7 @@ public sealed partial class MemDb
                             WriteEntry(writer, pair.Key, pair.Value);
                             count++;
                         }
+                        if (markCaptured) shard.Captured = true;
                     }
                 }
                 writer.Flush();
@@ -189,6 +196,7 @@ public sealed partial class MemDb
                     writer.Write(streamEntry.Fields.Length);
                     foreach (var field in streamEntry.Fields) writer.Write(field);
                 }
+                WriteStreamGroups(writer, stream);
                 break;
             }
         }
@@ -209,7 +217,7 @@ public sealed partial class MemDb
         }
 
         int version = reader.ReadInt32();
-        if (version > SnapshotFormat.Version)
+        if (version < 1 || version > SnapshotFormat.Version)
         {
             throw new PersistenceException(
                 $"'{path}' was written by a newer MemSharp (format {version}; this build reads {SnapshotFormat.Version}).");
@@ -244,7 +252,7 @@ public sealed partial class MemDb
             string key = reader.ReadString();
             long expiry = reader.ReadInt64();
 
-            object value = ReadPayload(reader, type);
+            object value = ReadPayload(reader, type, version);
             var shard = ShardFor(key);
             lock (shard.Gate)
             {
@@ -254,7 +262,7 @@ public sealed partial class MemDb
         }
     }
 
-    private static object ReadPayload(BinaryReader reader, MemType type)
+    private static object ReadPayload(BinaryReader reader, MemType type, int version)
     {
         switch (type)
         {
@@ -318,11 +326,86 @@ public sealed partial class MemDb
                     for (int f = 0; f < fieldCount; f++) fields[f] = reader.ReadString();
                     stream.AppendRaw(new StreamEntry(id, fields));
                 }
+                if (version >= 2) ReadStreamGroups(reader, stream);
                 return stream;
             }
 
             default:
                 throw new PersistenceException($"snapshot contains an unknown value kind ({(byte)type}).");
+        }
+    }
+
+    // Format 2: last id, then the groups. Consumers are written before the pending list so that
+    // loading can attach each pending entry to its owner as it goes.
+    private static void WriteStreamGroups(BinaryWriter writer, StreamStore stream)
+    {
+        WriteId(writer, stream.LastId);
+        writer.Write(stream.GroupCount);
+        foreach (var group in stream.Groups)
+        {
+            writer.Write(group.Name);
+            WriteId(writer, group.LastDelivered);
+
+            writer.Write(group.Consumers.Count);
+            foreach (var consumer in group.Consumers.Values)
+            {
+                writer.Write(consumer.Name);
+                writer.Write(consumer.SeenAt);
+            }
+
+            writer.Write(group.PendingOrder.Count);
+            foreach (var id in group.PendingOrder)
+            {
+                var pending = group.Pending[id];
+                WriteId(writer, id);
+                writer.Write(pending.Consumer);
+                writer.Write(pending.DeliveredAt);
+                writer.Write(pending.Deliveries);
+            }
+        }
+    }
+
+    private static void ReadStreamGroups(BinaryReader reader, StreamStore stream)
+    {
+        stream.RestoreLastId(ReadId(reader));
+        int groups = reader.ReadInt32();
+        for (int g = 0; g < groups; g++)
+        {
+            var group = stream.RestoreGroup(reader.ReadString(), ReadId(reader));
+
+            int consumers = reader.ReadInt32();
+            for (int c = 0; c < consumers; c++)
+            {
+                string name = reader.ReadString();
+                group.GetOrAddConsumer(name, reader.ReadInt64());
+            }
+
+            int pending = reader.ReadInt32();
+            for (int p = 0; p < pending; p++)
+            {
+                var id = ReadId(reader);
+                string owner = reader.ReadString();
+                long deliveredAt = reader.ReadInt64();
+                long deliveries = reader.ReadInt64();
+                group.Assign(id, group.GetOrAddConsumer(owner, deliveredAt), deliveredAt, deliveries);
+            }
+        }
+    }
+
+    private static void WriteId(BinaryWriter writer, StreamId id)
+    {
+        writer.Write(id.Milliseconds);
+        writer.Write(id.Sequence);
+    }
+
+    private static StreamId ReadId(BinaryReader reader) => new(reader.ReadInt64(), reader.ReadInt64());
+
+    /// <summary>Clears every shard's <see cref="Shard.Captured"/> flag before a snapshot starts.</summary>
+    internal void ResetCaptured()
+    {
+        foreach (var shard in _shards)
+        {
+            lock (shard.Gate) shard.Captured = false;
         }
     }
 

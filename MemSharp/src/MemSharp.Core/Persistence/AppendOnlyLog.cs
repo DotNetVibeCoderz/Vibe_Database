@@ -28,6 +28,7 @@ internal sealed class AppendOnlyLog : IDisposable
     private readonly ArrayBufferWriter<byte> _buffer;
 
     private FileStream? _file;
+    private FileStream? _rewrite;
     private long _lastFsyncTicks;
     private bool _disposed;
 
@@ -51,7 +52,13 @@ internal sealed class AppendOnlyLog : IDisposable
     }
 
     /// <summary>Appends one command.</summary>
-    public void Append(string command, string[] arguments)
+    /// <param name="command">The command.</param>
+    /// <param name="arguments">Its arguments.</param>
+    /// <param name="captured">
+    /// True if a snapshot in progress has already written the shard this command changed. Such a
+    /// command also goes to the rewrite segment, because the snapshot does not contain it.
+    /// </param>
+    public void Append(string command, string[] arguments, bool captured)
     {
         if (_disposed) return;
 
@@ -59,7 +66,9 @@ internal sealed class AppendOnlyLog : IDisposable
         {
             if (_file is null) return;
 
+            int before = _buffer.WrittenCount;
             RespWriter.WriteCommand(_buffer, command, arguments);
+            if (captured && _rewrite is not null) _rewrite.Write(_buffer.WrittenSpan[before..]);
 
             bool full = _buffer.WrittenCount >= _options.BufferSize;
             bool always = _options.Fsync == FsyncPolicy.Always;
@@ -74,23 +83,64 @@ internal sealed class AppendOnlyLog : IDisposable
         lock (_gate) FlushLocked(fsync);
     }
 
+    private string RewritePath => _options.Path + ".rewrite";
+
     /// <summary>
-    /// Empties the log. Called right after a snapshot, because the snapshot already contains
-    /// everything the log was covering.
+    /// Starts collecting the commands a snapshot about to be written will miss.
     /// </summary>
-    public void Truncate()
+    /// <remarks>
+    /// <para>
+    /// The snapshot is taken a shard at a time while writes continue, so "truncate the log once the
+    /// snapshot is saved" - what 1.0 did - deletes every write that landed on a shard after the
+    /// snapshot had already passed it. Those writes are in neither file, and a crash loses them.
+    /// </para>
+    /// <para>
+    /// Instead, while a snapshot runs, each command is still appended to the live log (so a crash
+    /// mid-snapshot recovers from the old snapshot plus the whole log), and the commands for shards
+    /// the snapshot has already captured are copied to a rewrite segment as well. Once the snapshot
+    /// is in place, the segment replaces the log.
+    /// </para>
+    /// </remarks>
+    public void BeginRewrite()
     {
         lock (_gate)
         {
             if (_file is null) return;
+            _rewrite?.Dispose();
+            _rewrite = new FileStream(RewritePath, FileMode.Create, FileAccess.Write, FileShare.None, _options.BufferSize);
+        }
+    }
 
+    /// <summary>Makes the rewrite segment the log. Called once the snapshot has been moved into place.</summary>
+    public void CompleteRewrite()
+    {
+        lock (_gate)
+        {
+            if (_file is null || _rewrite is null) return;
+
+            // Everything still buffered is either in the snapshot or already copied to the segment.
             _buffer.Clear();
-            _file.Flush(true);
             _file.Dispose();
+            _file = null;
 
-            // FileMode.Create rather than SetLength(0): the handle was opened for append, and on
-            // some platforms an append handle's position does not reliably follow a truncation.
-            _file = new FileStream(_options.Path, FileMode.Create, FileAccess.Write, FileShare.Read, _options.BufferSize);
+            _rewrite.Flush(flushToDisk: true);
+            _rewrite.Dispose();
+            _rewrite = null;
+
+            File.Move(RewritePath, _options.Path, overwrite: true);
+            _file = new FileStream(_options.Path, FileMode.Append, FileAccess.Write, FileShare.Read, _options.BufferSize);
+        }
+    }
+
+    /// <summary>Discards the rewrite segment after a failed snapshot, keeping the live log whole.</summary>
+    public void AbandonRewrite()
+    {
+        lock (_gate)
+        {
+            if (_rewrite is null) return;
+            _rewrite.Dispose();
+            _rewrite = null;
+            try { File.Delete(RewritePath); } catch (IOException) { }
         }
     }
 
@@ -198,6 +248,8 @@ internal sealed class AppendOnlyLog : IDisposable
             FlushLocked(fsync: true);
             _file?.Dispose();
             _file = null;
+            _rewrite?.Dispose();
+            _rewrite = null;
         }
     }
 }

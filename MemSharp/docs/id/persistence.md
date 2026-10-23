@@ -102,7 +102,7 @@ Python, Go dan Node bisa berbicara dengan server yang memegangnya tanpa runtime 
 
 ```
 magic     8 byte    "MEMSHRP1"
-version   int32     versi format
+version   int32     versi format: 2 sejak MemSharp 1.1, 1 sebelumnya
 flags     int32     dicadangkan, saat ini 0
 count     int64     jumlah entri
 checksum  uint64    FNV-1a atas setiap byte setelah field ini
@@ -119,7 +119,21 @@ String memakai prefiks panjang 7-bit dari `BinaryWriter` diikuti byte UTF-8. Ben
 | Set | `count:int32`, lalu setiap anggota |
 | SortedSet | `count:int32`, lalu pasangan anggota/score (`double`) |
 | TimeSeries | `retention:int32`, `count:int32`, lalu pasangan timestamp/nilai |
-| Stream | `count:int32`, lalu per entri: `ms:int64`, `seq:int64`, `fieldCount:int32`, field |
+| Stream | `count:int32`, lalu per entri: `ms:int64`, `seq:int64`, `fieldCount:int32`, field; lalu, sejak format 2, bagian group di bawah |
+
+Sejak format 2, payload sebuah stream berlanjut dengan state consumer group-nya:
+
+```
+lastId     ms:int64, seq:int64            id tertinggi yang pernah diterbitkan (pemangkasan bisa meninggalkannya di atas kepala)
+groups     int32, lalu per group:
+  name       string
+  cursor     ms:int64, seq:int64          id terakhir yang diantarkan group
+  consumers  int32, lalu name:string, seenAt:int64 (ms Unix)
+  pending    int32, lalu id (ms, seq), owner:string, deliveredAt:int64 (ms Unix), deliveries:int64
+```
+
+**File format 1 tetap bisa dimuat**; stream-nya sekadar tidak punya group. Build 1.0 menolak file
+format 2 dengan galat "written by a newer MemSharp" yang jelas, alih-alih salah membacanya.
 
 Nilai numerik `MemType` adalah bagian dari format. Jangan pernah menomori ulang anggota yang sudah
 ada; tambahkan jenis baru dengan nilai bebas berikutnya.
@@ -154,6 +168,23 @@ Setiap perintah yang mengubah data ditambahkan dalam **bentuk permintaan RESP** 
 seperti yang akan dikirim sebuah klien. Itu membuat log bisa diputar ulang lewat `CommandTable` biasa
 tanpa parser kedua, dan bisa dibaca dengan perkakas RESP apa pun.
 
+**Sebuah perintah dicatat di bawah lock yang menerapkannya.** Itulah yang membuat urutan di log sama
+dengan urutan terjadinya tulisan. 1.0 mencatat setelah melepas lock, jadi dua penulis ke satu key bisa
+mencapai log dalam urutan terbalik: pemutaran ulang lalu menghasilkan nilai akhir yang berbeda, dan
+untuk stream atau time series — yang menolak id tak berurutan — sebuah `PersistenceException` yang
+langsung menghentikan pemulihan.
+
+**Yang dicatat adalah apa yang membuat pemutaran ulang deterministik**, dan itu tidak selalu perintah
+persis seperti yang diketik:
+
+| Perintah | Dicatat sebagai |
+|---|---|
+| `SET ... EX/PX` | `SET`, lalu `PEXPIREAT` dengan kedaluwarsa absolut — TTL relatif akan mulai ulang pada setiap pemutaran ulang |
+| `SET ... NX` dengan TTL | sama; 1.0 membuang TTL-nya dan key-nya kembali sebagai permanen |
+| `SINTERSTORE`, `ZUNIONSTORE`, … | `DEL dest` dan hasilnya ditulis apa adanya — bukan dihitung ulang dari sumber |
+| `XADD ... MAXLEN` | `XADD` dengan id yang ditetapkan, lalu `XTRIM` |
+| `XREADGROUP`, `XCLAIM`, `XAUTOCLAIM` | satu `XCLAIM ... TIME RETRYCOUNT FORCE JUSTID` per pengantaran — lihat di bawah |
+
 ```csharp
 new AppendOnlyOptions
 {
@@ -178,11 +209,39 @@ Itu disengaja: perintah separuh bukanlah kerusakan, melainkan tulisan yang sedan
 listrik pergi. Menolak start karenanya akan lebih buruk daripada kehilangannya. Semua yang sebelum
 koyakan tetap dipertahankan.
 
-### Menyimpan memangkas log
+### Consumer group di dalam log
 
-Tepat setelah snapshot, log dimulai dari awal — snapshot sudah memuat semua yang dipegang log. Membalik
-urutannya akan meninggalkan jendela di mana crash menghilangkan perintah yang dipegang log tapi tidak
-dipegang snapshot.
+State sebuah group bergantung pada kursornya dan pada jam: memutar ulang `XREADGROUP` apa adanya bisa
+mengantarkan entri yang berbeda dari yang diantarkan saat berjalan sungguhan, dan memutar ulang
+`XCLAIM` akan menilai lamanya menganggur menurut jam saat pemutaran ulang. Jadi, seperti Redis, setiap
+pengantaran dicatat sebagai claim yang mereproduksinya dengan persis — pemilik, waktu pengantaran,
+jumlah pengantaran dan, untuk pengantaran baru, kursor yang dimajukannya. Pemutaran ulang memberi
+pending list yang sama, dengan hitungan yang sama, kapan pun ia dijalankan.
+`GroupsReplayFromTheAppendOnlyLogExactly` memutar ulang dua menit setelah kejadiannya dan memeriksa
+setiap entri pending.
+
+### Menyimpan menulis ulang log
+
+Snapshot diambil satu shard pada satu waktu sementara tulisan terus berjalan, jadi "pangkas log begitu
+snapshot tersimpan" — yang dilakukan 1.0 — menghapus setiap tulisan yang mendarat di sebuah shard
+setelah snapshot sudah melewatinya. Tulisan-tulisan itu tidak ada di file mana pun, dan crash
+menghilangkannya. `WritesDuringASnapshotSurviveTheLogTruncation` mereproduksinya: counter yang
+seharusnya mencapai 400 kembali sebagai 366.
+
+Sejak 1.1 penyimpanan bekerja seperti ini:
+
+1. Flag *captured* setiap shard dibersihkan.
+2. Segmen rewrite (`<log>.rewrite`) dibuka di samping log.
+3. Snapshot ditulis; setiap shard ditandai captured di bawah lock yang sama dengan yang menserialkannya.
+4. Sementara itu setiap tulisan tetap masuk ke log yang hidup, dan tulisan ke shard yang sudah captured
+   *juga* disalin ke segmen, karena snapshot tidak memuatnya.
+5. Setelah snapshot dipindahkan ke tempatnya, segmen menggantikan log.
+
+Crash sebelum langkah 5 pulih dari snapshot lama dan seluruh log lama; crash sesudahnya, dari snapshot
+baru dan tepat tulisan-tulisan yang terlewat olehnya. Tulisan ke shard yang belum captured ada di
+snapshot dan tidak ada di segmen, jadi tidak ada yang diputar ulang dua kali — hal penting bagi `INCR`
+dan `XADD`, yang tidak idempoten. `FLUSHDB` mengambil setiap lock shard sekaligus dan menandai setiap
+shard captured, jadi flush di tengah penyimpanan menjadi satu titik tunggal di kedua file.
 
 ## Urutan startup
 

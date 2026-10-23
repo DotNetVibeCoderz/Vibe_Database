@@ -32,6 +32,29 @@ sehingga menguasai satu berarti nyaris menguasai yang lain:
   dan balasannya, jadi klien yang berlangganan tidak bisa sekaligus menjalankan perintah biasa. Pakai
   klien kedua.
 
+### Baru di 1.1
+
+Setiap perintah yang ditambahkan MemSharp 1.1 punya helper bertipe di ketiga klien:
+
+| | Python | Node.js | Go |
+|---|---|---|---|
+| String | `strlen` `getrange` `setrange` | `strlen` `getrange` `setrange` | `StrLen` `GetRange` `SetRange` |
+| List | `lpos` | `lpos` | `LPos` `LPosCount` |
+| Store | `sinterstore` … `zunionstore` | `sinterstore` … `zunionstore` | `SInterStore` … `ZUnionStore` |
+| Streams | `xread` | `xread` | `XRead` |
+| Group | `xgroup_create` … `xreadgroup` `xack` | `xgroupCreate` … `xreadGroup` `xack` | `XGroupCreate` … `XReadGroup` `XAck` |
+| Pemulihan | `xpending` `xpending_range` `xclaim` `xautoclaim` | `xpending` `xpendingRange` `xclaim` `xautoClaim` | `XPending` `XPendingRange` `XClaim` `XAutoClaim` |
+| Introspeksi | `info(*sections)` `config_get` `memory_usage` `xinfo_*` | `info(...sections)` `configGet` `memoryUsage` `xinfo*` | `Info(sections...)` `ConfigGet` `MemoryUsage` `XInfo*` |
+
+Durasi mengikuti konvensi tiap klien yang sudah ada: **detik** di Python (seperti `ex=` dan `ttl()`),
+**milidetik** di Node (`blockMs`, `minIdleMs`), `time.Duration` di Go (di mana
+`memsharp.BlockForever` adalah `BLOCK 0` di kabel, karena `Duration` nol berarti "jangan blok").
+
+**Beri bacaan blocking kliennya sendiri.** `BLOCK` memarkir sisi server koneksi itu sampai sebuah
+entry tiba, jadi tidak ada yang lain bisa memakai koneksi tersebut selama itu — alasan yang sama
+dengan berlangganan yang butuh klien kedua. Entry yang sudah dipangkas di riwayat sebuah group
+kembali dengan field `None` / `null` / `nil`, supaya tetap bisa di-acknowledge.
+
 ---
 
 ## Python
@@ -110,7 +133,7 @@ threading.Thread(target=listen, daemon=True).start()
 Jalankan suite-nya:
 
 ```bash
-python clients/python/test_client.py     # 55 pemeriksaan terhadap server hidup
+python clients/python/test_client.py     # 126 pemeriksaan terhadap server hidup
 ```
 
 ---
@@ -331,7 +354,7 @@ await subscriber.psubscribe('fills.*');
 Jalankan suite-nya:
 
 ```bash
-node clients/nodejs/test/client.test.js     # 53 pemeriksaan terhadap server hidup
+node clients/nodejs/test/client.test.js     # 126 pemeriksaan terhadap server hidup
 ```
 
 ---

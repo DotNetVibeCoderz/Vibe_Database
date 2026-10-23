@@ -20,7 +20,7 @@ independent project with its own CLAUDE.md. Work stays inside `MemSharp/` unless
 
 ```bash
 dotnet build -c Release                                          # whole solution (MemSharp.slnx)
-dotnet test tests/MemSharp.Tests/MemSharp.Tests.csproj -c Release # 214 tests
+dotnet test tests/MemSharp.Tests/MemSharp.Tests.csproj -c Release # 280 tests
 dotnet pack -c Release                                           # -> artifacts/packages
 python .github/scripts/check_docs.py .                           # links + EN/ID parity
 
@@ -77,14 +77,20 @@ allocation-heavy in the original engine:
 |---|---|---|
 | `Deque<T>` | `List<T>` for lists and streams | `LPUSH` was O(n); a capped feed was quadratic |
 | `GlobMatcher` | a `Regex` compiled per `KEYS` call | allocated a state machine every call |
-| `SortedSetStore` | nothing (new) | red-black tree + map; O(log n) score seek |
+| `SortedSetStore` | `SortedSet<T>` (1.0) | order-statistic AVL tree + map; O(log n) score seek **and** rank |
 | `TimeSeriesStore` | boxed sample objects | two primitive arrays, 16 bytes/sample, ring-buffer retention |
 
 `SqlTokenizer` is a hand-written scanner for the same reason. `RespWriter` writes UTF-8 straight into
 the pipe's buffer — no intermediate string. `DbStatistics` is interlocked longs, not a dictionary.
 
-`SortedSetStore` has one asymmetry worth remembering: **rank is O(n)** because ranks are counted by
-walking the tree. Score ranges are O(log n). Prefer `SortedSetRangeByScore` when the bound is a value.
+`SortedSetStore` became an order-statistic tree in 1.1 because `SortedSetRankBenchmarks` showed the
+1.0 rank walk at 12.7 ms on a million members (now 145 ns; `benchmarks/results-sortedset-rank.json`).
+The cost is ~10% on a rescore. `SortedSetStore.Validate()` checks every invariant; the randomised
+model test in `Release11Tests.cs` calls it — keep that test when touching the tree.
+
+**`SCAN` cursors are shard index (high 32 bits) + hash threshold (low 32)**, not offsets. Keys are
+visited in hash order within a shard and every key sharing a page's last hash goes in that page —
+that is what makes it rehash-safe. Do not "simplify" it back into an offset.
 
 ## Persistence
 
@@ -100,6 +106,19 @@ numeric values are part of the format — never renumber, only append.
 A save writes to `.tmp` and moves into place. The checksum is verified *before* anything is
 installed, so a corrupt file is refused rather than half-loaded. Background saves swallow `IOException`
 deliberately: an exception on a thread-pool thread would kill the host process.
+
+Three rules that each fixed a real 1.1 bug — break one and a test in `DurabilityTests.cs` fails:
+
+- **`RecordWrite` is called with the shard lock still held.** Logging after release reorders writes
+  to one key; a stream or time series then refuses the replay and the restore dies.
+- **A save does not truncate the log; it swaps in a rewrite segment.** Shards are flagged `Captured`
+  as the snapshot serialises them, and writes to captured shards are copied to `<log>.rewrite`. Plain
+  truncation lost writes made during the save (400 counters came back as 366).
+- **Log the effect, not the command, whenever replay could decide differently.** Absolute
+  `PEXPIREAT` for TTLs, the computed result for `*STORE`, `XCLAIM … TIME RETRYCOUNT FORCE JUSTID` for
+  every consumer-group delivery.
+
+Snapshot format is **2** since 1.1 (streams carry last id + consumer groups); format 1 still loads.
 
 ## Server
 
@@ -157,7 +176,7 @@ comparison to make. Run-to-run variance is ~15%. Do not restate this as "MemShar
 
 ## Testing
 
-214 xunit.v3 tests. `TestClock` (an injected `TimeProvider`) drives TTL behaviour without sleeping —
+280 xunit.v3 tests. `TestClock` (an injected `TimeProvider`) drives TTL behaviour without sleeping —
 `MemDbOptions.TimeProvider` exists for that. `TestDb.Create` disables the sweeper so tests observe
 only the lazy path.
 
@@ -166,9 +185,9 @@ protocol client is that its bytes match what the server actually sends back.
 
 ```bash
 dotnet run -c Release --project src/MemSharp.Cli -- serve --port 6391 --quiet &
-python clients/python/test_client.py            # 55 checks
-node clients/nodejs/test/client.test.js         # 53 checks
-(cd clients/go && go test ./...)                # skips cleanly with no server
+python clients/python/test_client.py            # 126 checks
+node clients/nodejs/test/client.test.js         # 126 checks
+(cd clients/go && go test ./...)                # 24 tests; skips cleanly with no server
 ```
 
 ## Published state

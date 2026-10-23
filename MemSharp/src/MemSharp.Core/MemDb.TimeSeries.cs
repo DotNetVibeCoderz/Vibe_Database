@@ -32,9 +32,8 @@ public sealed partial class MemDb
             {
                 throw new WrongTypeException(key, entry.Type, MemType.TimeSeries);
             }
+            if (created) RecordWrite(shard, "TS.CREATE", key, "RETENTION", retention.ToString(CultureInfo.InvariantCulture));
         }
-
-        if (created) RecordWrite("TS.CREATE", key, "RETENTION", retention.ToString(CultureInfo.InvariantCulture));
         return created;
     }
 
@@ -53,15 +52,22 @@ public sealed partial class MemDb
         ArgumentNullException.ThrowIfNull(key);
         var shard = ShardFor(key);
         long now = NowTicks;
-        long stamp = timestamp ?? _clock.GetUtcNow().ToUnixTimeMilliseconds();
+        long stamp;
 
         lock (shard.Gate)
         {
             var series = GetOrCreate(shard, key, MemType.TimeSeries, now, static () => new TimeSeriesStore());
-            series.Append(stamp, value);
-        }
 
-        RecordWrite("TS.ADD", key, stamp.ToString(CultureInfo.InvariantCulture), Format(value));
+            // An automatic stamp is read under the lock and never placed behind the head. Read
+            // before the lock, two concurrent writers could arrive in the opposite order from their
+            // clock readings and the later one would be refused as out of order; and a wall clock
+            // stepped backwards by NTP would do the same to a single writer.
+            stamp = timestamp ?? _clock.GetUtcNow().ToUnixTimeMilliseconds();
+            if (timestamp is null && series.Count > 0) stamp = Math.Max(stamp, series.LastTimestamp);
+
+            series.Append(stamp, value);
+            RecordWrite(shard, "TS.ADD", key, stamp.ToString(CultureInfo.InvariantCulture), Format(value));
+        }
         return stamp;
     }
 

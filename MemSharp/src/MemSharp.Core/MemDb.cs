@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.Runtime.CompilerServices;
 using MemSharp.Collections;
 using MemSharp.Diagnostics;
@@ -114,8 +115,8 @@ public sealed partial class MemDb : IDisposable
         {
             removed = shard.Map.Remove(key, out var entry);
             if (removed && entry.HasExpiry) shard.VolatileCount--;
+            if (removed) RecordWrite(shard, "DEL", key);
         }
-        if (removed) RecordWrite("DEL", key);
         return removed;
     }
 
@@ -155,8 +156,8 @@ public sealed partial class MemDb : IDisposable
             if (!entry.HasExpiry) shard.VolatileCount++;
             entry.ExpiresAtTicks = when.UtcTicks;
             shard.Map[key] = entry;
+            RecordWrite(shard, "PEXPIREAT", key, when.ToUnixTimeMilliseconds().ToString(CultureInfo.InvariantCulture));
         }
-        RecordWrite("PEXPIREAT", key, when.ToUnixTimeMilliseconds().ToString());
         return true;
     }
 
@@ -188,9 +189,9 @@ public sealed partial class MemDb : IDisposable
                 shard.Map[key] = entry;
                 shard.VolatileCount--;
                 cleared = true;
+                RecordWrite(shard, "PERSIST", key);
             }
         }
-        if (cleared) RecordWrite("PERSIST", key);
         return cleared;
     }
 
@@ -281,12 +282,10 @@ public sealed partial class MemDb : IDisposable
                 renamed = RenameLocked(source, destination, key, newKey, now);
             }
         }
-
-        if (renamed) RecordWrite("RENAME", key, newKey);
         return renamed;
     }
 
-    private static bool RenameLocked(Shard source, Shard destination, string key, string newKey, long now)
+    private bool RenameLocked(Shard source, Shard destination, string key, string newKey, long now)
     {
         if (!TryGetLive(source, key, now, out var entry)) return false;
 
@@ -296,6 +295,7 @@ public sealed partial class MemDb : IDisposable
         if (destination.Map.Remove(newKey, out var replaced) && replaced.HasExpiry) destination.VolatileCount--;
         destination.Map[newKey] = entry;
         if (entry.HasExpiry) destination.VolatileCount++;
+        RecordWrite(source.Captured || destination.Captured, "RENAME", key, newKey);
         return true;
     }
 
@@ -320,17 +320,68 @@ public sealed partial class MemDb : IDisposable
     }
 
     /// <summary>Removes every key.</summary>
+    /// <remarks>
+    /// Takes every shard lock at once, in index order, so the flush is a single point in the log
+    /// relative to every other write. Shard by shard, a write landing on an already-flushed shard
+    /// could be logged before the <c>FLUSHDB</c> and then wiped by it on replay.
+    /// </remarks>
     public void Clear()
     {
-        foreach (var shard in _shards)
+        EnterAll(_shards);
+        try
         {
-            lock (shard.Gate)
+            foreach (var shard in _shards)
             {
                 shard.Map.Clear();
                 shard.VolatileCount = 0;
+
+                // An empty shard is trivially "captured" by a snapshot in progress: whatever that
+                // snapshot holds for it, replaying FLUSHDB and then everything after it reproduces
+                // the right contents, so every later write has to reach the rewritten log too.
+                shard.Captured = true;
             }
+            RecordWrite(captured: true, "FLUSHDB");
         }
-        RecordWrite("FLUSHDB");
+        finally
+        {
+            ExitAll(_shards);
+        }
+    }
+
+    /// <summary>
+    /// The distinct shards behind a set of keys, in index order - the order every multi-shard write
+    /// takes its locks in. See <see cref="Order"/> for why that order matters.
+    /// </summary>
+    private Shard[] ShardsInOrder(string first, string[] rest)
+    {
+        var indices = new SortedSet<int> { ShardMath.IndexOf(first, _shardMask) };
+        foreach (var key in rest) indices.Add(ShardMath.IndexOf(key, _shardMask));
+
+        var shards = new Shard[indices.Count];
+        int i = 0;
+        foreach (int index in indices) shards[i++] = _shards[index];
+        return shards;
+    }
+
+    /// <summary>Takes every gate in <paramref name="shards"/>, which must already be in index order.</summary>
+    private static void EnterAll(Shard[] shards)
+    {
+        foreach (var shard in shards) shard.Gate.Enter();
+    }
+
+    private static void ExitAll(Shard[] shards)
+    {
+        for (int i = shards.Length - 1; i >= 0; i--) shards[i].Gate.Exit();
+    }
+
+    /// <summary>
+    /// Replaces whatever is at <paramref name="key"/> with a new value, permanent, or deletes it when
+    /// <paramref name="value"/> is null. Caller holds the gate. The <c>*STORE</c> commands' write half.
+    /// </summary>
+    private static void Overwrite(Shard shard, string key, MemType type, object? value)
+    {
+        if (shard.Map.Remove(key, out var previous) && previous.HasExpiry) shard.VolatileCount--;
+        if (value is not null) shard.Map[key] = new StoreEntry(type, value);
     }
 
     /// <summary>
@@ -472,12 +523,28 @@ public sealed partial class MemDb : IDisposable
             entry.Type == MemType.String ? (string)entry.Value : null);
     }
 
-    /// <summary>Notes a mutation for the change counter and the append-only log.</summary>
+    /// <summary>
+    /// Notes a mutation for the change counter and the append-only log. Caller holds the gate of
+    /// <paramref name="shard"/>, the shard the mutation was applied to.
+    /// </summary>
+    /// <remarks>
+    /// Called with the lock still held, not after releasing it. The log is ordered by the order
+    /// calls reach it, and two writers to one key that release the lock and then log can reach it
+    /// in the opposite order from the one they applied in - which replays as a different value,
+    /// or for a stream or time series as an out-of-order append that fails the whole restore.
+    /// </remarks>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private void RecordWrite(string command, params string[] arguments)
+    private void RecordWrite(Shard shard, string command, params string[] arguments) =>
+        RecordWrite(shard.Captured, command, arguments);
+
+    /// <summary>
+    /// <see cref="RecordWrite(Shard, string, string[])"/> for a mutation spanning shards;
+    /// <paramref name="captured"/> is true if any of them is <see cref="Shard.Captured"/>.
+    /// </summary>
+    private void RecordWrite(bool captured, string command, params string[] arguments)
     {
         _stats.RecordWrite();
-        _persistence?.RecordWrite(command, arguments);
+        _persistence?.RecordWrite(command, arguments, captured);
     }
 
     /// <summary>

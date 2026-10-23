@@ -1,4 +1,6 @@
 using System.Globalization;
+using System.Text;
+using System.Text.Unicode;
 
 namespace MemSharp;
 
@@ -25,15 +27,25 @@ public sealed partial class MemDb
             if (hadExpiry != hasExpiry) shard.VolatileCount += hasExpiry ? 1 : -1;
 
             shard.Map[key] = new StoreEntry(MemType.String, value, expiresAt);
+            RecordSetWithExpiry(shard, key, value, expiresAt);
         }
+    }
 
-        if (ttl is { } lifetime)
+    /// <summary>
+    /// Logs a string write, with its expiry as an absolute time. Caller holds the gate.
+    /// </summary>
+    /// <remarks>
+    /// Absolute, not the relative <c>PX</c> the caller asked for: a relative lifetime replayed after
+    /// a restart starts counting again from the replay, so a key due to expire in a minute would
+    /// come back with a fresh minute every time the process restarted.
+    /// </remarks>
+    private void RecordSetWithExpiry(Shard shard, string key, string value, long expiresAtTicks)
+    {
+        RecordWrite(shard, "SET", key, value);
+        if (expiresAtTicks != 0)
         {
-            RecordWrite("SET", key, value, "PX", ((long)lifetime.TotalMilliseconds).ToString(CultureInfo.InvariantCulture));
-        }
-        else
-        {
-            RecordWrite("SET", key, value);
+            long unixMilliseconds = new DateTimeOffset(expiresAtTicks, TimeSpan.Zero).ToUnixTimeMilliseconds();
+            RecordWrite(shard, "PEXPIREAT", key, unixMilliseconds.ToString(CultureInfo.InvariantCulture));
         }
     }
 
@@ -52,9 +64,8 @@ public sealed partial class MemDb
             if (TryGetLive(shard, key, now, out _)) return false;
             shard.Map[key] = new StoreEntry(MemType.String, value, expiresAt);
             if (expiresAt != 0) shard.VolatileCount++;
+            RecordSetWithExpiry(shard, key, value, expiresAt);
         }
-
-        RecordWrite("SET", key, value);
         return true;
     }
 
@@ -98,9 +109,8 @@ public sealed partial class MemDb
                 if (entry.HasExpiry) shard.VolatileCount--;
             }
             shard.Map[key] = new StoreEntry(MemType.String, value);
+            RecordWrite(shard, "SET", key, value);
         }
-
-        RecordWrite("SET", key, value);
         return previous;
     }
 
@@ -188,9 +198,8 @@ public sealed partial class MemDb
 
             updated = current + delta;
             shard.Map[key] = new StoreEntry(MemType.String, updated.ToString(CultureInfo.InvariantCulture), expiresAt);
+            RecordWrite(shard, "INCRBY", key, delta.ToString(CultureInfo.InvariantCulture));
         }
-
-        RecordWrite("INCRBY", key, delta.ToString(CultureInfo.InvariantCulture));
         return updated;
     }
 
@@ -219,13 +228,12 @@ public sealed partial class MemDb
 
             updated = current + delta;
             shard.Map[key] = new StoreEntry(MemType.String, Format(updated), expiresAt);
+            RecordWrite(shard, "INCRBYFLOAT", key, Format(delta));
         }
-
-        RecordWrite("INCRBYFLOAT", key, Format(delta));
         return updated;
     }
 
-    /// <summary>Appends to a string, creating it if absent. Returns the new length.</summary>
+    /// <summary>Appends to a string, creating it if absent. Returns the new length in UTF-8 bytes.</summary>
     public int Append(string key, string value)
     {
         ArgumentNullException.ThrowIfNull(key);
@@ -248,18 +256,111 @@ public sealed partial class MemDb
             }
 
             shard.Map[key] = new StoreEntry(MemType.String, combined, expiresAt);
-            length = combined.Length;
+            length = Encoding.UTF8.GetByteCount(combined);
+            RecordWrite(shard, "APPEND", key, value);
         }
-
-        RecordWrite("APPEND", key, value);
         return length;
     }
 
-    /// <summary>Length of the string at a key, or 0 if it is absent.</summary>
+    /// <summary>Length of the string at a key in UTF-8 bytes, or 0 if it is absent.</summary>
+    /// <remarks>
+    /// Bytes, not characters, because that is what <c>STRLEN</c> means to every Redis client, and
+    /// what <see cref="GetRange"/> and <see cref="SetRange"/> index by. For ASCII the two agree;
+    /// <c>"héllo"</c> is 6. Before 1.1 this returned UTF-16 code units.
+    /// </remarks>
     public int StringLength(string key)
     {
         var value = Get(key);
-        return value?.Length ?? 0;
+        return value is null ? 0 : Encoding.UTF8.GetByteCount(value);
+    }
+
+    /// <summary>
+    /// The bytes of a string between two inclusive byte offsets, decoded back to text. Negative
+    /// offsets count back from the end; out-of-range offsets are clamped. Absent keys read as "".
+    /// </summary>
+    /// <exception cref="MemSharpCommandException">
+    /// The range starts or ends inside a multi-byte UTF-8 character.
+    /// </exception>
+    /// <remarks>
+    /// MemSharp stores strings as text, not as byte arrays, so a range that cuts a character in half
+    /// has no text to return. Redis would hand back the partial bytes; decoding them here would
+    /// silently substitute U+FFFD, which is a different answer that looks like a right one. This
+    /// refuses instead. Ranges over ASCII, or aligned to character boundaries, match Redis exactly.
+    /// </remarks>
+    public string GetRange(string key, int start, int end)
+    {
+        var value = Get(key);
+        if (string.IsNullOrEmpty(value)) return string.Empty;
+
+        byte[] bytes = Encoding.UTF8.GetBytes(value);
+        int length = bytes.Length;
+        if (start < 0) start = Math.Max(0, length + start);
+        if (end < 0) end = length + end;
+        if (end >= length) end = length - 1;
+        if (start > end || start >= length) return string.Empty;
+
+        var slice = bytes.AsSpan(start, end - start + 1);
+        if (!Utf8.IsValid(slice))
+        {
+            throw new MemSharpCommandException(
+                $"byte range {start}..{end} of '{key}' splits a multi-byte UTF-8 character");
+        }
+        return Encoding.UTF8.GetString(slice);
+    }
+
+    /// <summary>
+    /// Overwrites part of a string starting at a byte offset, zero-padding if the string is shorter
+    /// than <paramref name="offset"/>. Creates the key if absent, keeps any TTL. Returns the new
+    /// length in UTF-8 bytes.
+    /// </summary>
+    /// <exception cref="MemSharpCommandException">
+    /// The write would split a multi-byte character in the existing value.
+    /// </exception>
+    public int SetRange(string key, int offset, string value)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        ArgumentNullException.ThrowIfNull(value);
+        if (offset < 0) throw new MemSharpCommandException("offset is out of range");
+
+        // Redis caps strings at 512 MB, and so does this: a client sending SETRANGE k 4000000000 x
+        // would otherwise allocate 4 GB of zeroes in one request.
+        const int MaxLength = 512 * 1024 * 1024;
+        int valueBytes = Encoding.UTF8.GetByteCount(value);
+        if ((long)offset + valueBytes > MaxLength) throw new MemSharpCommandException("string exceeds maximum allowed size (512MB)");
+
+        var shard = ShardFor(key);
+        long now = NowTicks;
+
+        lock (shard.Gate)
+        {
+            string existing = string.Empty;
+            long expiresAt = 0;
+            if (TryGetLive(shard, key, now, out var entry))
+            {
+                if (entry.Type != MemType.String) throw new WrongTypeException(key, entry.Type, MemType.String);
+                existing = (string)entry.Value;
+                expiresAt = entry.ExpiresAtTicks;
+            }
+
+            // Writing nothing never creates a key, matching Redis - it only reports the length.
+            if (valueBytes == 0) return Encoding.UTF8.GetByteCount(existing);
+
+            byte[] current = Encoding.UTF8.GetBytes(existing);
+            var combined = new byte[Math.Max(current.Length, offset + valueBytes)];
+            current.CopyTo(combined, 0);
+            Encoding.UTF8.GetBytes(value, combined.AsSpan(offset));
+
+            // Validate before installing, so a refused write leaves the old value untouched.
+            if (!Utf8.IsValid(combined))
+            {
+                throw new MemSharpCommandException(
+                    $"writing at byte {offset} of '{key}' would split a multi-byte UTF-8 character");
+            }
+
+            shard.Map[key] = new StoreEntry(MemType.String, Encoding.UTF8.GetString(combined), expiresAt);
+            RecordWrite(shard, "SETRANGE", key, offset.ToString(CultureInfo.InvariantCulture), value);
+            return combined.Length;
+        }
     }
 
     /// <summary>

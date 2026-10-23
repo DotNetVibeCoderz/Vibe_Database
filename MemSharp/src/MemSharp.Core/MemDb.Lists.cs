@@ -25,9 +25,8 @@ public sealed partial class MemDb
             var list = GetOrCreate(shard, key, MemType.List, now, static () => new Deque<string>());
             foreach (var value in values) list.PushFront(value);
             length = list.Count;
+            RecordWrite(shard, "LPUSH", Prepend(key, values));
         }
-
-        RecordWrite("LPUSH", Prepend(key, values));
         return length;
     }
 
@@ -47,9 +46,8 @@ public sealed partial class MemDb
             var list = GetOrCreate(shard, key, MemType.List, now, static () => new Deque<string>());
             foreach (var value in values) list.PushBack(value);
             length = list.Count;
+            RecordWrite(shard, "RPUSH", Prepend(key, values));
         }
-
-        RecordWrite("RPUSH", Prepend(key, values));
         return length;
     }
 
@@ -68,9 +66,8 @@ public sealed partial class MemDb
                 value = popped;
                 RemoveIfEmpty(shard, key, list.Count);
             }
+            if (value is not null) RecordWrite(shard, "LPOP", key);
         }
-
-        if (value is not null) RecordWrite("LPOP", key);
         return value;
     }
 
@@ -89,9 +86,8 @@ public sealed partial class MemDb
                 value = popped;
                 RemoveIfEmpty(shard, key, list.Count);
             }
+            if (value is not null) RecordWrite(shard, "RPOP", key);
         }
-
-        if (value is not null) RecordWrite("RPOP", key);
         return value;
     }
 
@@ -164,9 +160,8 @@ public sealed partial class MemDb
                     applied = true;
                 }
             }
+            if (applied) RecordWrite(shard, "LSET", key, index.ToString(), value);
         }
-
-        if (applied) RecordWrite("LSET", key, index.ToString(), value);
         return applied;
     }
 
@@ -189,9 +184,8 @@ public sealed partial class MemDb
             else list.KeepRange(start, stop - start + 1);
 
             RemoveIfEmpty(shard, key, list.Count);
+            RecordWrite(shard, "LTRIM", key, start.ToString(), stop.ToString());
         }
-
-        RecordWrite("LTRIM", key, start.ToString(), stop.ToString());
     }
 
     /// <summary>
@@ -240,10 +234,64 @@ public sealed partial class MemDb
                 foreach (var survivor in kept) list.PushBack(survivor);
                 RemoveIfEmpty(shard, key, list.Count);
             }
+            if (removed > 0) RecordWrite(shard, "LREM", key, count.ToString(), value);
         }
-
-        if (removed > 0) RecordWrite("LREM", key, count.ToString(), value);
         return removed;
+    }
+
+    /// <summary>Index of the first occurrence of <paramref name="element"/>, or <c>null</c>.</summary>
+    /// <param name="key">The list.</param>
+    /// <param name="element">The value to find, compared ordinally.</param>
+    /// <param name="rank">
+    /// Which match to return: 1 is the first from the head, 2 the second, and negative values count
+    /// matches from the tail (-1 is the last). The index returned is always from the head.
+    /// </param>
+    /// <param name="maxLength">Compare at most this many elements, or 0 for no limit.</param>
+    public int? ListPosition(string key, string element, int rank = 1, int maxLength = 0)
+    {
+        var found = ListPositions(key, element, count: 1, rank, maxLength);
+        return found.Count > 0 ? found[0] : null;
+    }
+
+    /// <summary>
+    /// Indices of up to <paramref name="count"/> occurrences of <paramref name="element"/> (0 for
+    /// all of them), in the order they were found. See <see cref="ListPosition"/>.
+    /// </summary>
+    /// <remarks>
+    /// A linear scan under the shard lock - O(n) in the worst case, as it is in Redis. <paramref name="maxLength"/>
+    /// is what bounds it on a long list.
+    /// </remarks>
+    public List<int> ListPositions(string key, string element, int count, int rank = 1, int maxLength = 0)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        ArgumentNullException.ThrowIfNull(element);
+        if (rank == 0) throw new MemSharpCommandException("RANK can't be zero: use 1 to start from the first match, or -1 from the last");
+        if (count < 0) throw new MemSharpCommandException("COUNT can't be negative");
+        if (maxLength < 0) throw new MemSharpCommandException("MAXLEN can't be negative");
+
+        var shard = ShardFor(key);
+        long now = NowTicks;
+        var result = new List<int>();
+
+        lock (shard.Gate)
+        {
+            if (!TryGetTyped<Deque<string>>(shard, key, MemType.List, now, out var list)) return result;
+
+            int limit = maxLength == 0 ? list.Count : Math.Min(maxLength, list.Count);
+            int skip = Math.Abs(rank) - 1;
+            bool fromTail = rank < 0;
+
+            for (int step = 0; step < limit; step++)
+            {
+                int index = fromTail ? list.Count - 1 - step : step;
+                if (!string.Equals(list[index], element, StringComparison.Ordinal)) continue;
+                if (skip > 0) { skip--; continue; }
+
+                result.Add(index);
+                if (count != 0 && result.Count >= count) break;
+            }
+        }
+        return result;
     }
 
     /// <summary>
@@ -278,11 +326,10 @@ public sealed partial class MemDb
             }
         }
 
-        if (moved is not null) RecordWrite("RPOPLPUSH", source, destination);
         return moved;
     }
 
-    private static string? MoveLocked(Shard sourceShard, Shard destinationShard, string source, string destination, long now)
+    private string? MoveLocked(Shard sourceShard, Shard destinationShard, string source, string destination, long now)
     {
         if (!TryGetTyped<Deque<string>>(sourceShard, source, MemType.List, now, out var from)) return null;
         if (!from.TryPopBack(out var value)) return null;
@@ -290,6 +337,7 @@ public sealed partial class MemDb
         var to = GetOrCreate(destinationShard, destination, MemType.List, now, static () => new Deque<string>());
         to.PushFront(value);
         RemoveIfEmpty(sourceShard, source, from.Count);
+        RecordWrite(sourceShard.Captured || destinationShard.Captured, "RPOPLPUSH", source, destination);
         return value;
     }
 

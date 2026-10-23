@@ -224,6 +224,26 @@ class MemSharpClient extends EventEmitter {
     return this.execute('TYPE', key);
   }
 
+  /** Length of a string in UTF-8 bytes, not characters: `'héllo'` is 6. */
+  strlen(key) {
+    return this.execute('STRLEN', key);
+  }
+
+  /**
+   * A substring by inclusive byte offsets. Negative offsets count back from the end.
+   *
+   * The server refuses a range that would split a multi-byte character rather than hand back
+   * invalid UTF-8, so that case rejects with a `MemSharpError`.
+   */
+  getrange(key, start, end) {
+    return this.execute('GETRANGE', key, start, end);
+  }
+
+  /** Overwrite from a byte offset, zero-padding a short string. Resolves with the new length in bytes. */
+  setrange(key, offset, value) {
+    return this.execute('SETRANGE', key, offset, value);
+  }
+
   /** Atomically add to an integer, treating a missing key as 0. */
   incr(key, amount = 1) {
     return this.execute('INCRBY', key, amount);
@@ -257,15 +277,19 @@ class MemSharpClient extends EventEmitter {
 
   /**
    * Iterate the keyspace a page at a time, until the server returns a zero cursor.
+   *
+   * The cursor is opaque and can exceed 2^32 (the shard index rides in its high bits), so it is
+   * passed back exactly as the server sent it rather than through a Number. A page can be empty
+   * while the cursor is not.
    * @returns {AsyncGenerator<string>}
    */
   async *scan(pattern = '*', count = 500) {
-    let cursor = 0;
+    let cursor = '0';
     for (;;) {
       const [next, page] = await this.execute('SCAN', cursor, 'MATCH', pattern, 'COUNT', count);
       yield* page;
-      cursor = Number(next);
-      if (cursor === 0) return;
+      cursor = next;
+      if (cursor === '0') return;
     }
   }
 
@@ -304,6 +328,24 @@ class MemSharpClient extends EventEmitter {
   /** Keep only an index range - the way to cap a feed at a fixed length. */
   ltrim(key, start, stop) {
     return this.execute('LTRIM', key, start, stop);
+  }
+
+  /**
+   * Index of a matching element, or null.
+   *
+   * With `count` the reply is an array of indices instead (`count: 0` means every match). A
+   * negative `rank` searches from the tail; `maxLen` caps how many elements are compared.
+   * @param {object} [options]
+   * @param {number} [options.rank]
+   * @param {number} [options.count]
+   * @param {number} [options.maxLen]
+   */
+  lpos(key, element, options = {}) {
+    const args = ['LPOS', key, element];
+    if (options.rank !== undefined) args.push('RANK', options.rank);
+    if (options.count !== undefined) args.push('COUNT', options.count);
+    if (options.maxLen !== undefined) args.push('MAXLEN', options.maxLen);
+    return this.execute(...args);
   }
 
   // -- hashes ----------------------------------------------------------------------------
@@ -355,6 +397,21 @@ class MemSharpClient extends EventEmitter {
     return (await this.execute('SISMEMBER', key, member)) === 1;
   }
 
+  /** Store the intersection of sets. Resolves with its size; an empty result deletes `destination`. */
+  sinterstore(destination, ...keys) {
+    return this.execute('SINTERSTORE', destination, ...keys);
+  }
+
+  /** Store the union of sets. Resolves with its size. */
+  sunionstore(destination, ...keys) {
+    return this.execute('SUNIONSTORE', destination, ...keys);
+  }
+
+  /** Store the members of the first set found in none of the others. Resolves with its size. */
+  sdiffstore(destination, ...keys) {
+    return this.execute('SDIFFSTORE', destination, ...keys);
+  }
+
   // -- sorted sets -----------------------------------------------------------------------
 
   /**
@@ -403,6 +460,23 @@ class MemSharpClient extends EventEmitter {
     return this.execute('ZCARD', key);
   }
 
+  /**
+   * Store the union of sorted sets. Resolves with its size.
+   * @param {string} destination
+   * @param {string[]} keys
+   * @param {object} [options]
+   * @param {number[]} [options.weights] Multiply each source's scores.
+   * @param {'sum'|'min'|'max'} [options.aggregate] Defaults to sum. A plain set scores every member 1.
+   */
+  zunionstore(destination, keys, options = {}) {
+    return this.execute(...zstoreArgs('ZUNIONSTORE', destination, keys, options));
+  }
+
+  /** Store the intersection of sorted sets. Same options as `zunionstore`. */
+  zinterstore(destination, keys, options = {}) {
+    return this.execute(...zstoreArgs('ZINTERSTORE', destination, keys, options));
+  }
+
   // -- streams ---------------------------------------------------------------------------
 
   /** Append an entry. Resolves with the assigned `ms-seq` id. */
@@ -419,12 +493,189 @@ class MemSharpClient extends EventEmitter {
     if (options.count !== undefined) args.push('COUNT', options.count);
 
     const rows = await this.execute(...args);
-    return rows.map(([id, flat]) => ({ id, fields: unflatten(flat) }));
+    return rows.map(toEntry);
   }
 
   /** Number of entries. */
   xlen(key) {
     return this.execute('XLEN', key);
+  }
+
+  /**
+   * Entries after the given ids, as `{key: [{id, fields}, ...]}`, or null if nothing is new.
+   *
+   * `streams` maps each key to the id to read after; a bare key or an array of keys means `$`, "only
+   * what arrives from now on". Only streams that returned something appear in the result.
+   *
+   * A blocked read occupies the connection: replies are in order, so a command sent behind it
+   * waits too. Give a long-blocking reader its own client.
+   * @param {Record<string, string>|string|string[]} streams
+   * @param {object} [options]
+   * @param {number} [options.count]
+   * @param {number} [options.blockMs] Wait up to this long for an entry; 0 waits forever.
+   */
+  async xread(streams, options = {}) {
+    const args = ['XREAD'];
+    if (options.count !== undefined) args.push('COUNT', options.count);
+    if (options.blockMs !== undefined) args.push('BLOCK', options.blockMs);
+    args.push(...streamsClause(streams, '$'));
+    return toStreamReply(await this.execute(...args));
+  }
+
+  /**
+   * Create a consumer group that delivers entries after `id` (`$`: only new ones).
+   *
+   * `mkStream` creates an empty stream when the key is absent; without it that rejects. A group
+   * that already exists rejects with code `BUSYGROUP`.
+   */
+  xgroupCreate(key, group, id = '$', options = {}) {
+    const args = ['XGROUP', 'CREATE', key, group, id];
+    if (options.mkStream) args.push('MKSTREAM');
+    return this.execute(...args);
+  }
+
+  /** Remove a consumer group and its pending entries. Resolves false if it did not exist. */
+  async xgroupDestroy(key, group) {
+    return (await this.execute('XGROUP', 'DESTROY', key, group)) === 1;
+  }
+
+  /** Register a consumer ahead of its first read. Resolves false if it already existed. */
+  async xgroupCreateConsumer(key, group, consumer) {
+    return (await this.execute('XGROUP', 'CREATECONSUMER', key, group, consumer)) === 1;
+  }
+
+  /** Remove a consumer. Resolves with how many pending entries it still held - those are dropped. */
+  xgroupDelConsumer(key, group, consumer) {
+    return this.execute('XGROUP', 'DELCONSUMER', key, group, consumer);
+  }
+
+  /** Move a group's last-delivered id, to replay history (`0`) or skip it (`$`). */
+  xgroupSetId(key, group, id = '$') {
+    return this.execute('XGROUP', 'SETID', key, group, id);
+  }
+
+  /**
+   * Read as `consumer` in `group`, in the same shape as `xread`.
+   *
+   * A bare key or an array of keys means `>`: entries never delivered to the group, or null if
+   * there are none. An explicit id instead re-reads this consumer's own pending history, where an
+   * entry trimmed from the stream since comes back with `fields: null`. `noAck` skips the pending
+   * list entirely.
+   * @param {object} [options]
+   * @param {number} [options.count]
+   * @param {number} [options.blockMs]
+   * @param {boolean} [options.noAck]
+   */
+  async xreadGroup(group, consumer, streams, options = {}) {
+    const args = ['XREADGROUP', 'GROUP', group, consumer];
+    if (options.count !== undefined) args.push('COUNT', options.count);
+    if (options.blockMs !== undefined) args.push('BLOCK', options.blockMs);
+    if (options.noAck) args.push('NOACK');
+    args.push(...streamsClause(streams, '>'));
+    return toStreamReply(await this.execute(...args));
+  }
+
+  /** Acknowledge entries, removing them from the pending list. Resolves with how many were pending. */
+  xack(key, group, ...ids) {
+    return this.execute('XACK', key, group, ...ids);
+  }
+
+  /**
+   * A group's pending summary: `{count, min, max, consumers: {name: n}}`. `min` and `max` are null
+   * when nothing is pending.
+   */
+  async xpending(key, group) {
+    const [count, min, max, consumers] = await this.execute('XPENDING', key, group);
+    const byName = {};
+    // The server sends each consumer's count as a bulk string, as Redis does.
+    for (const [name, n] of consumers ?? []) byName[name] = Number(n);
+    return { count, min, max, consumers: byName };
+  }
+
+  /**
+   * Pending entries in an id range, as `{id, consumer, idleMs, deliveries}`.
+   * @param {object} [options]
+   * @param {string} [options.start='-']
+   * @param {string} [options.end='+']
+   * @param {number} [options.count=100]
+   * @param {string} [options.consumer] Only this consumer's entries.
+   * @param {number} [options.idleMs] Only entries idle at least this long.
+   */
+  async xpendingRange(key, group, options = {}) {
+    const args = ['XPENDING', key, group];
+    if (options.idleMs !== undefined) args.push('IDLE', options.idleMs);
+    args.push(options.start ?? '-', options.end ?? '+', options.count ?? 100);
+    if (options.consumer !== undefined) args.push(options.consumer);
+
+    const rows = await this.execute(...args);
+    return rows.map(([id, consumer, idleMs, deliveries]) => ({ id, consumer, idleMs, deliveries }));
+  }
+
+  /**
+   * Take over pending entries idle for at least `minIdleMs`.
+   *
+   * Resolves with the claimed entries, or just their ids with `justId`. `idleMs` or `timeMs` (a Unix
+   * time in milliseconds) set the new idle clock; `force` claims ids that are not pending at all.
+   * @param {string[]} ids
+   * @param {object} [options]
+   * @param {number} [options.idleMs]
+   * @param {number} [options.timeMs]
+   * @param {number} [options.retryCount]
+   * @param {boolean} [options.force]
+   * @param {boolean} [options.justId]
+   * @param {string} [options.lastId]
+   */
+  async xclaim(key, group, consumer, minIdleMs, ids, options = {}) {
+    const args = ['XCLAIM', key, group, consumer, minIdleMs, ...ids];
+    if (options.idleMs !== undefined) args.push('IDLE', options.idleMs);
+    if (options.timeMs !== undefined) args.push('TIME', options.timeMs);
+    if (options.retryCount !== undefined) args.push('RETRYCOUNT', options.retryCount);
+    if (options.force) args.push('FORCE');
+    if (options.justId) args.push('JUSTID');
+    if (options.lastId !== undefined) args.push('LASTID', options.lastId);
+
+    const reply = await this.execute(...args);
+    return options.justId ? reply : reply.map(toEntry);
+  }
+
+  /**
+   * Scan the pending list from `start` and claim what has been idle `minIdleMs`.
+   *
+   * Resolves with `{next, claimed, deleted}`: `next` is `0-0` once the sweep is complete, and
+   * `deleted` lists ids that were pending but trimmed from the stream, and are dropped.
+   * @param {object} [options]
+   * @param {number} [options.count]
+   * @param {boolean} [options.justId]
+   */
+  async xautoClaim(key, group, consumer, minIdleMs, start = '0-0', options = {}) {
+    const args = ['XAUTOCLAIM', key, group, consumer, minIdleMs, start];
+    if (options.count !== undefined) args.push('COUNT', options.count);
+    if (options.justId) args.push('JUSTID');
+
+    const [next, claimed, deleted] = await this.execute(...args);
+    return { next, claimed: options.justId ? claimed : claimed.map(toEntry), deleted };
+  }
+
+  /** Every consumer group on a stream: `name`, `consumers`, `pending`, `last-delivered-id`. */
+  async xinfoGroups(key) {
+    return (await this.execute('XINFO', 'GROUPS', key)).map(unflatten);
+  }
+
+  /** Every consumer in a group: `name`, `pending` and `idle` (milliseconds since it last read). */
+  async xinfoConsumers(key, group) {
+    return (await this.execute('XINFO', 'CONSUMERS', key, group)).map(unflatten);
+  }
+
+  /**
+   * A stream's summary: `length`, `last-generated-id`, `groups`, and `first-entry` / `last-entry`
+   * as `{id, fields}` or null when the stream is empty.
+   */
+  async xinfoStream(key) {
+    const info = unflatten(await this.execute('XINFO', 'STREAM', key));
+    for (const name of ['first-entry', 'last-entry']) {
+      if (info[name]) info[name] = toEntry(info[name]);
+    }
+    return info;
   }
 
   // -- time series -----------------------------------------------------------------------
@@ -510,9 +761,14 @@ class MemSharpClient extends EventEmitter {
     return typeof reply === 'number' ? reply : 0;
   }
 
-  /** Server statistics, parsed into an object. Section headings are dropped. */
-  async info() {
-    const text = await this.execute('INFO');
+  /**
+   * Server statistics, parsed into an object. Section headings are dropped.
+   *
+   * With no arguments every section is returned; name sections (`server`, `memory`, `keyspace`,
+   * ...) to fetch only those.
+   */
+  async info(...sections) {
+    const text = await this.execute('INFO', ...sections);
     const result = {};
     for (const line of text.split('\n')) {
       const trimmed = line.trim();
@@ -521,6 +777,30 @@ class MemSharpClient extends EventEmitter {
       if (colon > 0) result[trimmed.slice(0, colon)] = trimmed.slice(colon + 1);
     }
     return result;
+  }
+
+  /**
+   * Configuration values whose names match the globs (default `*`), as an object. Read-only:
+   * MemSharp is configured when it is constructed, so there is no `configSet`.
+   */
+  async configGet(...patterns) {
+    return unflatten(await this.execute('CONFIG', 'GET', ...(patterns.length ? patterns : ['*'])));
+  }
+
+  /** Zero the server's statistics counters. */
+  configResetStat() {
+    return this.execute('CONFIG', 'RESETSTAT');
+  }
+
+  /**
+   * Approximate bytes a key and its value occupy, or null if the key is absent.
+   * @param {object} [options]
+   * @param {number} [options.samples]
+   */
+  memoryUsage(key, options = {}) {
+    const args = ['MEMORY', 'USAGE', key];
+    if (options.samples !== undefined) args.push('SAMPLES', options.samples);
+    return this.execute(...args);
   }
 
   /** Number of keys in the database. */
@@ -544,6 +824,34 @@ function pairScores(flat) {
   for (let i = 0; i + 1 < flat.length; i += 2) {
     result.push({ member: flat[i], score: Number(flat[i + 1]) });
   }
+  return result;
+}
+
+function zstoreArgs(command, destination, keys, options) {
+  const sources = typeof keys === 'string' ? [keys] : keys;
+  const args = [command, destination, sources.length, ...sources];
+  if (options.weights) args.push('WEIGHTS', ...options.weights);
+  if (options.aggregate) args.push('AGGREGATE', options.aggregate.toUpperCase());
+  return args;
+}
+
+/** `[id, [field, value, ...]]` as `{id, fields}`. A trimmed entry in a history read keeps `fields: null`. */
+function toEntry([id, flat]) {
+  return { id, fields: flat === null ? null : unflatten(flat) };
+}
+
+/** `STREAMS key... id...`: every key first, then every id, in the same order. */
+function streamsClause(streams, defaultId) {
+  const list = typeof streams === 'string' ? [streams] : streams;
+  const pairs = Array.isArray(list) ? list.map((key) => [key, defaultId]) : Object.entries(list);
+  return ['STREAMS', ...pairs.map(([key]) => key), ...pairs.map(([, id]) => id)];
+}
+
+/** `[[key, [entry...]], ...]` as `{key: [{id, fields}, ...]}`; nil stays null. */
+function toStreamReply(reply) {
+  if (reply === null) return null;
+  const result = {};
+  for (const [key, entries] of reply) result[key] = entries.map(toEntry);
   return result;
 }
 

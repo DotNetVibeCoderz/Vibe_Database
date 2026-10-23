@@ -28,7 +28,7 @@ Runs on pushes and pull requests that touch `MemSharp/**`.
 
 | Job | What it does |
 |---|---|
-| `test` | Restores, builds and runs the 214 tests on **ubuntu, windows and macos** |
+| `test` | Restores, builds and runs the 280 tests on **ubuntu, windows and macos** |
 | `sample` | Builds the Avalonia trading demo and re-renders the screenshots |
 | `clients` | Starts a real server, then runs the Python, Node.js and Go client suites against it |
 | `pack` | Builds both NuGet packages and uploads them as artifacts |
@@ -73,23 +73,27 @@ be ambiguous about which project it releases, and would fire every project's rel
 once.
 
 The workflow resolves the version from the tag, **fails if it disagrees with
-`Directory.Build.props`**, then tests, packs, pushes to nuget.org and creates a GitHub release. The
+`Directory.Build.props`** — or if either client's version disagrees with it — then tests, packs the
+two NuGet packages, builds the Python sdist and wheel and the npm tarball, and publishes all three
+registries before creating a GitHub release. The
 version guard matters more than it looks: a package whose tag claims a different version cannot be
 corrected afterwards, because published NuGet versions are immutable.
 
 `workflow_dispatch` runs the same pipeline with `dry_run` defaulted to true, which builds and packs
 without publishing — the way to rehearse a release.
 
-> **1.0.0 is already published** to nuget.org, PyPI and npm. Those versions are immutable, so a
-> release run for `memsharp-v1.0.0` would fail on the duplicate. The next release needs a version
-> bump in `MemSharp/Directory.Build.props` (both NuGet packages),
-> `MemSharp/clients/python/pyproject.toml` and `MemSharp/clients/nodejs/package.json`.
+> Published versions are immutable, so every release needs a version bump in
+> `MemSharp/Directory.Build.props` (both NuGet packages), `MemSharp/clients/python/pyproject.toml`
+> (and `memsharp/__init__.py`) and `MemSharp/clients/nodejs/package.json`. The guard refuses a tag
+> where they disagree.
 
 ### Required setup
 
 | | |
 |---|---|
-| Secret `NUGET_API_KEY` | An API key from nuget.org, glob-scoped to `MemSharp*` so it covers both packages and nothing else. **Already set on this repository.** |
+| Secret `NUGET_API_KEY` | An API key from nuget.org, glob-scoped to `MemSharp*` so it covers both packages and nothing else. **Set on this repository.** |
+| Secret `PYPI_API_TOKEN` | A PyPI API token for the `memsharp` project. **Set on this repository.** |
+| Secret `NPM_TOKEN` | An npm token that can publish `memsharp` **without a one-time password** — a classic *Automation* token, or a granular token with "bypass 2FA". **Set on this repository.** |
 | Environment `nuget` | Create under **Settings → Environments** and add required reviewers |
 
 **The approval gate is only real if you create that environment yourself.** A workflow that names an
@@ -101,9 +105,13 @@ or treat a tag push as the approval.
 Both packages are published together: `MemSharp` and `MemSharp.Cli`. The README tells users to
 install the CLI, so shipping only the library would leave that instruction broken.
 
-The release workflow does **not** publish the Python or npm clients — those were pushed by hand, and
-automating them would mean putting a PyPI and an npm token in the repository's secrets too. Worth
-adding when the release cadence justifies it.
+**PyPI and npm are separate jobs**, not steps after the NuGet push. A failure on one registry must
+not stop the .NET packages or the GitHub release, and rerunning one must not re-push the others. Each
+skips with a notice when its token is absent, and skips a version that is already published.
+
+**The npm job explains EOTP.** If `NPM_TOKEN` is a token that needs a one-time password, npm fails
+with a bare `EOTP`; the job turns that into an error naming the fix (an Automation token) and the
+command to publish that version by hand with `--otp`.
 
 ---
 

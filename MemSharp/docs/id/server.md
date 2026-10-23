@@ -58,7 +58,8 @@ menyambung ke yang salah tanpa sengaja.
 
 ### Koneksi dan server
 
-`PING` · `ECHO` · `QUIT` · `DBSIZE` · `FLUSHDB` · `INFO` · `COMMAND`
+`PING` · `ECHO` · `QUIT` · `DBSIZE` · `FLUSHDB` · `INFO` (dengan bagian) · `COMMAND` ·
+`CONFIG GET` · `CONFIG RESETSTAT` · `MEMORY USAGE`
 
 ### Persistensi
 
@@ -72,12 +73,15 @@ menyambung ke yang salah tanpa sengaja.
 ### String
 
 `SET` (dengan `EX`, `PX`, `NX`) · `SETNX` · `GET` · `GETSET` · `MGET` · `MSET` · `INCR` · `DECR` ·
-`INCRBY` · `DECRBY` · `INCRBYFLOAT` · `APPEND` · `STRLEN`
+`INCRBY` · `DECRBY` · `INCRBYFLOAT` · `APPEND` · `STRLEN` · `GETRANGE` · `SETRANGE`
+
+Panjang dan offset dalam byte UTF-8. Rentang yang akan membelah karakter multi-byte menjadi error,
+bukan byte parsial — lihat [data-types.md](data-types.md#string).
 
 ### List
 
 `LPUSH` · `RPUSH` · `LPOP` · `RPOP` · `LRANGE` · `LLEN` · `LINDEX` · `LSET` · `LTRIM` · `LREM` ·
-`RPOPLPUSH`
+`RPOPLPUSH` · `LPOS` (dengan `RANK`, `COUNT`, `MAXLEN`)
 
 ### Hash
 
@@ -86,20 +90,29 @@ menyambung ke yang salah tanpa sengaja.
 
 ### Set
 
-`SADD` · `SREM` · `SMEMBERS` · `SISMEMBER` · `SCARD` · `SPOP` · `SINTER` · `SUNION` · `SDIFF`
+`SADD` · `SREM` · `SMEMBERS` · `SISMEMBER` · `SCARD` · `SPOP` · `SINTER` · `SUNION` · `SDIFF` ·
+`SINTERSTORE` · `SUNIONSTORE` · `SDIFFSTORE`
 
 ### Sorted set
 
 `ZADD` · `ZREM` · `ZSCORE` · `ZINCRBY` · `ZCARD` · `ZRANK` · `ZREVRANK` · `ZRANGE` · `ZREVRANGE` ·
-`ZRANGEBYSCORE` · `ZREVRANGEBYSCORE` · `ZCOUNT` · `ZREMRANGEBYSCORE`
+`ZRANGEBYSCORE` · `ZREVRANGEBYSCORE` · `ZCOUNT` · `ZREMRANGEBYSCORE` · `ZUNIONSTORE` · `ZINTERSTORE`
+(dengan `WEIGHTS` dan `AGGREGATE SUM|MIN|MAX`)
 
 Batas score menerima `-inf` dan `+inf`. `WITHSCORES` menyisipkan anggota dan score bergantian.
 
 ### Stream
 
-`XADD` (dengan `MAXLEN`) · `XLEN` · `XRANGE` (dengan `COUNT`) · `XREVRANGE` · `XTRIM`
+`XADD` (dengan `MAXLEN`) · `XLEN` · `XRANGE` (dengan `COUNT`) · `XREVRANGE` · `XTRIM` · `XREAD` (dengan
+`COUNT`, `BLOCK`)
 
-`-` dan `+` berarti ujung-ujung stream. `*` meminta server membuat id-nya.
+Consumer group: `XGROUP CREATE|DESTROY|CREATECONSUMER|DELCONSUMER|SETID` · `XREADGROUP` (dengan
+`COUNT`, `BLOCK`, `NOACK`) · `XACK` · `XPENDING` (ringkasan dan diperluas, dengan `IDLE`) · `XCLAIM` (dengan
+`IDLE`, `TIME`, `RETRYCOUNT`, `FORCE`, `JUSTID`, `LASTID`) · `XAUTOCLAIM` · `XINFO STREAM|GROUPS|CONSUMERS`
+
+`-` dan `+` berarti ujung-ujung stream. `*` meminta server membuat id-nya. Di `XREAD` dan `XGROUP`,
+`$` berarti "setelah entri terakhir saat ini"; di `XREADGROUP`, `>` berarti "entri yang belum
+diantarkan group ini".
 
 ### Time series
 
@@ -115,21 +128,44 @@ Batas score menerima `-inf` dan `+inf`. `WITHSCORES` menyisipkan anggota dan sco
 
 `SQL <query>` — lihat [query-language.md](query-language.md).
 
-`COMMAND` mendaftar semua yang didukung server yang sedang berjalan, dan itulah jawaban otoritatif
-untuk versi yang Anda punya.
+`COMMAND` mendaftar semua yang didukung server yang sedang berjalan — 114 perintah di 1.1 — dan itulah
+jawaban otoritatif untuk versi yang Anda punya.
+
+### Bacaan blocking
+
+`XREAD` dan `XREADGROUP` menerima `BLOCK milidetik`, dengan `0` berarti "tunggu selamanya". Ketika
+bacaan tidak menemukan apa pun, koneksinya diparkir sampai `XADD` berikutnya di mana pun dalam
+database atau sampai timeout, yang membalas nil. Selama diparkir ia tidak membaca apa pun lagi dari
+socket-nya — kontrak Redis: perintah berikutnya dari klien yang terblokir menunggu gilirannya — tetapi
+balasan yang sudah terutang untuk perintah sebelumnya dalam batch ber-pipeline yang sama dikirim lebih
+dulu.
+
+Dua detail disengaja. `$` dalam `XREAD` yang memblok dipatok ke id terakhir saat bacaan dimulai; bila
+dievaluasi ulang setelah bangun, ia akan berarti id terakhir yang *baru*, dan klien akan tertidur
+melewati persis entri yang membangunkannya. Dan koneksi yang diparkir bangun setidaknya sekali per
+detik untuk memeriksa apakah kliennya sudah memutus, jadi `BLOCK 0` yang ditinggalkan tidak memegang
+koneksi sepanjang hidup server. `INFO` melaporkan koneksi yang diparkir sebagai `blocked_clients`.
+
+Blocking hanya fitur server. Tabel perintahnya sinkron — tabel itu juga yang memutar ulang log
+append-only — jadi pemanggil embedded dan pemutaran ulang selalu mendapat jawaban yang tidak memblok.
 
 ## Perbedaan dari Redis
 
 | | MemSharp |
 |---|---|
-| Kursor `SCAN` | Offset ke dalam urutan pemindaian yang stabil, bukan kursor tahan-rehash. Kontrak "ulangi sampai kursornya 0" tetap berlaku; key yang ditambahkan di tengah iterasi bisa terlewat. |
+| Kursor `SCAN` | Tahan-rehash seperti di Redis, tetapi nilainya milik MemSharp sendiri: indeks shard di 32 bit atas dan ambang hash di 32 bit bawah. Perlakukan sebagai opaque. Tidak bertahan melewati restart. |
 | `XADD MAXLEN ~` | Bentuk aproksimasi `~` diterima dan diperlakukan **tepat**. |
+| `GETRANGE` / `SETRANGE` | Rentang yang akan membelah karakter UTF-8 multi-byte menjadi error. Redis akan mengembalikan atau menulis byte parsialnya. |
+| `CONFIG SET` | Ditolak. MemSharp dikonfigurasi lewat `MemDbOptions` saat konstruksi; `CONFIG GET` melaporkan opsi-opsi itu. |
+| `MEMORY USAGE` | Perkiraan dari tata letak objek CLR, bukan angka persis dari allocator. |
+| `INFO` `redis_version` | Melaporkan `6.2.0`, rilis Redis yang permukaan perintahnya paling mirip dengan MemSharp, jadi klien yang memilih fitur berdasarkan versi tetap berada di dalamnya. Ini tingkat kompatibilitas, bukan klaim sebagai Redis; `memsharp_version` adalah versi sebenarnya. |
+| Stream | Tanpa `XDEL` atau `XSETID`; tanpa pelacakan lag atau `entries-read` di `XINFO`. `XAUTOCLAIM` membalas dengan bentuk tiga elemen Redis 7 (berikut id yang terhapus), meskipun `redis_version` menyebut 6.2. |
 | `SELECT` | Tidak ada. Satu keyspace per server. |
 | `MULTI` / `EXEC` | Tidak ada. Operasi satu key bersifat atomik. |
 | `AUTH` | Tidak ada. |
 | RESP3 / `HELLO` | Tidak ada. Hanya RESP2. |
 | Notifikasi keyspace | Tidak ada; pakai `PUBLISH` sendiri. |
-| `SINTER` dll. | Bukan pandangan point-in-time lintas key. Lihat [architecture.md](architecture.md#yang-bukan-atomik). |
+| `SINTER` dll. | Bukan pandangan point-in-time lintas key. Lihat [architecture.md](architecture.md#yang-bukan-atomik). Varian `*STORE` *memang* point-in-time. |
 
 ## Pipelining
 
@@ -237,34 +273,58 @@ Anda bisa menangkapnya secara spesifik.
 ## Pemantauan
 
 ```
-INFO
+INFO [section ...]
 ```
+
+`INFO` memakai nama bagian dan field milik Redis — `server`, `clients`, `memory`, `persistence`,
+`stats`, `replication`, `cpu`, `keyspace` — jadi dashboard dan exporter yang sudah ada bisa
+membacanya. Minta satu bagian atau lebih untuk mendapatkan hanya bagian itu. Nama field 1.0
+(`product`, `keys`, `uptime_seconds`, `commands_processed` dan lainnya) masih ada, karena klien 1.0
+yang sudah dipublikasikan mem-parse-nya. Diringkas, dari server sungguhan:
 
 ```
 # Server
+redis_version:6.2.0
+memsharp_version:1.1.0
+redis_mode:standalone
+runtime:.NET 10.0.12
+uptime_in_seconds:151
 product:MemSharp
 vendor:Gravicode Studios
-version:1.0.0.0
 
-# Keyspace
-keys:1048576
-shards:64
+# Clients
+connected_clients:1
+blocked_clients:0
 
-# Stats
-uptime_seconds:3600
-commands_processed:19283746
-connections_accepted:42
-keyspace_hits:18000000
-keyspace_misses:1283746
-hit_rate:0.9334
-writes:5000000
-expired_keys:120394
-pubsub_messages:88000
+# Memory
+used_memory:1783344
+used_memory_human:1.70M
+used_memory_rss:40140800
+maxmemory:0
+mem_allocator:dotnet-server-gc
 
 # Persistence
-last_save:1788434080
-pending_changes:2841
+rdb_changes_since_last_save:0
+rdb_last_save_time:0
+aof_enabled:0
+
+# Stats
+total_connections_received:5
+total_commands_processed:69
+keyspace_hits:0
+keyspace_misses:0
+expired_keys:0
+
+# Keyspace
+db0:keys=14,expires=0,avg_ttl=0
+keys:14
+shards:32
 ```
+
+`CONFIG GET pattern` menjawab parameter yang ditanyakan perkakas pemantauan — `maxmemory`, `save`,
+`appendonly`, `appendfsync`, `dir`, `dbfilename`, `databases`, plus `shards` milik MemSharp — dari
+opsi yang dipakai saat database dibangun. `CONFIG RESETSTAT` mengenolkan counter-nya. `MEMORY USAGE key
+[SAMPLES n]` memperkirakan jejak memori sebuah key (lihat [data-types.md](data-types.md#operasi-keyspace)).
 
 Secara embedded, counter yang sama ada di `db.Statistics`. Masing-masing memakan satu penambahan
 interlocked, dan itulah sebabnya ia aktif secara bawaan; setel `EnableStatistics = false` untuk
