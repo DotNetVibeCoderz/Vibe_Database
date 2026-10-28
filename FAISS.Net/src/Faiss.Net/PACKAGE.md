@@ -26,20 +26,25 @@ Using FAISS from .NET has meant shipping native binaries, matching them to every
 - **SIMD throughout.** Distance kernels dispatch to AVX-512, AVX2, SSE or NEON at runtime.
 - **Zero-allocation search.** Scratch memory comes from `ArrayPool<T>`; a warm query allocates nothing.
 - **Python-shaped API.** `Train`, `Add`, `Search`, `RangeSearch`, `Reconstruct`, `RemoveIds`, `index_factory`.
+- **Built for a service.** Filtered search inside the scan, per-call parameters, searches while a writer adds, crash-safe incremental persistence.
 
 ## What's included
 
 | | |
 |---|---|
-| **Exact** | `IndexFlatL2`, `IndexFlatIP`, `IndexFlat` |
-| **Inverted file** | `IndexIVFFlat`, `IndexIVFPQ`, `IndexIVFScalarQuantizer` |
-| **Graph** | `IndexHNSWFlat` |
+| **Exact** | `IndexFlatL2`, `IndexFlatIP`, `IndexFlat` — blocked matrix product for query batches |
+| **Inverted file** | `IndexIVFFlat`, `IndexIVFPQ` (optional precomputed tables), `IndexIVFScalarQuantizer` |
+| **Coarse quantizers** | any index, including `IndexHNSWFlat` (with sink repair) and `MultiIndexQuantizer` (IMI) |
+| **Graph** | `IndexHNSWFlat`, `IndexHNSWSQ`, `IndexHNSWPQ`, `IndexNSGFlat` |
 | **Compressed flat** | `IndexPQ`, `IndexScalarQuantizer` |
-| **Binary** | `IndexBinaryFlat`, `IndexBinaryIVF` |
-| **Composition** | `IndexIDMap`, `IndexIDMap2`, `IndexPreTransform`, `IndexReplicas`, `IndexShards` |
-| **Transforms** | `PCAMatrix`, `OPQMatrix`, `RandomRotationMatrix`, `NormalizationTransform` |
-| **Quantizers** | `ProductQuantizer`, `ScalarQuantizer`, `Kmeans` |
-| **Persistence** | Versioned binary format, byte-array serialization, `MappedIndexFlat` |
+| **Re-ranking** | `IndexRefine`, `IndexRefineFlat` |
+| **Binary** | `IndexBinaryFlat`, `IndexBinaryIVF`, `IndexBinaryHNSW` |
+| **Sparse** | `IndexSparseFlat` |
+| **Filtering** | `IDSelector` family, `SearchParameters`, `SearchParametersIVF`, `SearchParametersHNSW` |
+| **Composition** | `IndexIDMap`, `IndexIDMap2`, `IndexPreTransform`, `IndexReplicas`, `IndexShards`, `SynchronizedIndex` |
+| **Transforms** | `PCAMatrix`, `OPQMatrix` (square or reducing), `RandomRotationMatrix`, `NormalizationTransform` |
+| **Quantizers** | `ProductQuantizer`, `ScalarQuantizer`, `Kmeans` (Lloyd or mini-batch) |
+| **Persistence** | Versioned binary format, byte-array serialization, `MappedIndexFlat`, `PersistentIndex` |
 
 Metrics: squared L2, inner product, L1, L-infinity. GPU flat search is available separately in [FAISS.Net.Gpu](https://www.nuget.org/packages/Gravicode.FaissNet.Gpu).
 
@@ -69,9 +74,20 @@ var mapped = new IndexIDMap2(new IndexFlatL2(128));
 mapped.AddWithIds(vectors, documentIds);
 mapped.RemoveIds(id => IsDeleted(id));
 
+// Filtered search: the k best members of a subset, applied inside the scan
+var mine = ivf.Search(query, k: 10, selector: IDSelector.Range(tenantStart, tenantEnd));
+
+// Compress, then re-rank exactly
+var refined = FaissNet.IndexFactory(128, "IVF1024,PQ16,RFlat");
+
 // Persistence
 FaissNet.WriteIndex(index, "corpus.index");
 var reloaded = FaissNet.ReadIndex("corpus.index");
+
+// Incremental, crash-safe persistence; searches keep running while you add
+using var live = PersistentIndex.Open("live.index", () => new IndexHNSWFlat(128));
+live.Add(batch);
+live.Checkpoint();
 ```
 
 ## Measured
@@ -93,6 +109,7 @@ An index is faster than another only at equal recall — compare rows, not colum
 - [Getting started](https://github.com/DotNetVibeCoderz/Vibe_Database/blob/main/FAISS.Net/docs/en/getting-started.md)
 - [Choosing an index](https://github.com/DotNetVibeCoderz/Vibe_Database/blob/main/FAISS.Net/docs/en/choosing-an-index.md)
 - [API reference](https://github.com/DotNetVibeCoderz/Vibe_Database/blob/main/FAISS.Net/docs/en/api-reference.md) — every call with its Python equivalent
+- [Running in production](https://github.com/DotNetVibeCoderz/Vibe_Database/blob/main/FAISS.Net/docs/en/production.md) — filtering, re-ranking, concurrent reads, persistence
 - [Architecture](https://github.com/DotNetVibeCoderz/Vibe_Database/blob/main/FAISS.Net/docs/en/architecture.md)
 - [Performance](https://github.com/DotNetVibeCoderz/Vibe_Database/blob/main/FAISS.Net/docs/en/performance.md) — including what is *not* optimized
 
@@ -102,8 +119,9 @@ Also available in [Bahasa Indonesia](https://github.com/DotNetVibeCoderz/Vibe_Da
 
 - **`FaissNet.X()` instead of `faiss.x()`** — the root namespace `Faiss.Net` already binds the name `Faiss`, and a namespace shadows a type of the same name at every call site.
 - **The file format is FAISS.Net's own.** Indexes do not round-trip between FAISS.Net and FAISS; rebuild from source vectors to move between them.
-- **HNSW does not support removal**, matching FAISS.
-- **No IMI, NSG, RaBitQ or `IndexRefine`** yet — see the roadmap.
+- **Graph indexes do not support removal**, matching FAISS; exclude ids at search time with a selector.
+- **Sparse vectors have their own index type**, `IndexSparseFlat`.
+- **No RaBitQ, PiPNN, fast-scan or Vamana** — recent upstream families outside this port's scope.
 
 ---
 

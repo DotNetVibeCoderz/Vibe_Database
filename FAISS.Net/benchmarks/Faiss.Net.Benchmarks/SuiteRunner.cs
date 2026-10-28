@@ -96,7 +96,51 @@ public static class SuiteRunner
                 () => new IndexHNSWFlat(d, 32) { EfConstruction = 80, EfSearch = ef }, null);
         }
 
+        // --- 1.1: graph variants, re-ranking, precomputed tables
+        Measure("IndexHNSWSQ8", "M=32,efSearch=64",
+            () => new IndexHNSWSQ(d, ScalarQuantizerType.PerDimension8Bit, 32) { EfConstruction = 80, EfSearch = 64 }, null);
+        Measure("IndexNSGFlat", "R=32,search_L=64", () => new IndexNSGFlat(d, 32) { SearchL = 64 }, null);
+        Measure("IndexIVFPQ+RFlat", $"nlist={nlist},nprobe=8,k_factor=4",
+            () => new IndexRefineFlat(new IndexIVFPQ(d, nlist, m: PickM(d)) { Nprobe = 8 }) { KFactor = 4 }, null);
+        {
+            // FAISS precomputes IVFPQ tables by default; this row is the like-for-like comparison.
+            var ivfpq = new IndexIVFPQ(d, nlist, m: PickM(d)) { UsePrecomputedTable = true };
+            var trainTime = Time(() => ivfpq.Train(dataset.Database));
+            var addTime = Time(() => ivfpq.Add(dataset.Database));
+            foreach (int nprobe in new[] { 8, 32 })
+            {
+                ivfpq.Nprobe = nprobe;
+                Record("IndexIVFPQ", $"nlist={nlist},nprobe={nprobe},precomputed", ivfpq,
+                    trainTime.TotalMilliseconds, addTime.TotalMilliseconds);
+            }
+        }
+
+        // --- 1.1: filtered search, one id in ten allowed, scored against filtered ground truth
+        var selector = IDSelector.Range(0, dataset.DatabaseSize / 10);
+        var filteredTruth = FilteredTruth(selector);
+        MeasureFiltered("IndexFlatL2", "exact,sel=10%", () => new IndexFlatL2(d), new SearchParameters { Sel = selector });
+        MeasureFiltered("IndexIVFFlat", $"nlist={nlist},nprobe=8,sel=10%", () => new IndexIVFFlat(d, nlist),
+            new SearchParametersIVF { Sel = selector, Nprobe = 8 });
+        MeasureFiltered("IndexHNSWFlat", "M=32,efSearch=64,sel=10%",
+            () => new IndexHNSWFlat(d, 32) { EfConstruction = 80 }, new SearchParametersHNSW { Sel = selector, EfSearch = 64 });
+
         return report;
+
+        SearchResult FilteredTruth(IDSelector sel)
+        {
+            var exact = new IndexFlatL2(d);
+            exact.Add(dataset.Database);
+            return exact.Search(dataset.Queries, dataset.K, sel);
+        }
+
+        void MeasureFiltered(string name, string parameters, Func<Index> factory, SearchParameters searchParameters)
+        {
+            var index = factory();
+            var trainTime = index.IsTrained ? TimeSpan.Zero : Time(() => index.Train(dataset.Database));
+            var addTime = Time(() => index.Add(dataset.Database));
+            Record(name, parameters, index, trainTime.TotalMilliseconds, addTime.TotalMilliseconds,
+                searchParameters, filteredTruth);
+        }
 
         // ------------------------------------------------------------ helpers
 
@@ -123,15 +167,16 @@ public static class SuiteRunner
             Record(name, parameters, index, trainTime.TotalMilliseconds, addTime.TotalMilliseconds);
         }
 
-        void Record(string name, string parameters, Index index, double trainMs, double addMs)
+        void Record(string name, string parameters, Index index, double trainMs, double addMs,
+            SearchParameters? searchParameters = null, SearchResult? truth = null)
         {
             // Warm-up: the first search JITs the specialized kernels and touches the whole index.
-            index.Search(dataset.Queries, dataset.K);
+            index.Search(dataset.Queries, dataset.K, searchParameters);
 
             var timings = new List<double>(SearchRepeats);
             SearchResult result = null!;
             for (int i = 0; i < SearchRepeats; i++)
-                timings.Add(Time(() => result = index.Search(dataset.Queries, dataset.K)).TotalMilliseconds);
+                timings.Add(Time(() => result = index.Search(dataset.Queries, dataset.K, searchParameters)).TotalMilliseconds);
             timings.Sort();
             double median = timings[timings.Count / 2];
 
@@ -144,7 +189,7 @@ public static class SuiteRunner
                 BuildMilliseconds = trainMs + addMs,
                 SearchMillisecondsPerQuery = median / dataset.QueryCount,
                 QueriesPerSecond = dataset.QueryCount / (median / 1000.0),
-                RecallAtK = dataset.Recall(result),
+                RecallAtK = truth is null ? dataset.Recall(result) : FaissNet.ComputeRecall(truth, result),
                 MemoryBytes = index.MemoryUsage,
             };
             report.Records.Add(record);

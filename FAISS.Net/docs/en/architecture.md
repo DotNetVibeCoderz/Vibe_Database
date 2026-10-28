@@ -65,6 +65,16 @@ Two parallel strategies, chosen automatically, because the two regimes have oppo
 
 All scratch memory comes from `ArrayPool<T>`. A warm search allocates nothing.
 
+A third strategy takes over for **batches of L2 or inner-product queries** (16 or more, against at
+least 256 vectors, with no selector): `BlockedKnn`, a blocked matrix product. A tile of queries is
+scored against a cache-resident, transposed block of the database, with a 4 × (2 × vector width)
+register tile of accumulators, so each database value loaded is reused by four queries and each
+query value by a vector's worth of rows — the pairwise kernels instead stream the database once per
+query and stay bandwidth-bound. L2 comes from `‖x‖² + ‖y‖² − 2⟨x, y⟩`; that decomposition loses
+precision when two vectors are much closer to each other than to the origin, so negative results are
+clamped to zero and the kernel is tested against the pairwise one with a tolerance.
+`BruteForce.UseBlockedKernel = false` turns it off.
+
 ### `KnnHeap<TOrder>` — top-k selection
 
 A fixed-capacity heap over caller-supplied storage — usually a slice of the caller's own output
@@ -101,6 +111,10 @@ stored.
 Growth is 1.5×, not 2×. That keeps the transient peak during a resize near 2.5× the live set instead
 of 3× — the difference that decides whether a large index fits in RAM at all.
 
+The array and the live count are published together as one immutable snapshot. That is the whole
+concurrency mechanism — see [Concurrency](#concurrency) below. `CodeStore` is the same thing for
+fixed-size byte codes (PQ, SQ, binary HNSW).
+
 ### `InvertedLists`
 
 Ids and codes live in two parallel arrays per list. A scan touches codes for every entry but ids only
@@ -109,6 +123,9 @@ stops id bytes from evicting code bytes from cache.
 
 Lists grow independently, because real data is never balanced: a few centroids attract many times the
 average number of vectors.
+
+Each list is published as an immutable snapshot of ids, codes, count and id bounds (`GetList`). The
+bounds let a range selector skip a list without scoring it.
 
 ### `HnswGraph`
 
@@ -129,8 +146,14 @@ Subclasses supply only encoding and scoring:
 
 ```csharp
 protected abstract void EncodeVectors(ReadOnlySpan<float> x, int n, ReadOnlySpan<long> listNos, Span<byte> codes);
-protected abstract void ComputeListScores(ReadOnlySpan<float> query, int list, float coarseScore, Span<float> scores);
+protected abstract void ComputeListScores(ReadOnlySpan<float> query, int list, float coarseScore,
+    ReadOnlySpan<byte> codes, Span<float> scores, object? queryState);
+protected virtual object? PrepareQuery(ReadOnlySpan<float> query);   // per-query setup, optional
 ```
+
+The codes arrive as a parameter, from the same list snapshot as the ids the base reads, so ids and
+codes always agree even while a writer appends. `PrepareQuery` hoists work shared by every probed
+list — `IndexIVFPQ` uses it for the query term of its precomputed tables.
 
 `ComputeListScores` scores an entire list at a time rather than exposing a per-candidate callback.
 That is what keeps the inner loop tight: the subclass hoists all per-list setup — the residual, the
@@ -148,13 +171,25 @@ them much more finely — this is where most of IVFPQ's advantage over a standal
 from.
 
 It costs one lookup-table build per probed cell instead of one per query, because the table depends
-on `query - centroid`.
+on `query - centroid`. `UsePrecomputedTable` removes that cost by splitting the distance into
+`‖x − c‖²` (the coarse distance, already known), a cell-and-codeword term precomputed once, and a
+query-and-codeword term computed once per query — so each probed cell costs a table addition.
 
 Under inner product the residual decomposition needs an extra correction term per candidate, so raw
 vectors are encoded instead: simpler, and exact against the decoded vector. `ByResidual` reports
 which is in use.
 
 ---
+
+## One graph engine, several storages
+
+HNSW is written once, in `HnswAlgorithm`, as generic methods over a struct implementing
+`IHnswComputer` (`Query(node)`, `Pair(a, b)`, smaller is better). Each storage supplies its own
+computer — raw floats for `IndexHNSWFlat`, decode-then-compare for `IndexHNSWSQ`, an ADC table for
+`IndexHNSWPQ`, popcount for `IndexBinaryHNSW` — and the JIT specializes the whole algorithm per
+computer, so the distance call inlines instead of going through a virtual dispatch per candidate.
+A session pins one storage snapshot for a build or a batch of searches; it is also what the sink
+repair (`AddLevel0LinksFromSample`) is written against, so the repair serves every storage.
 
 ## How HNSW construction works
 
@@ -196,6 +231,26 @@ orthogonality.
 
 ---
 
+## Concurrency
+
+The contract is **one writer, any number of readers, no lock**, for the flat, IVF, flat-code, HNSW
+and sparse indexes. It rests on one rule: *nothing a reader can see is ever modified in place.*
+
+- **Appends** write past the published end of the storage and then publish a longer snapshot with a
+  release write. A reader holding the old snapshot never looks past its old end.
+- **Growth** allocates a new array and copies, never `Array.Resize` in place; a reader keeps its old,
+  still-valid array.
+- **Removal** builds new arrays and publishes them — copy-on-write, and for IVF only the lists that
+  lose an entry.
+- **HNSW** readers read the entry point *before* the storage snapshot (the entry node was stored before
+  it was linked, so the snapshot contains it) and skip links to nodes beyond their snapshot. The entry
+  node and the top level are packed into one 64-bit word so they are never read torn.
+
+What is outside the contract — several writers, `Train` or `Reset` during searches, composite
+wrappers that keep their own mutable tables — is what `SynchronizedIndex` (a reader-writer lock) is
+for. The concurrency tests run searches on three threads while a writer adds, for every index in
+the contract, and assert no exception and no impossible id.
+
 ## Persistence
 
 Little-endian, self-describing, versioned. Every index writes a fixed header (type tag, dimension,
@@ -208,6 +263,13 @@ Type tags in `IndexTypeCode` are **append-only**. Adding a new index type never 
 written by older builds; a file written by any 1.x build stays readable by every later 1.x build.
 
 The format is FAISS.Net's own and is not compatible with FAISS files.
+
+`PersistentIndex` layers incremental persistence on top: a snapshot in this format, prefixed with a
+generation number, and an append-only journal of CRC-checked mutation records with the same
+generation. Records are written before they are applied; a checkpoint writes the snapshot to a
+temporary file, flushes, renames it over the old one, then resets the journal. A journal whose
+generation is older than its snapshot is recognised as already folded in, so a crash at any point
+neither loses an acknowledged write nor replays one twice.
 
 ---
 
@@ -248,9 +310,7 @@ tests run everywhere.
 
 - **No `unsafe` in the public API.** Pointers exist in kernels; callers see spans.
 - **No async.** Search is CPU-bound. `Task.Run` at the call site is the right tool.
-- **No index is thread-safe for concurrent writes.** Concurrent *searches* are safe on a built index.
-- **No IMI, NSG, RaBitQ, or `IndexRefine`.** The families here cover the common ground.
-- **No precomputed IVFPQ tables.** FAISS optionally precomputes `nlist × m × ksub` floats to avoid
-  rebuilding the ADC table per probed cell. It is a real optimization and a large memory cost
-  (67 MB at `nlist=4096, m=16`); the simpler path is implemented, and `ByResidual = false` is
-  available as the cheap alternative.
+- **No lock-free concurrent writers.** One writer may run alongside any number of searches; more than
+  one writer needs `SynchronizedIndex`.
+- **No RaBitQ, PiPNN, fast-scan or Vamana.** Upstream FAISS families outside this port's scope.
+- **No FAISS file compatibility.** By design; rebuild from source vectors.

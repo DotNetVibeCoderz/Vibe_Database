@@ -11,6 +11,7 @@
 | [Getting started](en/getting-started.md) | Install, first index, how data is passed, saving and loading |
 | [Choosing an index](en/choosing-an-index.md) | Every index type, when to use it, how to size it |
 | [API reference](en/api-reference.md) | Full surface, with the Python equivalent of each call |
+| [Running in production](en/production.md) | Filtering, re-ranking, concurrent reads, incremental persistence |
 | [Architecture](en/architecture.md) | How it works inside, and why it is built this way |
 | [Performance](en/performance.md) | What is optimized, what is measured, what is not |
 | [The Gallery](en/gallery.md) | All six demo screens, explained |
@@ -27,6 +28,7 @@ read it.
 | [Memulai](id/memulai.md) | Instalasi, index pertama, cara data dikirim, simpan dan muat |
 | [Memilih index](id/memilih-index.md) | Semua jenis index, kapan dipakai, cara menakarnya |
 | [Referensi API](id/referensi-api.md) | Seluruh permukaan API, dengan padanan Python-nya |
+| [Menjalankan di produksi](id/produksi.md) | Filter, re-ranking, baca bersamaan, persistensi bertahap |
 | [Arsitektur](id/arsitektur.md) | Cara kerjanya di dalam, dan alasan rancangannya |
 | [Performa](id/performa.md) | Apa yang dioptimasi, apa yang diukur, apa yang belum |
 | [Galeri](id/gallery.md) | Keenam layar demo, dijelaskan satu per satu |

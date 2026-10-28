@@ -19,7 +19,7 @@ namespace Faiss.Net;
 public static class FaissNet
 {
     /// <summary>Library version.</summary>
-    public const string Version = "1.0.0";
+    public const string Version = "1.1.0";
 
     /// <summary>Description of the SIMD path selected at runtime.</summary>
     public static string SimdInfo => VectorOps.SimdDescription;

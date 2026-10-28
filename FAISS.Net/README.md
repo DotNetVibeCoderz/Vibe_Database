@@ -34,6 +34,7 @@ What that buys you:
 - **SIMD throughout.** Distance kernels dispatch to AVX-512, AVX2, SSE or NEON at runtime; nothing is scalar unless the hardware makes it so.
 - **Zero-allocation search.** Scratch memory comes from `ArrayPool<T>`; a warm query allocates nothing.
 - **Python-shaped API.** `Train`, `Add`, `Search`, `RangeSearch`, `Reconstruct`, `RemoveIds`, `index_factory` — all present, all spelled the way you already know.
+- **Built for a service, not just a notebook.** Filtered search inside the scan, per-call search parameters, searches that run while a writer adds, and crash-safe incremental persistence.
 
 ---
 
@@ -72,16 +73,20 @@ Every index type measured on the same vectors against the same exact ground trut
 
 | | |
 |---|---|
-| **Exact** | `IndexFlatL2`, `IndexFlatIP`, `IndexFlat` |
-| **Inverted file** | `IndexIVFFlat`, `IndexIVFPQ`, `IndexIVFScalarQuantizer` |
-| **Graph** | `IndexHNSWFlat` |
-| **Compressed flat** | `IndexPQ`, `IndexScalarQuantizer` |
-| **Binary** | `IndexBinaryFlat`, `IndexBinaryIVF` |
-| **Composition** | `IndexIDMap`, `IndexIDMap2`, `IndexPreTransform`, `IndexReplicas`, `IndexShards` |
-| **Transforms** | `PCAMatrix`, `OPQMatrix`, `RandomRotationMatrix`, `NormalizationTransform` |
-| **Quantizers** | `ProductQuantizer`, `ScalarQuantizer`, `Kmeans` |
+| **Exact** | `IndexFlatL2`, `IndexFlatIP`, `IndexFlat` — blocked matrix product for query batches |
+| **Inverted file** | `IndexIVFFlat`, `IndexIVFPQ` (optional precomputed tables), `IndexIVFScalarQuantizer` |
+| **Coarse quantizers** | any index, including `IndexHNSWFlat` (with sink repair) and `MultiIndexQuantizer` (IMI) |
+| **Graph** | `IndexHNSWFlat`, `IndexHNSWSQ`, `IndexHNSWPQ`, `IndexNSGFlat` |
+| **Compressed flat** | `IndexPQ`, `IndexScalarQuantizer` (SIMD fp16, 8-bit and 4-bit decode) |
+| **Re-ranking** | `IndexRefine`, `IndexRefineFlat` |
+| **Binary** | `IndexBinaryFlat`, `IndexBinaryIVF`, `IndexBinaryHNSW` |
+| **Sparse** | `IndexSparseFlat` — exact inner product over an inverted index |
+| **Filtering** | `IDSelector` (range, batch, bitmap, predicate, not/and/or/xor), `SearchParameters*` |
+| **Composition** | `IndexIDMap`, `IndexIDMap2`, `IndexPreTransform`, `IndexReplicas`, `IndexShards`, `SynchronizedIndex` |
+| **Transforms** | `PCAMatrix`, `OPQMatrix` (square or dimension-reducing), `RandomRotationMatrix`, `NormalizationTransform` |
+| **Quantizers** | `ProductQuantizer`, `ScalarQuantizer`, `Kmeans` (Lloyd or mini-batch) |
 | **GPU** | `IndexFlatL2Gpu`, `IndexFlatIPGpu`, `StandardGpuResources` |
-| **Persistence** | Versioned binary format, byte-array serialization, `MappedIndexFlat` |
+| **Persistence** | Versioned binary format, byte-array serialization, `MappedIndexFlat`, `PersistentIndex` (snapshot + journal) |
 
 Metrics: squared L2, inner product, L1, L-infinity.
 
@@ -135,6 +140,27 @@ var index = new IndexPreTransform(new NormalizationTransform(128), new IndexFlat
 index.Add(embeddings);                        // queries are normalized too, automatically
 ```
 
+**Filtered search** — the k best *members* of a subset, applied inside the scan.
+
+```csharp
+var mine = index.Search(query, k: 10, selector: IDSelector.Range(tenantStart, tenantEnd));
+var tuned = ivf.Search(query, k: 10, new SearchParametersIVF { Nprobe = 32, Sel = visible });
+```
+
+**Compress, then win the recall back.**
+
+```csharp
+var index = FaissNet.IndexFactory(128, "IVF1024,PQ16,RFlat");   // re-rank 16-byte codes exactly
+```
+
+**Search while you add, persist as you go.**
+
+```csharp
+using var index = PersistentIndex.Open("live.index", () => new IndexHNSWFlat(128));
+index.Add(batch);          // journaled, crash-safe; searches keep running
+index.Checkpoint();
+```
+
 **Your own ids, and deletion.**
 
 ```csharp
@@ -173,7 +199,10 @@ var results = index.Search(queries, 10);      // identical API, identical result
 | Doesn't fit in memory | `IndexIVFScalarQuantizer` | 4× smaller, usually under a point of recall lost. |
 | Doesn't fit by a lot | `IndexIVFPQ` | 16–64× smaller. The billion-scale standard. |
 | Larger than RAM | `MappedIndexFlat` | Searched from disk, shared between processes. |
-| Binary codes | `IndexBinaryFlat` | XOR and popcount; 32× smaller than float32. |
+| Graph speed, less memory | `IndexHNSWSQ` | The HNSW graph over 8-bit vectors. |
+| Compressed but accurate | `IndexRefineFlat` over IVFPQ | Scan codes, re-rank exactly. |
+| Binary codes | `IndexBinaryFlat`, `IndexBinaryHNSW` | XOR and popcount; 32× smaller than float32. |
+| Sparse vectors | `IndexSparseFlat` | SPLADE or bag-of-words; scores only the postings a query touches. |
 
 Fuller guidance, including how to size `nlist`, `m` and `efSearch`: **[Choosing an index](docs/en/choosing-an-index.md)**.
 
@@ -186,6 +215,7 @@ Fuller guidance, including how to size `nlist`, `m` and `efSearch`: **[Choosing 
 | [Getting started](docs/en/getting-started.md) | Install, first index, the shape of the API |
 | [Choosing an index](docs/en/choosing-an-index.md) | Every index type, when to use it, how to size it |
 | [API reference](docs/en/api-reference.md) | Types, methods, and the Python equivalent of each |
+| [Running in production](docs/en/production.md) | Filtering, re-ranking, concurrent reads, incremental persistence |
 | [Architecture](docs/en/architecture.md) | How it works inside, and why it is built this way |
 | [Performance](docs/en/performance.md) | What is optimized, what is measured, what is not |
 | [The Gallery](docs/en/gallery.md) | All six demo screens, explained |
@@ -238,8 +268,10 @@ Deliberate, and worth knowing before you port something:
 - **`FaissNet.X()` instead of `faiss.x()`.** The module-level functions live on a static class named `FaissNet`, because the required root namespace `Faiss.Net` already binds the name `Faiss` and a namespace shadows a type of the same name at every call site.
 - **The file format is FAISS.Net's own.** Indexes do not round-trip between FAISS.Net and FAISS. Rebuild from source vectors to move between them.
 - **`IndexIVFPQ` encodes residuals for L2 and raw vectors for inner product.** The residual decomposition needs an extra correction term under inner product; encoding directly is simpler and exact against the decoded vector.
-- **HNSW does not support removal**, matching FAISS. Rebuild, or filter removed ids out of results.
-- **No IMI, no NSG, no RaBitQ, no `IndexRefine`.** The index families here cover the common ground; these are not implemented.
+- **Graph indexes do not support removal**, matching FAISS. Rebuild, or exclude removed ids at search time with `IDSelector.Not(...)`.
+- **`IDSelector.Predicate` is a C# addition.** FAISS has no direct equivalent; it costs one delegate call per candidate.
+- **Sparse vectors have their own index type**, `IndexSparseFlat`, rather than going through the dense `Index` API.
+- **No RaBitQ, PiPNN, fast-scan or Vamana.** Recent upstream FAISS families outside this port's scope.
 
 ---
 
@@ -250,12 +282,12 @@ Publishing is tag-driven:
 
 ```bash
 # bump <Version> in Directory.Build.props first — the workflow refuses to publish if they disagree
-git tag faissnet-v1.0.1
-git push origin faissnet-v1.0.1
+git tag faissnet-v1.1.0
+git push origin faissnet-v1.1.0
 ```
 
-Tags are namespaced because this project lives inside a monorepo. The workflows themselves must sit
-at the repository root — see [.github/workflows/README.md](.github/workflows/README.md).
+Tags are namespaced because this project lives inside a monorepo. The workflows themselves sit at
+the repository root — see [.github/workflows/README.md](.github/workflows/README.md).
 
 ## Contributing
 

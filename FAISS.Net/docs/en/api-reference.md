@@ -43,7 +43,12 @@ at every call site.
 | `AddWithIds(x, ids)` | `index.add_with_ids` | IVF natively; others need `IndexIDMap` |
 | `Search(queries, k)` | `index.search(x, k)` | Returns `SearchResult` |
 | `Search(queries, nq, k, distances, labels)` | — | Writes into caller buffers; allocates nothing |
+| `Search(queries, k, parameters)` | `index.search(x, k, params=...)` | Per-call options; see below |
+| `Search(queries, k, selector)` | `params=SearchParameters(sel=...)` | Filtered search |
+| `Search(queries, nq, k, distances, labels, parameters)` | — | Buffer form with options |
 | `RangeSearch(queries, radius)` | `index.range_search` | Returns `RangeSearchResult` |
+| `RangeSearch(queries, radius, parameters / selector)` | `range_search(x, r, params=...)` | Filtered radius search |
+| `ComputeDistanceSubset(query, ids, out)` | `compute_distance_subset` | Distances to listed ids; used by `IndexRefine` |
 | `RemoveIds(ids)` | `index.remove_ids` | Returns the count removed |
 | `RemoveIds(predicate)` | `remove_ids(IDSelector)` | |
 | `Reset()` | `index.reset()` | Drops vectors, keeps training |
@@ -67,6 +72,31 @@ var distances = new float[nq * k];
 var labels = new long[nq * k];
 index.Search(queries, nq, k, distances, labels);   // allocates nothing
 ```
+
+### Search parameters and selectors
+
+```csharp
+index.Search(q, k: 10, selector: IDSelector.Range(0, 1000));
+index.Search(q, k: 10, new SearchParametersIVF { Nprobe = 32, Sel = sel });
+```
+
+| Type | Python | Fields |
+|---|---|---|
+| `SearchParameters` | `faiss.SearchParameters` | `Sel` (alias `Selector`) |
+| `SearchParametersIVF` | `faiss.SearchParametersIVF` | `Nprobe`, `MaxCodes`, `QuantizerParams` |
+| `SearchParametersHNSW` | `faiss.SearchParametersHNSW` | `EfSearch` (also NSG's pool) |
+| `SearchParametersRefine` | `faiss.IndexRefineSearchParameters` | `KFactor`, `BaseIndexParams` |
+
+| Selector | Python |
+|---|---|
+| `IDSelector.Range(min, max)` / `IDSelectorRange` | `faiss.IDSelectorRange` |
+| `IDSelector.Batch(ids)` / `IDSelectorBatch` | `faiss.IDSelectorBatch` |
+| `IDSelector.Bitmap(bytes)`, `IDSelectorBitmap.FromIds(ids, n)` | `faiss.IDSelectorBitmap` |
+| `IDSelector.Not / And / Or / XOr / All` | `faiss.IDSelectorNot` … |
+| `IDSelector.Predicate(f)` | — (a C# convenience) |
+
+A parameter an index cannot honour throws `NotSupportedException`. Passing `null` needs a name,
+`Search(q, k, parameters: null)`, because the selector overload also accepts null.
 
 ---
 
@@ -139,11 +169,19 @@ new IndexIVFScalarQuantizer(dimension, nlist, type, metric)
 | `ClusteringParameters` | `index.cp` | |
 | `MakeDirectMap()` | `index.make_direct_map()` | Required before `Reconstruct` |
 | `ListStatistics()` | — | `(Min, Max, Mean, Empty)` cell occupancy |
+| `UsePrecomputedTable` (IVFPQ) | `index.use_precomputed_table` | Off by default; see `PrecomputedTableBytes` |
+
+Any `Index` can be the quantizer, including `IndexHNSWFlat` (`IVF<n>_HNSW<M>`) and
+`MultiIndexQuantizer(d, m, nbits)` (`IMI2x<bits>`), whose cells are implicit products of two
+codebooks.
 
 ### Graph
 
 ```csharp
 new IndexHNSWFlat(dimension, m, metric)
+new IndexHNSWSQ(dimension, type, m, metric)        // Train first
+new IndexHNSWPQ(dimension, pqM, m, pqNbits, metric) // Train first
+new IndexNSGFlat(dimension, r, metric)            // Add once
 ```
 
 | Member | Python | |
@@ -152,8 +190,19 @@ new IndexHNSWFlat(dimension, m, metric)
 | `EfSearch` | `index.hnsw.efSearch` | Query-time beam width; the recall dial |
 | `M` | `index.hnsw.M` | Links per node above layer 0 |
 | `Graph` | `index.hnsw` | `LayerSizes()`, `AverageDegree()` |
+| `AddLevel0LinksFromSample(x)` | `index.add_level_0_links_from_sample(x)` | Sink repair; returns `HNSWLevel0LinkStats` |
+| `Level0LinkSamplesPerNode` | `index.level_0_link_samples_per_node` | Used by IVF training; 3, 0 disables |
+| `R`, `SearchL`, `GK` (NSG) | `index.nsg.R`, `search_L`, `GK` | Out-degree, query pool, k-NN graph k |
 
-`RemoveIds` throws — HNSW does not support deletion, matching FAISS.
+`RemoveIds` throws on the graph indexes — they do not support deletion, matching FAISS. Exclude ids
+at search time with a selector instead.
+
+### Re-ranking
+
+```csharp
+new IndexRefine(baseIndex, refineIndex) { KFactor = 4 }
+new IndexRefineFlat(baseIndex)            // exact IndexFlat refine stage
+```
 
 ### Compressed flat
 
@@ -169,6 +218,7 @@ Both expose `CompressionRatio` and the underlying quantizer (`Pq` / `Sq`), like 
 ```csharp
 new IndexBinaryFlat(dimension)          // dimension in bits, multiple of 8
 new IndexBinaryIVF(dimension, nlist)
+new IndexBinaryHNSW(dimension, m)       // EfSearch, AddLevel0LinksFromSample
 ```
 
 Vectors are packed bytes. `HammingOps` provides `Distance`, `PopCount`, `Binarize`, `GetBit`,
@@ -182,7 +232,18 @@ new IndexIDMap2(baseIndex)                       // adds a reverse id table
 new IndexPreTransform(transform, baseIndex)
 new IndexPreTransform(transforms, baseIndex)
 new IndexReplicas(dimension, metric)             // AddReplica(index)
-new IndexShards(dimension, metric)               // AddShard(index)
+new IndexShards(dimension, metric)               // AddShard(index); Threaded, RemoveIds
+new SynchronizedIndex(index)                     // reader-writer lock around anything
+PersistentIndex.Open(path, () => index)          // snapshot + write-ahead journal; Checkpoint()
+```
+
+### Sparse — namespace `Faiss.Net.Sparse`
+
+```csharp
+var index = new IndexSparseFlat(dimension, normalizeOnAdd: false);
+index.Add(new SparseVector(indices, values));
+index.Search(queries, k, selector);
+index.RemoveIds(ids); index.Compact();
 ```
 
 ### GPU — namespace `Faiss.Net.Gpu`
@@ -213,6 +274,7 @@ new NormalizationTransform(d)               // L2 normalize -> cosine via inner 
 new RandomRotationMatrix(d, seed)           // fixed rotation, no training
 new PCAMatrix(dIn, dOut, eigenPower)        // -0.5 whitens
 new OPQMatrix(d, m)                         // learned rotation for a following PQ
+new OPQMatrix(d, m, dOut)                   // learned projection to dOut dimensions
 ```
 
 All derive from `VectorTransform`: `Train`, `Apply`, `ReverseTransform`. Chain them with
@@ -239,6 +301,9 @@ kmeans.Centroids;                                 // flat k * d
 kmeans.Assign(x);                                 // (labels, distances)
 kmeans.ObjectiveHistory;                          // per-iteration objective
 kmeans.ToIndex();                                 // flat index over the centroids
+
+// Mini-batch k-means for very large training sets
+new Kmeans(d, k, new ClusteringParameters { MiniBatchSize = 4096, MiniBatchIterations = 100 });
 ```
 
 `ScalarQuantizerType`: `Float16`, `Uniform8Bit`, `PerDimension8Bit`, `PerDimension4Bit`.
@@ -254,6 +319,11 @@ IndexIO.Serialize(index);                    // byte[]
 IndexIO.Deserialize(bytes);
 IndexIO.WriteBinaryIndex(binaryIndex, path);
 IndexIO.ReadBinaryIndex(path);
+IndexIO.WriteSparseIndex(sparseIndex, path);
+IndexIO.ReadSparseIndex(path);
+
+using var persistent = PersistentIndex.Open(path, () => new IndexFlatL2(d));
+persistent.Checkpoint();
 
 MappedIndexFlat.Write(flatIndex, path);
 MappedIndexFlat.Write(anyReconstructableIndex, path);
@@ -276,7 +346,8 @@ VectorOps.InnerProduct(a, b);
 VectorOps.NormalizeL2(span, d);
 VectorOps.SimdDescription;
 
-BruteForce.Knn(...);          // the exhaustive kernel, threaded and SIMD
+BruteForce.Knn(...);          // the exhaustive kernel, threaded and SIMD; blocked GEMM for batches
+BruteForce.UseBlockedKernel;  // true by default; false forces the pairwise kernel
 BruteForce.RangeSearch(...);
 
 MatrixOps.SymmetricEigen(...);
@@ -301,6 +372,13 @@ MatrixOps.RandomOrthonormal(d, seed);
 | `D, I = index.search(x, k)` | `var (D, I) = index.Search(x, k)` |
 | `lims, D, I = index.range_search(x, r)` | `var r = index.RangeSearch(x, radius)` |
 | `index.remove_ids(sel)` | `index.RemoveIds(predicate)` |
+| `index.search(x, k, params=faiss.SearchParameters(sel=sel))` | `index.Search(x, k, selector: sel)` |
+| `faiss.SearchParametersIVF(nprobe=32)` | `new SearchParametersIVF { Nprobe = 32 }` |
+| `faiss.IndexRefineFlat(index)` | `new IndexRefineFlat(index)` |
+| `faiss.IndexHNSWSQ(d, faiss.ScalarQuantizer.QT_8bit, 32)` | `new IndexHNSWSQ(d, ScalarQuantizerType.PerDimension8Bit, 32)` |
+| `faiss.IndexNSGFlat(d, 32)` | `new IndexNSGFlat(d, 32)` |
+| `faiss.MultiIndexQuantizer(d, 2, 10)` | `new MultiIndexQuantizer(d, 2, 10)` |
+| `faiss.IndexBinaryHNSW(d, 32)` | `new IndexBinaryHNSW(d, 32)` |
 | `index.reconstruct(i)` | `index.Reconstruct(i)` |
 | `index.nprobe = 8` | `index.Nprobe = 8` |
 | `index.hnsw.efSearch = 64` | `index.EfSearch = 64` |

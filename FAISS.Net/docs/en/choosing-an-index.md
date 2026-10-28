@@ -24,11 +24,21 @@ Fits in memory, needs to be faster?  ──────────────�
 Needs sub-millisecond at high recall?  ─────────────► IndexHNSWFlat
                                                        costs memory and build time
 
+Graph speed, less memory?  ─────────────────────────► IndexHNSWSQ               (4x smaller vectors)
+
 Doesn't fit in memory?  ────────────────────────────► IndexIVFScalarQuantizer   (4x smaller)
                                                     └► IndexIVFPQ               (16-64x smaller)
+                                                       + IndexRefineFlat to win the recall back
+
+Millions of cells?  ────────────────────────────────► IMI2x10,PQ16 or IVF65536_HNSW32,PQ16
 
 Larger than RAM?  ──────────────────────────────────► MappedIndexFlat
+
+Sparse (SPLADE, bag of words)?  ────────────────────► IndexSparseFlat
 ```
+
+Whatever you pick, two features apply to all of it: filtered search (`IDSelector`) and per-call
+parameters — see [Running an index in production](production.md).
 
 Do not skip the first box. A flat scan of 100,000 × 128 vectors takes under a millisecond per query
 on a modern core, is exact, needs no training, has no parameters to get wrong, and cannot silently
@@ -140,6 +150,58 @@ must be at least `k`.
 
 ---
 
+### IndexHNSWSQ / IndexHNSWPQ — the same graph over compressed vectors
+
+The graph of `IndexHNSWFlat`, unchanged, over scalar-quantized or product-quantized storage. The
+links still cost `4 × (2M + …)` bytes per vector, but the vectors themselves shrink 4× (`SQ8`) or
+by `d × 4 / m` (`PQ<m>`).
+
+```csharp
+var sq = new IndexHNSWSQ(128, ScalarQuantizerType.PerDimension8Bit, m: 32);
+sq.Train(sample);                         // one min/max pass
+sq.Add(vectors);
+
+var pq = new IndexRefineFlat(new IndexHNSWPQ(128, pqM: 16, m: 32)) { KFactor = 4 };
+```
+
+`HNSW32,SQ8` loses about as much recall as `SQ8` does anywhere — usually under a point. `HNSWPQ`
+is bounded by PQ accuracy, which is why it is normally paired with a refine stage. Factory:
+`HNSW32,SQ8`, `HNSW32,PQ16`, `HNSW32,Flat`.
+
+---
+
+### IndexNSGFlat — a single-layer graph
+
+The Navigating Spreading-out Graph: one flat graph with one fixed entry point near the medoid,
+built in one pass from an exact k-nearest-neighbour graph and pruned to out-degree `R` by the same
+diversity rule HNSW uses, then swept so every node is reachable.
+
+```csharp
+var index = new IndexNSGFlat(128, r: 32) { SearchL = 64 };
+index.Add(vectors);   // once: NSG is built from the whole dataset
+```
+
+| | |
+|---|---|
+| Recall | Matches or beats HNSW on uniform or overlapping data |
+| Memory | Vectors plus `4 × R` bytes per vector — smaller than HNSW |
+| Build | Exact k-NN graph (blocked matrix product) up to 200,000 vectors, HNSW-approximated above |
+| Adds | **Once.** Rebuild to change the data |
+
+**Its weak spot is strongly clustered data.** Built from a k-NN graph, NSG inherits that graph's
+lack of edges between tight, far-apart clusters. Measured on 4,000 vectors in 32 clusters (d = 32,
+`SearchL = 64`):
+
+| data | NSG recall@10 | HNSW recall@10 |
+|---|--:|--:|
+| uniform | 99.7% | 98.4% |
+| clusters, spread 0.3 | 99.9% | 99.2% |
+| clusters, spread 0.1 | **42.0%** | 97.8% |
+
+Prefer HNSW unless you know your data is not made of isolated clusters.
+
+---
+
 ### IndexIVFScalarQuantizer — 4× smaller, almost free
 
 An IVF index whose entries are scalar-quantized: each dimension stored as one byte against a learned
@@ -201,7 +263,44 @@ var index = FaissNet.IndexFactory(128, "OPQ16,IVF1024,PQ16");
 ```
 
 OPQ learns the rotation that spreads variance evenly. It costs training time only — query cost and
-memory are identical.
+memory are identical. `OPQ16_64` additionally reduces the dimension to 64, choosing the subspace
+jointly with the codebooks rather than by variance alone as `PCA64` would.
+
+**Precomputed tables.** With a large `Nprobe`, rebuilding the lookup table for every probed cell
+dominates the query. `UsePrecomputedTable = true` replaces that build with one table addition per
+cell, at a memory cost of `nlist × m × 256 × 4` bytes (`PrecomputedTableBytes`; 67 MB at
+`nlist = 4096, m = 16`). Results are the same up to float rounding.
+
+**Win the recall back.** Wrap it in `IndexRefineFlat` (factory suffix `,RFlat`): the scan still reads
+16-byte codes, and only `k × KFactor` candidates per query are re-scored exactly. See
+[production](production.md#re-ranking-with-indexrefine).
+
+---
+
+### Millions of cells: IMI and an HNSW coarse quantizer
+
+A flat coarse quantizer stops scaling around tens of thousands of cells — training and assigning
+against it are both linear in `nlist`. Two alternatives:
+
+```csharp
+var imi  = FaissNet.IndexFactory(128, "IMI2x10,PQ16");        // 2^20 implicit cells
+var hnsw = FaissNet.IndexFactory(128, "IVF65536_HNSW32,PQ16"); // 65,536 centroids in a graph
+```
+
+- **`MultiIndexQuantizer`** (`IMI2x<bits>`) splits the vector in two halves with `2^bits` centroids
+  each; a cell is one centroid per half, so two 1,024-centroid codebooks define a million cells, and
+  the best `nprobe` cells are produced in order by the multi-sequence algorithm without enumerating
+  the rest. L2 only.
+- **HNSW coarse quantizer** (`IVF<n>_HNSW<M>`) keeps ordinary k-means centroids and assigns with a
+  graph search. Training repairs the graph's *sinks* automatically (see below), with
+  `Level0LinkSamplesPerNode` training vectors per centroid, 3 by default.
+
+**Sink repair.** With a small `EfSearch` an HNSW can stop at the same node for queries whose true
+nearest node is elsewhere; as a coarse quantizer that node's inverted list grows many times larger
+than its neighbours'. `AddLevel0LinksFromSample(sample)` finds such nodes from a sample and links
+them to the nodes their searches should have reached (FAISS #5705). Measured on a deliberately weak
+graph (4,000 nodes, M = 8, `EfSearch = 4`), on vectors the repair never saw: assignment recall@1
+82.7% → 90.0%, sinks 39 → 0.
 
 ---
 
@@ -232,6 +331,10 @@ index.Add(codes);                                  // packed bytes
 32× smaller than float32 and extremely fast. Recall is exact *with respect to the codes*; whatever
 was lost was lost when the vectors were binarized.
 
+`IndexBinaryHNSW` puts the HNSW graph over binary codes — the same engine as the float graphs, with
+a Hamming distance — and has the same sink repair. Hamming distances are small integers, so many
+codes tie; judge it by the distances it returns rather than by exact ids.
+
 ---
 
 ### MappedIndexFlat — larger than RAM
@@ -258,7 +361,10 @@ These wrap another index rather than storing vectors themselves.
 | `IndexIDMap` / `IndexIDMap2` | Application ids instead of positions. `IDMap2` adds a reverse table so `Reconstruct` by id is a hash lookup. |
 | `IndexPreTransform` | Applies transforms to added vectors *and* queries. How `OPQ16,IVF1024,PQ16` is built. |
 | `IndexReplicas` | Same data in several sub-indexes, queries split across them. Scales throughput; the multi-GPU pattern. |
-| `IndexShards` | Data split across sub-indexes, results merged. Scales capacity. |
+| `IndexShards` | Data split across sub-indexes, results merged; shards searched in parallel (`Threaded`). Scales capacity. |
+| `IndexRefine` / `IndexRefineFlat` | A compressed index proposes `k × KFactor` candidates, an exact one re-scores them. |
+| `SynchronizedIndex` | Reader-writer lock around any index, for several writers or mutations not covered by the lock-free contract. |
+| `PersistentIndex` | Snapshot plus write-ahead journal: incremental, crash-safe persistence. |
 
 ---
 
@@ -280,6 +386,13 @@ then the encoding.
 | `IVF1024,SQ8` | `IndexIVFScalarQuantizer` |
 | `PQ16`, `SQ8`, `SQ4`, `SQfp16` | Compressed flat |
 | `HNSW32` | `IndexHNSWFlat` |
+| `HNSW32,SQ8`, `HNSW32,PQ16` | `IndexHNSWSQ`, `IndexHNSWPQ` |
+| `NSG32` | `IndexNSGFlat` |
+| `IVF65536_HNSW32,PQ16` | IVFPQ with an HNSW coarse quantizer |
+| `IMI2x10,PQ16` | IVFPQ over an inverted multi-index |
+| `IVF1024,PQ16,RFlat` | IVFPQ re-ranked by an exact flat index |
+| `PQ16,Refine(SQfp16)` | Any refine stage |
+| `OPQ16_64,IVF1024,PQ16` | Dimension-reducing OPQ, then IVFPQ |
 | `PCA64,Flat` | PCA to 64 dimensions, then flat |
 | `OPQ16,IVF1024,PQ16` | Learned rotation, then IVFPQ |
 | `IDMap,Flat` | `IndexIDMap2` around a flat index |

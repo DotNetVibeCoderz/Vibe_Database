@@ -210,6 +210,77 @@ def main() -> int:
     for ef in (16, 32, 64, 128):
         hnsw(ef)
 
+    # --- 1.1: graph variants, re-ranking, precomputed tables (same rows as SuiteRunner.cs)
+    def hnsw_sq():
+        index = faiss.IndexHNSWSQ(d, faiss.ScalarQuantizer.QT_8bit, 32)
+        index.hnsw.efConstruction = 80
+        train_ms, _ = timed(lambda: index.train(base))
+        add_ms, _ = timed(lambda: index.add(base))
+        index.hnsw.efSearch = 64
+        measure_search(index, queries, k, ground_truth, records, "IndexHNSWSQ8",
+                       "M=32,efSearch=64", train_ms, add_ms, serialized_size(index), verbose)
+
+    def nsg():
+        index = faiss.IndexNSGFlat(d, 32)
+        add_ms, _ = timed(lambda: index.add(base))
+        index.nsg.search_L = 64
+        measure_search(index, queries, k, ground_truth, records, "IndexNSGFlat",
+                       "R=32,search_L=64", 0.0, add_ms, serialized_size(index), verbose)
+
+    def refine():
+        ivfpq = faiss.IndexIVFPQ(faiss.IndexFlatL2(d), d, nlist, m, 8)
+        ivfpq.nprobe = 8
+        index = faiss.IndexRefineFlat(ivfpq)
+        index.k_factor = 4
+        train_ms, _ = timed(lambda: index.train(base))
+        add_ms, _ = timed(lambda: index.add(base))
+        measure_search(index, queries, k, ground_truth, records, "IndexIVFPQ+RFlat",
+                       f"nlist={nlist},nprobe=8,k_factor=4", train_ms, add_ms, serialized_size(index), verbose)
+
+    def ivfpq_precomputed():
+        # FAISS precomputes IVFPQ tables by default; labelled to pair with the .NET opt-in row.
+        index = faiss.IndexIVFPQ(faiss.IndexFlatL2(d), d, nlist, m, 8)
+        train_ms, _ = timed(lambda: index.train(base))
+        add_ms, _ = timed(lambda: index.add(base))
+        size = serialized_size(index)
+        for nprobe in (8, 32):
+            index.nprobe = nprobe
+            measure_search(index, queries, k, ground_truth, records, "IndexIVFPQ",
+                           f"nlist={nlist},nprobe={nprobe},precomputed", train_ms, add_ms, size, verbose)
+
+    hnsw_sq()
+    nsg()
+    refine()
+    ivfpq_precomputed()
+
+    # --- 1.1: filtered search, one id in ten, scored against filtered ground truth
+    selector = faiss.IDSelectorRange(0, n // 10)
+    exact = faiss.IndexFlatL2(d)
+    exact.add(base)
+    _, filtered_truth = exact.search(queries, k, params=faiss.SearchParameters(sel=selector))
+
+    def filtered(name, params, index, search_params, needs_training):
+        train_ms = timed(lambda: index.train(base))[0] if needs_training else 0.0
+        add_ms, _ = timed(lambda: index.add(base))
+
+        class Filtered:
+            """Adapter so measure_search times the filtered call."""
+            def search(self, x, kk):
+                return index.search(x, kk, params=search_params)
+
+        measure_search(Filtered(), queries, k, filtered_truth, records, name, params,
+                       train_ms, add_ms, serialized_size(index), verbose)
+
+    filtered("IndexFlatL2", "exact,sel=10%", faiss.IndexFlatL2(d),
+             faiss.SearchParameters(sel=selector), False)
+    filtered("IndexIVFFlat", f"nlist={nlist},nprobe=8,sel=10%",
+             faiss.IndexIVFFlat(faiss.IndexFlatL2(d), d, nlist),
+             faiss.SearchParametersIVF(sel=selector, nprobe=8), True)
+    hnsw_index = faiss.IndexHNSWFlat(d, 32)
+    hnsw_index.hnsw.efConstruction = 80
+    filtered("IndexHNSWFlat", "M=32,efSearch=64,sel=10%", hnsw_index,
+             faiss.SearchParametersHNSW(sel=selector, efSearch=64), False)
+
     report = {
         "implementation": "FAISS (Python)",
         "version": faiss.__version__,
