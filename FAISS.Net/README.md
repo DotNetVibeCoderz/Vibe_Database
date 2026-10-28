@@ -1,3 +1,5 @@
+<img src="assets/icon.png" alt="FAISS.Net" width="96" align="right" />
+
 # FAISS.Net
 
 **High-performance similarity search for .NET.** A from-scratch port of [FAISS](https://github.com/facebookresearch/faiss) to managed C# — no native binaries, no P/Invoke — with an API deliberately shaped like the Python one so existing FAISS code translates statement by statement.
@@ -202,7 +204,7 @@ src/Faiss.Net              the library
 src/Faiss.Net.Gpu          ILGPU backend (CUDA / OpenCL / CPU fallback)
 samples/…Samples.Console   guided tour, one section per concept
 samples/…Gallery           Avalonia desktop app
-tests/…Tests               82 tests: correctness, recall, round-trips
+tests/…Tests               86 tests: correctness, recall, round-trips
 benchmarks/                matched suite vs Python FAISS, plus BenchmarkDotNet
 docs/                      English and Indonesian documentation
 ```
@@ -211,7 +213,7 @@ docs/                      English and Indonesian documentation
 
 ```bash
 dotnet build                                    # everything
-dotnet test                                     # 82 tests
+dotnet test                                     # 86 tests
 dotnet run -c Release --project samples/Faiss.Net.Samples.Console
 dotnet run -c Release --project samples/Faiss.Net.Gallery
 ```

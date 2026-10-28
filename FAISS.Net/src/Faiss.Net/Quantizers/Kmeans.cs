@@ -262,12 +262,41 @@ public sealed class Kmeans
 
                 float* newCentroid = pc + (long)c * D;
                 x.AsSpan(chosen * D, D).CopyTo(new Span<float>(newCentroid, D));
+                UpdateClosest(px, newCentroid, closest, n);
+            }
+        }
+    }
 
-                for (int i = 0; i < n; i++)
-                {
-                    float dist = VectorOps.L2Sqr(px + (long)i * D, newCentroid, D);
-                    if (dist < closest[i]) closest[i] = dist;
-                }
+    /// <summary>
+    /// Lowers each point's D^2 to the newly chosen centroid. This is the whole cost of seeding,
+    /// <c>O(n * K * d)</c>, so it runs over contiguous chunks in parallel. Every element is written
+    /// by exactly one thread and the D^2 total is still summed serially, so the chosen centroids are
+    /// identical to a serial run.
+    /// </summary>
+    private unsafe void UpdateClosest(float* px, float* centroid, float[] closest, int n)
+    {
+        const int MinChunk = 4096;
+        int threads = Math.Min(Environment.ProcessorCount, Math.Max(1, n / MinChunk));
+        nint xp = (nint)px, cp = (nint)centroid;
+        int d = D;
+
+        if (threads == 1)
+        {
+            Update(0, n);
+            return;
+        }
+
+        int chunk = (n + threads - 1) / threads;
+        Parallel.For(0, threads, new ParallelOptions { MaxDegreeOfParallelism = threads },
+            t => Update(t * chunk, Math.Min(n, (t + 1) * chunk)));
+
+        void Update(int start, int end)
+        {
+            float* x = (float*)xp, c = (float*)cp;
+            for (int i = start; i < end; i++)
+            {
+                float dist = VectorOps.L2Sqr(x + (long)i * d, c, d);
+                if (dist < closest[i]) closest[i] = dist;
             }
         }
     }

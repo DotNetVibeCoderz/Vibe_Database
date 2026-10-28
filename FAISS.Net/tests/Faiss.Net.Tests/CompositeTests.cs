@@ -232,6 +232,50 @@ public class WrapperTests
         // Shard ids are offset in add order, which for a contiguous split reproduces the original ids.
         Assert.Equal(expected.Labels, actual.Labels);
     }
+
+    [Fact]
+    public void ShardsRemoveByGlobalIdLikeOneFlatIndex()
+    {
+        const int d = 16;
+        var data = TestData.Clustered(600, d);
+        var reference = new IndexFlatL2(d);
+        reference.Add(data);
+
+        var shards = new IndexShards(d) { RoundRobinAdds = false };
+        for (int s = 0; s < 3; s++) shards.AddShard(new IndexFlatL2(d));
+        shards.Add(data);
+
+        // Ids from every shard, including both edges of a shard boundary (199/200, 399/400).
+        long[] drop = [0, 7, 199, 200, 350, 399, 400, 599];
+        Assert.Equal(drop.Length, reference.RemoveIds(drop));
+        Assert.Equal(drop.Length, shards.RemoveIds(drop));
+        Assert.Equal(reference.Ntotal, shards.Ntotal);
+
+        var queries = TestData.Slice(data, d, 20);
+        Assert.Equal(reference.Search(queries, 5).Labels, shards.Search(queries, 5).Labels);
+    }
+
+    [Fact]
+    public void ShardsRejectAMismatchedMetric()
+    {
+        var shards = new IndexShards(8);
+        Assert.Throws<ArgumentException>(() => shards.AddShard(new IndexFlatIP(8)));
+    }
+
+    [Fact]
+    public void ReplicasRemoveByPredicateOnEveryReplica()
+    {
+        const int d = 16;
+        var data = TestData.Clustered(500, d);
+        var replicas = new IndexReplicas(d);
+        replicas.AddReplica(new IndexFlatL2(d));
+        replicas.AddReplica(new IndexFlatL2(d));
+        replicas.Add(data);
+
+        Assert.Equal(250, replicas.RemoveIds(id => id % 2 == 0));
+        Assert.Equal(250, replicas.Ntotal);
+        Assert.All(replicas.Replicas, r => Assert.Equal(250, r.Ntotal));
+    }
 }
 
 /// <summary>Quantizers exercised directly, independently of any index.</summary>

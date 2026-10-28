@@ -21,9 +21,18 @@ to an unrelated project. Assembly names and namespaces are unaffected — consum
 
  Ten index families, four metrics, GPU flat search, versioned persistence, memory-mapped
 indexes, a matched benchmark suite against Python FAISS, bilingual documentation, and a desktop
-gallery. 82 tests passing.
+gallery. 86 tests passing.
 
 The full inventory is in [Progress.md](Progress.md).
+
+---
+
+### 1.0.1 — upstream sync
+
+A maintenance release: fixes found while reviewing upstream FAISS through 2026-10-27, `RemoveIds` on
+`IndexShards`, parallel k-means++ seeding, package icons, and CI that actually runs. Details and
+measurements in [Progress.md](Progress.md#upstream-sync). Two upstream HNSW changes — sample-based
+level-0 links (#5705) and cosine pruning for inner-product graphs (#5774) — are queued for v1.2.
 
 ---
 

@@ -353,6 +353,20 @@ public class ApproximateIndexTests
     }
 
     [Fact]
+    public void VisitedTableForgetsEarlierTraversalsWhenItGrows()
+    {
+        var visited = new Faiss.Net.Utils.VisitedTable(4);
+        visited.Reset(4);
+        Assert.True(visited.Visit(1));
+
+        // Growing must not reissue a version an earlier traversal already stamped.
+        visited.Reset(4096);
+        Assert.False(visited.WasVisited(1));
+        Assert.True(visited.Visit(1));
+        Assert.False(visited.WasVisited(4000));
+    }
+
+    [Fact]
     public void HnswGraphIsConnectedEnoughToBeNavigable()
     {
         var data = TestData.Clustered(2000, D);

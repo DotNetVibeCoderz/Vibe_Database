@@ -231,7 +231,7 @@ tests run everywhere.
 
 ## Testing
 
-82 tests, and the choices behind them matter as much as the count:
+86 tests, and the choices behind them matter as much as the count:
 
 - **Kernels are checked against scalar reference implementations** at seventeen dimensions chosen to
   cover every register width and its remainder. The interesting bugs live in tail handling.

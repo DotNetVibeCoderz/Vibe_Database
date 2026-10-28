@@ -1,3 +1,5 @@
+<img src="assets/icon.png" alt="FAISS.Net" width="96" align="right" />
+
 # FAISS.Net
 
 **Pencarian kemiripan berperforma tinggi untuk .NET.** Porting [FAISS](https://github.com/facebookresearch/faiss) ke C# terkelola dari nol — tanpa biner native, tanpa P/Invoke — dengan API yang sengaja dibentuk menyerupai versi Python, sehingga kode FAISS yang sudah ada bisa diterjemahkan baris per baris.
@@ -203,7 +205,7 @@ src/Faiss.Net              pustakanya
 src/Faiss.Net.Gpu          backend ILGPU (CUDA / OpenCL / fallback CPU)
 samples/…Samples.Console   tur berpandu, satu bagian per konsep
 samples/…Gallery           aplikasi desktop Avalonia
-tests/…Tests               82 pengujian: kebenaran, recall, round-trip
+tests/…Tests               86 pengujian: kebenaran, recall, round-trip
 benchmarks/                suite yang sepadan dengan Python FAISS, plus BenchmarkDotNet
 docs/                      dokumentasi bahasa Inggris dan Indonesia
 ```
@@ -212,7 +214,7 @@ docs/                      dokumentasi bahasa Inggris dan Indonesia
 
 ```bash
 dotnet build                                    # semuanya
-dotnet test                                     # 82 pengujian
+dotnet test                                     # 86 pengujian
 dotnet run -c Release --project samples/Faiss.Net.Samples.Console
 dotnet run -c Release --project samples/Faiss.Net.Gallery
 ```

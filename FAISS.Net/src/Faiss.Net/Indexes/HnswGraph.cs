@@ -33,11 +33,28 @@ public sealed class HnswGraph
     /// <summary>Links per node on layer 0, <c>2 * M</c>.</summary>
     public int M0 => M * 2;
 
+    // Entry node and top level packed into one word, so a concurrent insert can never read a new
+    // level paired with the old entry node. That pairing sends the descent through layers the old
+    // entry does not have, and Neighbors() would then read slots belonging to the next node.
+    private long _entry = Pack(-1, -1);
+
+    private static long Pack(int node, int level) => ((long)level << 32) | (uint)node;
+
     /// <summary>Highest layer currently occupied.</summary>
-    public int MaxLevel { get; private set; } = -1;
+    public int MaxLevel => (int)(Volatile.Read(ref _entry) >> 32);
 
     /// <summary>Node the descent starts from; the sole node on <see cref="MaxLevel"/>.</summary>
-    public int EntryPoint { get; private set; } = -1;
+    public int EntryPoint => (int)Volatile.Read(ref _entry);
+
+    /// <summary>Entry node and top level read together, consistent with each other.</summary>
+    public (int Node, int Level) Entry
+    {
+        get
+        {
+            long packed = Volatile.Read(ref _entry);
+            return ((int)packed, (int)(packed >> 32));
+        }
+    }
 
     /// <summary>Nodes in the graph.</summary>
     public int Count => _count;
@@ -111,11 +128,7 @@ public sealed class HnswGraph
     public object LockFor(int node) => _locks[node];
 
     /// <summary>Promotes a node to be the entry point. Callers must serialize this.</summary>
-    public void SetEntryPoint(int node, int level)
-    {
-        EntryPoint = node;
-        MaxLevel = level;
-    }
+    public void SetEntryPoint(int node, int level) => Volatile.Write(ref _entry, Pack(node, level));
 
     /// <summary>Drops every node and link.</summary>
     public void Reset()
@@ -125,8 +138,7 @@ public sealed class HnswGraph
         _levels = [];
         _locks = [];
         _neighbors = [];
-        EntryPoint = -1;
-        MaxLevel = -1;
+        _entry = Pack(-1, -1);
     }
 
     /// <summary>Approximate resident bytes.</summary>
@@ -184,8 +196,7 @@ public sealed class HnswGraph
         long slots = reader.ReadInt64();
         for (long i = 0; i < slots; i++) graph._neighbors[i] = reader.ReadInt32();
 
-        graph.EntryPoint = entryPoint;
-        graph.MaxLevel = maxLevel;
+        graph._entry = Pack(entryPoint, maxLevel);
         return graph;
     }
 }

@@ -1,7 +1,7 @@
 # FAISS.Net — publish to NuGet on a version tag.
 #
-# This file belongs at the ROOT of the Vibe_Database repository, not inside FAISS.Net/.
-# See .github/workflows/README.md.
+# This file lives at the ROOT of the Vibe_Database repository: GitHub Actions only reads workflows
+# from the root, and silently ignores ones nested in a project subdirectory.
 #
 # Tags are namespaced (`faissnet-v1.2.0`) rather than bare (`v1.2.0`) because Vibe_Database is a
 # monorepo: a bare version tag would be ambiguous about which project it releases, and would fire
@@ -112,11 +112,20 @@ jobs:
           path: FAISS.Net/artifacts/packages/*
           retention-days: 90
 
+      # The key goes through env rather than being spliced into the script, and an empty one fails
+      # here by name. Without the check a missing secret surfaces as a 403 from nuget.org, which
+      # reads like a permissions problem on the package rather than an unset secret.
       - name: Push to NuGet
         if: github.event_name == 'push' || inputs.dry_run == false
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
         run: |
+          if [ -z "$NUGET_API_KEY" ]; then
+            echo "::error::NUGET_API_KEY is not set."
+            exit 1
+          fi
           dotnet nuget push "artifacts/packages/*.nupkg" \
-            --api-key "${{ secrets.NUGET_API_KEY }}" \
+            --api-key "$NUGET_API_KEY" \
             --source https://api.nuget.org/v3/index.json \
             --skip-duplicate
 
@@ -125,9 +134,11 @@ jobs:
       - name: Push symbols to NuGet
         if: github.event_name == 'push' || inputs.dry_run == false
         continue-on-error: true
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
         run: |
           dotnet nuget push "artifacts/packages/*.snupkg" \
-            --api-key "${{ secrets.NUGET_API_KEY }}" \
+            --api-key "$NUGET_API_KEY" \
             --source https://api.nuget.org/v3/index.json \
             --skip-duplicate
 

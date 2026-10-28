@@ -22,11 +22,11 @@ public sealed class VisitedTable
     /// <summary>Starts a new traversal, growing the table if the graph has since grown.</summary>
     public void Reset(int capacity)
     {
+        // Growing keeps the version. Resetting it here would leave the copied-over stamps of early
+        // traversals equal to the versions about to be reissued, so nodes would read as visited
+        // before the walk ever reached them. The new slots are zero, which no traversal uses.
         if (_stamps.Length < capacity)
-        {
             Array.Resize(ref _stamps, Math.Max(capacity, _stamps.Length * 2));
-            _version = 0;
-        }
 
         if (_version == int.MaxValue)
         {

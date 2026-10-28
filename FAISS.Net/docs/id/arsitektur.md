@@ -240,7 +240,7 @@ pengujian GPU berjalan di mana saja.
 
 ## Pengujian
 
-82 pengujian, dan alasan di balik pilihannya sama pentingnya dengan jumlahnya:
+86 pengujian, dan alasan di balik pilihannya sama pentingnya dengan jumlahnya:
 
 - **Kernel diuji terhadap implementasi rujukan skalar** pada tujuh belas dimensi yang dipilih untuk
   menutup setiap lebar register beserta sisanya. Bug yang menarik selalu bersembunyi di penanganan

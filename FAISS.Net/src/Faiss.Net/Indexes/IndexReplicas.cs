@@ -96,6 +96,14 @@ public sealed class IndexReplicas : Index
         return removed;
     }
 
+    public override long RemoveIds(Func<long, bool> predicate)
+    {
+        long removed = 0;
+        foreach (var replica in _replicas) removed = replica.RemoveIds(predicate);
+        Ntotal = _replicas.Count > 0 ? _replicas[0].Ntotal : 0;
+        return removed;
+    }
+
     public override void Reset()
     {
         foreach (var replica in _replicas) replica.Reset();
@@ -160,6 +168,10 @@ public sealed class IndexShards : Index
     public void AddShard(Index index)
     {
         if (index.D != D) throw new ArgumentException($"Shard dimension {index.D} does not match {D}.");
+        // The merge orders results by the wrapper's metric, so a shard scoring the other way round
+        // would have its best hits discarded as its worst.
+        if (index.MetricType != MetricType)
+            throw new ArgumentException($"Shard metric {index.MetricType} does not match {MetricType}.");
         _idOffsets.Add(_shards.Count == 0 ? 0 : _idOffsets[^1] + _shards[^1].Ntotal);
         _shards.Add(index);
         IsTrained = _shards.TrueForAll(s => s.IsTrained);
@@ -248,6 +260,29 @@ public sealed class IndexShards : Index
                 heap.Finish();
             }
         }
+    }
+
+    /// <summary>
+    /// Removes by global id. Each id is routed to the shard whose range holds it; the shard compacts
+    /// and every later shard's range shifts down, exactly as removal renumbers a single flat index.
+    /// </summary>
+    public override long RemoveIds(ReadOnlySpan<long> ids)
+    {
+        var drop = new HashSet<long>();
+        foreach (long id in ids) drop.Add(id);
+        return RemoveIds(drop.Contains);
+    }
+
+    public override long RemoveIds(Func<long, bool> predicate)
+    {
+        long removed = 0;
+        for (int s = 0; s < _shards.Count; s++)
+        {
+            long offset = _idOffsets[s]; // offsets as they were before any shard in this call shrank
+            removed += _shards[s].RemoveIds(local => predicate(local + offset));
+        }
+        RecomputeOffsets();
+        return removed;
     }
 
     public override void Reset()

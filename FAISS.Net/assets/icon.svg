@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+<defs>
+<linearGradient id="tile" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1E2436"/><stop offset="1" stop-color="#10131C"/></linearGradient>
+<radialGradient id="halo"><stop offset="0" stop-color="#F0A22E" stop-opacity="0.55"/><stop offset="1" stop-color="#F0A22E" stop-opacity="0"/></radialGradient>
+<radialGradient id="query" cx="0.38" cy="0.34" r="0.75"><stop offset="0" stop-color="#FFD27A"/><stop offset="1" stop-color="#F0A22E"/></radialGradient>
+</defs>
+<rect x="2.0" y="2.0" width="508" height="508" rx="112" fill="url(#tile)" stroke="#262D42" stroke-width="4"/>
+<circle cx="430" cy="92" r="15" fill="#4A5168"/>
+<circle cx="452" cy="214" r="12" fill="#4A5168"/>
+<circle cx="440" cy="420" r="15" fill="#4A5168"/>
+<circle cx="318" cy="462" r="12" fill="#4A5168"/>
+<circle cx="84" cy="448" r="13" fill="#4A5168"/>
+<circle cx="66" cy="116" r="12" fill="#4A5168"/>
+<circle cx="180" cy="64" r="11" fill="#4A5168"/>
+<circle cx="468" cy="318" r="10" fill="#4A5168"/>
+<circle cx="256" cy="256" r="162" fill="none" stroke="#1F6E78" stroke-width="10"/>
+<circle cx="256" cy="256" r="74" fill="url(#halo)"/>
+<line x1="256" y1="256" x2="311.4" y2="151.8" stroke="#3EC8D8" stroke-width="11" stroke-linecap="round" stroke-opacity="0.75"/>
+<line x1="256" y1="256" x2="359.0" y2="270.5" stroke="#3EC8D8" stroke-width="11" stroke-linecap="round" stroke-opacity="0.75"/>
+<line x1="256" y1="256" x2="291.3" y2="379.0" stroke="#3EC8D8" stroke-width="11" stroke-linecap="round" stroke-opacity="0.75"/>
+<line x1="256" y1="256" x2="171.2" y2="301.1" stroke="#3EC8D8" stroke-width="11" stroke-linecap="round" stroke-opacity="0.75"/>
+<line x1="256" y1="256" x2="156.4" y2="166.3" stroke="#3EC8D8" stroke-width="11" stroke-linecap="round" stroke-opacity="0.75"/>
+<circle cx="311.4" cy="151.8" r="25" fill="#3EC8D8"/>
+<circle cx="359.0" cy="270.5" r="27" fill="#3EC8D8"/>
+<circle cx="291.3" cy="379.0" r="23" fill="#3EC8D8"/>
+<circle cx="171.2" cy="301.1" r="25" fill="#3EC8D8"/>
+<circle cx="156.4" cy="166.3" r="21" fill="#3EC8D8"/>
+<circle cx="256" cy="256" r="40" fill="url(#query)"/>
+</svg>

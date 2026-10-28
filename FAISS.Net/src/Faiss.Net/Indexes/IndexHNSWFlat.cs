@@ -139,8 +139,7 @@ public sealed class IndexHNSWFlat : Index
 
     private unsafe void ConnectNode(int node, int nodeLevel)
     {
-        int entry = _graph.EntryPoint;
-        int maxLevel = _graph.MaxLevel;
+        var (entry, maxLevel) = _graph.Entry;
         if (entry < 0 || entry == node) return;
 
         var scratch = RentScratch();
@@ -390,9 +389,9 @@ public sealed class IndexHNSWFlat : Index
         var scratch = RentScratch();
         try
         {
-            int entry = _graph.EntryPoint;
+            var (entry, maxLevel) = _graph.Entry;
             float entryScore = Score(query, buffer + (long)entry * D);
-            for (int level = _graph.MaxLevel; level > 0; level--)
+            for (int level = maxLevel; level > 0; level--)
                 GreedyDescend(buffer, query, ref entry, ref entryScore, level);
 
             var found = SearchLayer(buffer, query, entry, entryScore, ef, 0, scratch);
@@ -441,9 +440,9 @@ public sealed class IndexHNSWFlat : Index
                 {
                     float* bufferLocal = (float*)bp;
                     float* query = (float*)qp + (long)q * D;
-                    int entry = _graph.EntryPoint;
+                    var (entry, maxLevel) = _graph.Entry;
                     float entryScore = Score(query, bufferLocal + (long)entry * D);
-                    for (int level = _graph.MaxLevel; level > 0; level--)
+                    for (int level = maxLevel; level > 0; level--)
                         GreedyDescend(bufferLocal, query, ref entry, ref entryScore, level);
 
                     var found = SearchLayer(bufferLocal, query, entry, entryScore, ef, 0, scratch);

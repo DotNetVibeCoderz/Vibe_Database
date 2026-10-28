@@ -1,23 +1,13 @@
 # CI workflows
 
-> **These files must be moved to the repository root before they will run.**
->
-> GitHub Actions only reads `.github/workflows/` at the root of a repository. FAISS.Net lives at
-> `Vibe_Database/FAISS.Net/`, so a workflow left in `FAISS.Net/.github/workflows/` is silently
-> ignored — no error, no run, nothing.
+> **The workflow files themselves live at the repository root**, in
+> `Vibe_Database/.github/workflows/faissnet-ci.yml` and `faissnet-release.yml`. GitHub Actions only
+> reads `.github/workflows/` at the root of a repository, so a workflow left here would be silently
+> ignored. This README stays beside the project so the documentation travels with it.
 
-They are written for the monorepo layout already: path filters scope them to `FAISS.Net/**`, and
-every job sets `working-directory: FAISS.Net`. Only their location needs to change.
-
-```bash
-# from the root of the Vibe_Database checkout
-mkdir -p .github/workflows .github/scripts
-cp FAISS.Net/.github/workflows/faissnet-ci.yml      .github/workflows/
-cp FAISS.Net/.github/workflows/faissnet-release.yml .github/workflows/
-```
-
-The docs check stays where it is — `faissnet-ci.yml` invokes it at
-`FAISS.Net/.github/scripts/check_docs.py`, which is a normal repository path and needs no move.
+They are written for the monorepo layout: path filters scope them to `FAISS.Net/**`, and every job
+sets `working-directory: FAISS.Net`. The docs check is invoked at
+`FAISS.Net/.github/scripts/check_docs.py`.
 
 Names are prefixed `faissnet-` so they do not collide with other projects' workflows in the same
 repository.
@@ -30,7 +20,7 @@ Runs on pushes and pull requests that touch `FAISS.Net/**`.
 
 | Job | What it does |
 |---|---|
-| `test` | Restores, builds with `-warnaserror`, and runs the 82 tests on **ubuntu, windows and macos** |
+| `test` | Restores, builds with `-warnaserror`, and runs the 86 tests on **ubuntu, windows and macos** |
 | `pack` | Builds both NuGet packages and uploads them as artifacts |
 | `docs` | Verifies every relative link resolves and that `docs/en` and `docs/id` are still in step |
 
@@ -50,8 +40,8 @@ Triggered by a tag matching `faissnet-v*`.
 
 ```bash
 # from the repository root, after updating <Version> in FAISS.Net/Directory.Build.props
-git tag faissnet-v1.0.0
-git push origin faissnet-v1.0.0
+git tag faissnet-v1.0.1
+git push origin faissnet-v1.0.1
 ```
 
 Tags are namespaced rather than bare `v1.0.0` because this is a monorepo: a bare version tag would
@@ -70,8 +60,8 @@ without publishing — the way to rehearse a release.
 
 | | |
 |---|---|
-| Secret `NUGET_API_KEY` | An API key from nuget.org, glob-scoped to `Gravicode.FaissNet*` so it covers both packages and nothing else |
-| Environment `nuget` | Create under **Settings → Environments** with required reviewers. Publishing then needs a human approval even though pushing a tag does not |
+| Secret `NUGET_API_KEY` | An API key from nuget.org, glob-scoped to `Gravicode.FaissNet*` so it covers both packages and nothing else. **Already set** on the repository; the push step fails by name if it ever goes missing |
+| Environment `nuget` | Create under **Settings → Environments** with required reviewers. Publishing then needs a human approval even though pushing a tag does not. Note that naming an environment that does not exist does not fail the workflow: GitHub creates it on first use with no protection, so the gate is only real if reviewers are configured. MemSharp's release uses the same environment |
 
 Both packages are published together: `Gravicode.FaissNet` and `Gravicode.FaissNet.Gpu`. The README instructs users to
 install the GPU package, so shipping only the core one would leave that instruction broken.

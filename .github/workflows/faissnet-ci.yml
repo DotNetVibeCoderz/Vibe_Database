@@ -1,8 +1,8 @@
 # FAISS.Net — build, test and pack on every change.
 #
-# This file belongs at the ROOT of the Vibe_Database repository, not inside FAISS.Net/.
-# GitHub Actions only reads .github/workflows/ from the repository root; a workflow nested in a
-# subdirectory is silently ignored. See .github/workflows/README.md for the move.
+# This file lives at the ROOT of the Vibe_Database repository: GitHub Actions only reads
+# .github/workflows/ from the repository root, and silently ignores a workflow nested in a
+# subdirectory. FAISS.Net/.github/workflows/README.md documents both workflows.
 #
 # The matrix is not decoration. VectorOps dispatches on the widest SIMD register the hardware
 # reports, so the three runners exercise three genuinely different code paths: AVX2 or AVX-512 on
