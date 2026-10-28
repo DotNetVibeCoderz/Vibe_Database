@@ -38,7 +38,11 @@ public static class IndexIO
         [IndexTypeCode.IVFPQ] = (d, m) => new IndexIVFPQ(new IndexFlatL2(d), d, 1, 1, 8, m),
         [IndexTypeCode.IVFScalarQuantizer] = (d, m) =>
             new IndexIVFScalarQuantizer(new IndexFlatL2(d), d, 1, ScalarQuantizerType.PerDimension8Bit, m),
+        [IndexTypeCode.IVFResidualQuantizer] = (d, m) => new IndexIVFResidualQuantizer(new IndexFlatL2(d), d, 1, 1, 8, m),
+        [IndexTypeCode.IVFLocalSearchQuantizer] = (d, m) => new IndexIVFLocalSearchQuantizer(new IndexFlatL2(d), d, 1, 1, 8, m),
         [IndexTypeCode.PQ] = (d, m) => new IndexPQ(d, 1, 8, m),
+        [IndexTypeCode.ResidualQuantizer] = (d, m) => new IndexResidualQuantizer(d, 1, 8, m),
+        [IndexTypeCode.LocalSearchQuantizer] = (d, m) => new IndexLocalSearchQuantizer(d, 1, 8, m),
         [IndexTypeCode.ScalarQuantizer] = (d, m) => new IndexScalarQuantizer(d, ScalarQuantizerType.PerDimension8Bit, m),
         [IndexTypeCode.HNSWFlat] = (d, m) => new IndexHNSWFlat(d, 32, m),
         [IndexTypeCode.HNSWSQ] = (d, m) => new IndexHNSWSQ(d, ScalarQuantizerType.PerDimension8Bit, 32, m),

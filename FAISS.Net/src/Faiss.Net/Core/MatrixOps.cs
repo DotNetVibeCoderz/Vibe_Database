@@ -262,4 +262,95 @@ public static class MatrixOps
 
         v = vAcc;
     }
+
+    /// <summary>
+    /// Solves <c>A X = B</c> in place for a symmetric positive-definite <c>n x n</c> matrix
+    /// <paramref name="a"/> and <c>n x nrhs</c> right-hand sides <paramref name="b"/> (both row-major),
+    /// by Cholesky factorization — LAPACK's <c>posv</c>. On return <paramref name="a"/> holds the
+    /// lower factor and <paramref name="b"/> the solution.
+    /// <para>
+    /// Used by the local-search quantizer's codebook update, where <c>n = M * 2^nbits</c> reaches a few
+    /// thousand. The factorization is column-oriented: once column <c>j</c>'s pivot is known, every
+    /// entry below it depends only on already-finished columns, so those rows are computed in
+    /// parallel — and because each entry is still one fixed-order dot product, the result does not
+    /// depend on how the rows were scheduled.
+    /// </para>
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The matrix is not positive definite.</exception>
+    public static void CholeskySolve(double[] a, int n, double[] b, int nrhs)
+    {
+        if (a.Length < (long)n * n) throw new ArgumentException("Matrix is smaller than n x n.", nameof(a));
+        if (b.Length < (long)n * nrhs) throw new ArgumentException("Right-hand side is smaller than n x nrhs.", nameof(b));
+
+        // Factor A = L L^T, storing L in the lower triangle row by row.
+        for (int j = 0; j < n; j++)
+        {
+            double pivot = a[(long)j * n + j] - Dot(a, (long)j * n, (long)j * n, j);
+            if (!(pivot > 0))
+                throw new InvalidOperationException($"Matrix is not positive definite (pivot {pivot} at column {j}).");
+            double diagonal = Math.Sqrt(pivot);
+            a[(long)j * n + j] = diagonal;
+
+            int column = j;
+            void Row(int i)
+            {
+                long row = (long)i * n;
+                a[row + column] = (a[row + column] - Dot(a, row, (long)column * n, column)) / diagonal;
+            }
+
+            int remaining = n - j - 1;
+            if ((long)remaining * j < 32_768)
+                for (int i = j + 1; i < n; i++) Row(i);
+            else
+                Parallel.For(j + 1, n, Row);
+        }
+
+        // Forward substitution L Y = B, then back substitution L^T X = Y, one row of B at a time.
+        for (int i = 0; i < n; i++)
+        {
+            long row = (long)i * n;
+            var target = b.AsSpan(i * nrhs, nrhs);
+            for (int p = 0; p < i; p++)
+            {
+                double l = a[row + p];
+                if (l == 0) continue;
+                var source = b.AsSpan(p * nrhs, nrhs);
+                for (int c = 0; c < nrhs; c++) target[c] -= l * source[c];
+            }
+            double inverse = 1.0 / a[row + i];
+            for (int c = 0; c < nrhs; c++) target[c] *= inverse;
+        }
+        for (int i = n - 1; i >= 0; i--)
+        {
+            var target = b.AsSpan(i * nrhs, nrhs);
+            for (int p = i + 1; p < n; p++)
+            {
+                double l = a[(long)p * n + i];
+                if (l == 0) continue;
+                var source = b.AsSpan(p * nrhs, nrhs);
+                for (int c = 0; c < nrhs; c++) target[c] -= l * source[c];
+            }
+            double inverse = 1.0 / a[(long)i * n + i];
+            for (int c = 0; c < nrhs; c++) target[c] *= inverse;
+        }
+    }
+
+    /// <summary>Dot product of <paramref name="length"/> doubles starting at two offsets of one array.</summary>
+    private static double Dot(double[] data, long first, long second, int length)
+    {
+        var x = data.AsSpan((int)first, length);
+        var y = data.AsSpan((int)second, length);
+        int i = 0;
+        double sum = 0;
+        if (System.Numerics.Vector.IsHardwareAccelerated && length >= System.Numerics.Vector<double>.Count)
+        {
+            var acc = System.Numerics.Vector<double>.Zero;
+            int width = System.Numerics.Vector<double>.Count;
+            for (; i <= length - width; i += width)
+                acc += new System.Numerics.Vector<double>(x[i..]) * new System.Numerics.Vector<double>(y[i..]);
+            sum = System.Numerics.Vector.Sum(acc);
+        }
+        for (; i < length; i++) sum += x[i] * y[i];
+        return sum;
+    }
 }

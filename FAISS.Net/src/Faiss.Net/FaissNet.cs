@@ -211,6 +211,26 @@ public static class FaissNet
         return (m, nbits);
     }
 
+    /// <summary>
+    /// <c>RQ&lt;M&gt;[x&lt;nbits&gt;]</c> or <c>LSQ&lt;M&gt;[x&lt;nbits&gt;]</c>. Unlike PQ, every codebook spans the
+    /// full dimension, so <c>M</c> need not divide it.
+    /// </summary>
+    private static (int M, int Nbits) ParseAdditive(string encoding, int prefixLength, string description)
+    {
+        string rest = encoding[prefixLength..];
+        int nbits = 8;
+        int cross = rest.IndexOf('x', StringComparison.OrdinalIgnoreCase);
+        if (cross >= 0)
+        {
+            nbits = ParseInt(rest[(cross + 1)..], encoding);
+            rest = rest[..cross];
+        }
+        int m = ParseInt(rest, encoding);
+        if (nbits > 16)
+            throw new ArgumentException($"'{description}': {encoding} asks for {nbits} bits per codebook; at most 16 are supported.");
+        return (m, nbits);
+    }
+
     private static VectorTransform? TryParseTransform(string part, int dimension)
     {
         if (part.Equals("L2norm", StringComparison.OrdinalIgnoreCase))
@@ -278,6 +298,22 @@ public static class FaissNet
                 : new IndexPQ(dimension, m, nbits, metric);
         }
 
+        if (encoding.StartsWith("RQ", StringComparison.OrdinalIgnoreCase))
+        {
+            var (m, nbits) = ParseAdditive(encoding, 2, description);
+            return nlist > 0
+                ? new IndexIVFResidualQuantizer(Quantizer(), dimension, nlist, m, nbits, metric)
+                : new IndexResidualQuantizer(dimension, m, nbits, metric);
+        }
+
+        if (encoding.StartsWith("LSQ", StringComparison.OrdinalIgnoreCase))
+        {
+            var (m, nbits) = ParseAdditive(encoding, 3, description);
+            return nlist > 0
+                ? new IndexIVFLocalSearchQuantizer(Quantizer(), dimension, nlist, m, nbits, metric)
+                : new IndexLocalSearchQuantizer(dimension, m, nbits, metric);
+        }
+
         if (encoding.StartsWith("SQ", StringComparison.OrdinalIgnoreCase))
         {
             var type = ParseScalarType(encoding, description);
@@ -287,7 +323,7 @@ public static class FaissNet
         }
 
         throw new ArgumentException(
-            $"'{description}': unknown encoding '{encoding}'. Supported: Flat, PQ<m>[x<bits>], SQ8, SQ4, SQfp16, HNSW<M>.");
+            $"'{description}': unknown encoding '{encoding}'. Supported: Flat, PQ<m>[x<bits>], RQ<m>[x<bits>], LSQ<m>[x<bits>], SQ8, SQ4, SQfp16, HNSW<M>.");
     }
 
     private static int ParseInt(string text, string context) =>
