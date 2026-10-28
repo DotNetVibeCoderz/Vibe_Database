@@ -40,6 +40,14 @@ public sealed class StandardGpuResources : IDisposable
     /// <summary>Human-readable device description, for logging and benchmark headers.</summary>
     public string DeviceName => $"{Accelerator.Name} ({Accelerator.AcceleratorType})";
 
+    /// <summary>
+    /// Lock every index on these resources takes around device work. They all launch on the one
+    /// <see cref="Accelerator.DefaultStream"/>, and two searches interleaving uploads, launches and
+    /// synchronizations on a shared stream from different threads returned garbage (all-zero labels)
+    /// under the parallel test runner. Serializing costs nothing a single stream could have overlapped.
+    /// </summary>
+    internal object SyncRoot { get; } = new();
+
     /// <summary>Device memory in bytes.</summary>
     public long DeviceMemory => Accelerator.MemorySize;
 

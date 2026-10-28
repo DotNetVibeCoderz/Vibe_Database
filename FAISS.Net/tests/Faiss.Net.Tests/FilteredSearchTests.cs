@@ -257,13 +257,36 @@ public class FilteredSearchTests
     }
 
     [Fact]
-    public void IndexesWithoutParameterSupportRejectThemLoudly()
+    public void GpuFlatFilteredSearchMatchesTheCpuIndex()
     {
+        // Database and queries from one distribution: generated together, then split.
+        const int nq = 20;
+        var all = TestData.Clustered(N + nq, D);
+        var data = all.AsSpan(0, N * D).ToArray();
+        var queries = all.AsSpan(N * D).ToArray();
+
+        var cpu = new IndexFlatL2(D);
+        cpu.Add(data);
         using var gpu = new Gpu.IndexFlatL2Gpu(D);
-        gpu.Add(TestData.Clustered(100, D));
-        // Default parameters are fine everywhere; only a real filter must be refused.
-        gpu.Search(TestData.Slice(TestData.Clustered(100, D), D, 1), K, new SearchParameters());
-        Assert.Throws<NotSupportedException>(() =>
-            gpu.Search(TestData.Slice(TestData.Clustered(100, D), D, 1), K, IDSelector.Range(0, 10)));
+        gpu.Add(data);
+
+        // Default parameters behave like no parameters.
+        Assert.Equal(cpu.Search(queries, K).Labels, gpu.Search(queries, K, new SearchParameters()).Labels);
+
+        IDSelector[] selectors =
+        [
+            IDSelector.Range(0, 10),
+            IDSelector.Range(1000, 2500),
+            IDSelector.Predicate(id => id % 4 == 3),
+            IDSelector.Not(IDSelector.Range(0, N / 2)),
+        ];
+        foreach (var sel in selectors)
+        {
+            var expected = cpu.Search(queries, K, sel);
+            var actual = gpu.Search(queries, K, sel);
+            Assert.Equal(expected.Labels, actual.Labels);
+            for (int i = 0; i < expected.Distances.Length; i++)
+                Assert.Equal(expected.Distances[i], actual.Distances[i], 2);
+        }
     }
 }

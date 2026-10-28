@@ -22,6 +22,11 @@ namespace Faiss.Net.Gpu;
 /// Vectors live in device memory, so <see cref="Add"/> re-uploads the database. Build the index
 /// once and query it many times; that is the shape this is built for.
 /// </para>
+/// <para>
+/// Device work is serialized per <see cref="StandardGpuResources"/>: every index on the same
+/// resources shares the accelerator's default stream, so two searches at once would gain nothing
+/// and could interleave one index's upload with another's scan.
+/// </para>
 /// </summary>
 public class GpuIndexFlat : Index, IDisposable
 {
@@ -31,8 +36,10 @@ public class GpuIndexFlat : Index, IDisposable
     private bool _dirty;
     private bool _disposed;
 
+    private readonly object _gate;
+
     private readonly Action<AcceleratorStream, Index2D, ArrayView<float>, ArrayView<float>, ArrayView<float>, int, int, int> _distanceKernel;
-    private readonly Action<AcceleratorStream, Index1D, ArrayView<float>, ArrayView<float>, ArrayView<long>, int, int, int, int> _selectKernel;
+    private readonly Action<AcceleratorStream, Index1D, ArrayView<float>, ArrayView<float>, ArrayView<long>, ArrayView<byte>, int, int, int, int, int> _selectKernel;
 
     /// <summary>The accelerator this index runs on.</summary>
     public StandardGpuResources Resources => _resources;
@@ -47,12 +54,13 @@ public class GpuIndexFlat : Index, IDisposable
             throw new NotSupportedException("The GPU backend supports L2 and inner product.");
 
         _resources = resources ?? StandardGpuResources.Default;
+        _gate = _resources.SyncRoot;
         IsTrained = true;
 
         _distanceKernel = _resources.Accelerator
-            .LoadAutoGroupedKernel<Index2D, ArrayView<float>, ArrayView<float>, ArrayView<float>, int, int, int>(DistanceKernel);
+            .LoadAutoGroupedKernel<Index2D, ArrayView<float>, ArrayView<float>, ArrayView<float>, int, int, int>(GpuKernels.Distance);
         _selectKernel = _resources.Accelerator
-            .LoadAutoGroupedKernel<Index1D, ArrayView<float>, ArrayView<float>, ArrayView<long>, int, int, int, int>(SelectKernel);
+            .LoadAutoGroupedKernel<Index1D, ArrayView<float>, ArrayView<float>, ArrayView<long>, ArrayView<byte>, int, int, int, int, int>(GpuKernels.Select);
     }
 
     public override bool SupportsReconstruct => true;
@@ -61,151 +69,117 @@ public class GpuIndexFlat : Index, IDisposable
     {
         int n = ValidateBatch(x, nameof(x));
         if (n == 0) return;
-        _staging.AddRange(x);
-        Ntotal = _staging.Count / D;
-        _dirty = true;
+        lock (_gate)
+        {
+            _staging.AddRange(x);
+            Ntotal = _staging.Count / D;
+            _dirty = true;
+        }
     }
 
     /// <summary>Uploads pending vectors. Called automatically before the first search after an add.</summary>
     public void Sync()
     {
-        if (!_dirty) return;
-        _deviceVectors?.Dispose();
-        _deviceVectors = _resources.Accelerator.Allocate1D(_staging.ToArray());
-        _dirty = false;
+        lock (_gate)
+        {
+            if (!_dirty) return;
+            _deviceVectors?.Dispose();
+            _deviceVectors = _resources.Accelerator.Allocate1D(_staging.ToArray());
+            _dirty = false;
+        }
     }
 
-    public override void Search(ReadOnlySpan<float> queries, int nq, int k, Span<float> distances, Span<long> labels)
+    public override void Search(ReadOnlySpan<float> queries, int nq, int k, Span<float> distances, Span<long> labels) =>
+        Search(queries, nq, k, distances, labels, null);
+
+    /// <summary>
+    /// Search with per-call options. A selector in <paramref name="parameters"/> is evaluated on the
+    /// host into one byte per stored vector, uploaded, and tested inside the selection kernel, so
+    /// each query still receives up to k members of the subset — the same contract as the CPU
+    /// <see cref="IndexFlat"/>. Evaluating on the host is what lets any selector work, predicates
+    /// included, at the price of one <see cref="IDSelector.IsMember"/> call per vector per search.
+    /// Like the CPU flat index, options other than the selector are ignored: there is nothing else
+    /// to tune in an exhaustive scan.
+    /// </summary>
+    public override void Search(
+        ReadOnlySpan<float> queries, int nq, int k, Span<float> distances, Span<long> labels,
+        SearchParameters? parameters)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         if (nq == 0) return;
         if (Ntotal == 0)
         {
-            distances.Fill(MetricType.IsSimilarity() ? float.MinValue : float.MaxValue);
-            labels.Fill(-1);
+            distances[..(nq * k)].Fill(MetricType.IsSimilarity() ? float.MinValue : float.MaxValue);
+            labels[..(nq * k)].Fill(-1);
             return;
         }
 
-        Sync();
-        int ntotal = (int)Ntotal;
         if (k > MaxK)
             throw new ArgumentOutOfRangeException(nameof(k),
                 $"The GPU selection kernel keeps k <= {MaxK} per thread; use the CPU index for larger k.");
 
-        // Chunk queries so the distance matrix stays inside the configured device-memory budget.
-        long perQueryBytes = (long)ntotal * sizeof(float);
-        int chunk = (int)Math.Clamp(_resources.MaxDistanceMatrixBytes / Math.Max(1, perQueryBytes), 1, nq);
-
-        var accelerator = _resources.Accelerator;
-        var stream = accelerator.DefaultStream;
-        using var deviceDistances = accelerator.Allocate1D<float>((long)chunk * ntotal);
-        using var deviceQueries = accelerator.Allocate1D<float>((long)chunk * D);
-        using var outDistances = accelerator.Allocate1D<float>((long)chunk * k);
-        using var outLabels = accelerator.Allocate1D<long>((long)chunk * k);
-
-        var hostDistances = new float[(long)chunk * k];
-        var hostLabels = new long[(long)chunk * k];
-        int metric = MetricType == MetricType.InnerProduct ? 1 : 0;
-
-        for (int start = 0; start < nq; start += chunk)
+        lock (_gate)
         {
-            int count = Math.Min(chunk, nq - start);
-            deviceQueries.View.SubView(0, (long)count * D)
-                .CopyFromCPU(stream, queries.Slice(start * D, count * D).ToArray());
+            Sync();
+            int ntotal = (int)Ntotal;
 
-            _distanceKernel(stream, new Index2D(count, ntotal),
-                deviceQueries.View, _deviceVectors!.View, deviceDistances.View, D, ntotal, metric);
+            // Chunk queries so the distance matrix stays inside the configured device-memory budget.
+            long perQueryBytes = (long)ntotal * sizeof(float);
+            int chunk = (int)Math.Clamp(_resources.MaxDistanceMatrixBytes / Math.Max(1, perQueryBytes), 1, nq);
 
-            _selectKernel(stream, new Index1D(count),
-                deviceDistances.View, outDistances.View, outLabels.View, ntotal, k, metric, count);
+            var accelerator = _resources.Accelerator;
+            var stream = accelerator.DefaultStream;
+            var selector = parameters?.Sel;
+            using var deviceMask = selector is null ? accelerator.Allocate1D<byte>(1) : UploadMask(selector, ntotal);
+            using var deviceDistances = accelerator.Allocate1D<float>((long)chunk * ntotal);
+            using var deviceQueries = accelerator.Allocate1D<float>((long)chunk * D);
+            using var outDistances = accelerator.Allocate1D<float>((long)chunk * k);
+            using var outLabels = accelerator.Allocate1D<long>((long)chunk * k);
 
-            stream.Synchronize();
+            var hostDistances = new float[(long)chunk * k];
+            var hostLabels = new long[(long)chunk * k];
+            int metric = GpuKernels.MetricCode(MetricType);
+            int useMask = selector is null ? 0 : 1;
 
-            outDistances.View.SubView(0, (long)count * k).CopyToCPU(stream, hostDistances.AsSpan(0, count * k));
-            outLabels.View.SubView(0, (long)count * k).CopyToCPU(stream, hostLabels.AsSpan(0, count * k));
-            stream.Synchronize();
+            for (int start = 0; start < nq; start += chunk)
+            {
+                int count = Math.Min(chunk, nq - start);
+                deviceQueries.View.SubView(0, (long)count * D)
+                    .CopyFromCPU(stream, queries.Slice(start * D, count * D).ToArray());
 
-            hostDistances.AsSpan(0, count * k).CopyTo(distances.Slice(start * k, count * k));
-            hostLabels.AsSpan(0, count * k).CopyTo(labels.Slice(start * k, count * k));
+                _distanceKernel(stream, new Index2D(count, ntotal),
+                    deviceQueries.View, _deviceVectors!.View, deviceDistances.View, D, ntotal, metric);
+
+                _selectKernel(stream, new Index1D(count),
+                    deviceDistances.View, outDistances.View, outLabels.View, deviceMask.View,
+                    ntotal, k, metric, count, useMask);
+
+                stream.Synchronize();
+
+                outDistances.View.SubView(0, (long)count * k).CopyToCPU(stream, hostDistances.AsSpan(0, count * k));
+                outLabels.View.SubView(0, (long)count * k).CopyToCPU(stream, hostLabels.AsSpan(0, count * k));
+                stream.Synchronize();
+
+                hostDistances.AsSpan(0, count * k).CopyTo(distances.Slice(start * k, count * k));
+                hostLabels.AsSpan(0, count * k).CopyTo(labels.Slice(start * k, count * k));
+            }
         }
     }
 
-    /// <summary>Upper bound on k, set by the fixed-size selection array each kernel thread holds.</summary>
-    public const int MaxK = 1024;
-
-    /// <summary>One thread per (query, database vector) pair; writes the distance matrix.</summary>
-    private static void DistanceKernel(
-        Index2D index, ArrayView<float> queries, ArrayView<float> database, ArrayView<float> distances,
-        int d, int ntotal, int metric)
+    /// <summary>One membership byte per stored vector; the flat index's ids are its positions.</summary>
+    private MemoryBuffer1D<byte, Stride1D.Dense> UploadMask(IDSelector selector, int ntotal)
     {
-        int q = index.X;
-        int j = index.Y;
-        if (j >= ntotal) return;
-
-        long queryOffset = (long)q * d;
-        long vectorOffset = (long)j * d;
-        float sum = 0f;
-
-        if (metric == 1)
-        {
-            for (int i = 0; i < d; i++) sum += queries[queryOffset + i] * database[vectorOffset + i];
-        }
-        else
-        {
-            for (int i = 0; i < d; i++)
-            {
-                float diff = queries[queryOffset + i] - database[vectorOffset + i];
-                sum += diff * diff;
-            }
-        }
-
-        distances[(long)q * ntotal + j] = sum;
+        var mask = new byte[ntotal];
+        if (selector.MayIntersect(0, ntotal - 1))
+            for (int i = 0; i < ntotal; i++) mask[i] = selector.IsMember(i) ? (byte)1 : (byte)0;
+        return _resources.Accelerator.Allocate1D(mask);
     }
 
     /// <summary>
-    /// One thread per query: a single pass over that query's distance row, maintaining the k best in
-    /// a small insertion-sorted window. Keeping selection on the device is what avoids shipping the
-    /// full distance matrix back across the bus.
+    /// Upper bound on k. Each selection thread keeps its window in global memory, insertion-sorted,
+    /// so the cost of a candidate that enters the window grows with k.
     /// </summary>
-    private static void SelectKernel(
-        Index1D index, ArrayView<float> distances, ArrayView<float> outDistances, ArrayView<long> outLabels,
-        int ntotal, int k, int metric, int nq)
-    {
-        int q = index.X;
-        if (q >= nq) return;
-
-        long rowOffset = (long)q * ntotal;
-        long outOffset = (long)q * k;
-        bool similarity = metric == 1;
-        float worstSentinel = similarity ? float.MinValue : float.MaxValue;
-
-        for (int i = 0; i < k; i++)
-        {
-            outDistances[outOffset + i] = worstSentinel;
-            outLabels[outOffset + i] = -1;
-        }
-
-        for (int j = 0; j < ntotal; j++)
-        {
-            float score = distances[rowOffset + j];
-            float worst = outDistances[outOffset + k - 1];
-            bool better = similarity ? score > worst : score < worst;
-            if (!better) continue;
-
-            int position = k - 1;
-            while (position > 0)
-            {
-                float previous = outDistances[outOffset + position - 1];
-                bool shift = similarity ? score > previous : score < previous;
-                if (!shift) break;
-                outDistances[outOffset + position] = previous;
-                outLabels[outOffset + position] = outLabels[outOffset + position - 1];
-                position--;
-            }
-            outDistances[outOffset + position] = score;
-            outLabels[outOffset + position] = j;
-        }
-    }
+    public const int MaxK = 1024;
 
     public override void Reconstruct(long key, Span<float> output)
     {
@@ -215,11 +189,14 @@ public class GpuIndexFlat : Index, IDisposable
 
     public override void Reset()
     {
-        _staging.Clear();
-        _deviceVectors?.Dispose();
-        _deviceVectors = null;
-        _dirty = false;
-        Ntotal = 0;
+        lock (_gate)
+        {
+            _staging.Clear();
+            _deviceVectors?.Dispose();
+            _deviceVectors = null;
+            _dirty = false;
+            Ntotal = 0;
+        }
     }
 
     /// <summary>Copies this index back to a CPU <see cref="IndexFlat"/> — the <c>index_gpu_to_cpu</c> direction.</summary>
@@ -247,10 +224,13 @@ public class GpuIndexFlat : Index, IDisposable
 
     public void Dispose()
     {
-        if (_disposed) return;
-        _disposed = true;
-        _deviceVectors?.Dispose();
-        _deviceVectors = null;
+        lock (_gate)
+        {
+            if (_disposed) return;
+            _disposed = true;
+            _deviceVectors?.Dispose();
+            _deviceVectors = null;
+        }
         GC.SuppressFinalize(this);
     }
 }
