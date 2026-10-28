@@ -6,44 +6,58 @@ What is optimized, what has been measured, and what has not.
 
 ---
 
-## Measured numbers
+## Measured against FAISS
 
-40,000 vectors of dimension 64, 200 held-out queries, `k = 10`, 8 cores, AVX2, .NET 10. From the
-Gallery's `measure` screen, which computes exact ground truth with a flat scan and reports recall
-against it.
+The matched suite: **100,000 vectors of dimension 128, 1,000 held-out queries, `k = 10`**, both
+implementations reading the same `.fvecs` files and scored against the same exact ground truth.
+FAISS.Net 1.1 on .NET 10.0.12 (AVX2), Python FAISS 1.15.1 (`faiss-cpu`, 8 OpenMP threads), the same
+8-core machine, measured with nothing else running. Times are the median of five full passes over
+the query set; ratio = FAISS.Net time ÷ FAISS time, so below 1 means FAISS.Net is faster.
 
-| Index | Build | ms/query | recall@10 | Memory |
-|---|--:|--:|--:|--:|
-| `IndexFlatL2` | 2 ms | 0.178 | 100.0% | 9.8 MB |
-| `IndexIVFFlat` nprobe=1 | 488 ms | 0.005 | 94.6% | 10.1 MB |
-| `IndexIVFFlat` nprobe=8 | 456 ms | 0.018 | 100.0% | 10.1 MB |
-| `IndexIVFFlat` nprobe=32 | 491 ms | 0.035 | 100.0% | 10.1 MB |
-| `IndexIVFPQ` nprobe=8, m=16 | 10.0 s | 0.088 | 68.8% | 1.0 MB |
-| `IndexIVFSQ` nprobe=8 | 754 ms | 0.417 | 98.3% | 2.8 MB |
-| `IndexSQ` 8-bit | 12 ms | 0.390 | 97.0% | 2.4 MB |
-| `IndexPQ` m=16 | 9.5 s | 0.206 | 21.3% | 689 KB |
-| `IndexHNSWFlat` ef=16 | 1.4 s | 0.008 | 98.6% | 18.0 MB |
-| `IndexHNSWFlat` ef=64 | 1.4 s | 0.014 | 99.7% | 18.0 MB |
+| Index | FAISS.Net ms/query | FAISS ms/query | ratio | recall FAISS.Net | recall FAISS |
+|---|--:|--:|--:|--:|--:|
+| `IndexFlatL2` | 0.791 | 0.501 | 1.58 | 100.0% | 100.0% |
+| `IndexIVFFlat` nprobe=8 | 0.075 | 0.090 | **0.83** | 100.0% | 100.0% |
+| `IndexIVFFlat` nprobe=32 | 0.391 | 0.468 | **0.84** | 100.0% | 100.0% |
+| `IndexIVFPQ` nprobe=8, precomputed tables | 0.047 | 0.047 | 1.00 | 21.5% | 20.0% |
+| `IndexIVFPQ` nprobe=32, precomputed tables | 0.140 | 0.131 | 1.07 | 21.5% | 20.0% |
+| `IndexIVFPQ` nprobe=8, direct tables | 0.098 | 0.046 | 2.15 | 21.5% | 20.0% |
+| `IndexIVFSQ8` nprobe=8 | 0.106 | 0.525 | **0.20** | 96.9% | 96.6% |
+| `IndexSQ8` | 1.859 | 6.615 | **0.28** | 96.5% | 96.5% |
+| `IndexPQ` m=16 | 0.467 | 0.409 | 1.14 | 4.8% | 4.9% |
+| `IndexHNSWFlat` ef=16 | 0.019 | 0.012 | 1.54 | 98.4% | 95.0% |
+| `IndexHNSWFlat` ef=64 | 0.028 | 0.021 | 1.35 | 99.5% | 100.0% |
+| `IndexHNSWSQ8` ef=64 | 0.025 | 0.044 | **0.57** | 95.8% | 96.4% |
+| `IndexNSGFlat` R=32, L=64 | 0.023 | 0.020 | 1.12 | 35.0% | 12.7% |
+| `IndexIVFPQ` + `RFlat`, k_factor=4 | 0.142 | 0.048 | 2.94 | 50.4% | 46.4% |
+| `IndexFlatL2`, 10% filter | 0.088 | 0.051 | 1.72 | 100.0% | 100.0% |
+| `IndexIVFFlat` nprobe=8, 10% filter | 0.015 | 0.015 | **0.97** | 100.0% | 100.0% |
+| `IndexHNSWFlat` ef=64, 10% filter | 0.030 | 0.021 | 1.47 | 99.5% | 99.6% |
 
-![The same measurements in the Gallery](../images/gallery-measuring.png)
+Build times, same run: IVF training 3.0 s vs 1.8 s; IVFPQ training **19 s vs 40 s** (parallel
+sub-quantizer k-means); HNSW construction 8.3 s vs 2.8 s; NSG 85 s vs 19 s.
 
-Read this as rows, not columns. **An index is faster than another only at equal recall.** `IVFFlat`
-at nprobe=1 is the fastest line in the table and also the least accurate; `HNSW` at ef=16 is 22×
-faster than the flat scan *and* keeps 98.6% of the answers, which is what makes it the interesting
-row.
+How to read it:
 
-Two entries deserve explanation rather than defence:
+- **Recall agrees everywhere** — within two points, usually in FAISS.Net's favour. That is the
+  correctness check: both run the same algorithms on the same vectors. The one large gap, NSG, is a
+  property of the data (see below), and FAISS is the one that suffers more from it.
+- **IVFPQ's direct path is 2–3× slower; its precomputed path is level.** FAISS precomputes tables
+  by default; FAISS.Net makes it opt-in (`UsePrecomputedTable`) because of its memory cost. Turn it
+  on and the two match.
+- **The refine row inherits that.** Its base search uses the direct path; with precomputed tables
+  most of the gap closes.
+- **This dataset is hard for PQ.** 21% recall for IVFPQ, 5% for plain PQ: the generated vectors are
+  tight, well-separated clusters, and a 16-byte code spends its budget telling clusters apart. Both
+  implementations agree, which is the point; on real embeddings PQ fares much better.
+- **NSG at 35% / 13%** shows the weakness documented in
+  [choosing an index](choosing-an-index.md#indexnsgflat--a-single-layer-graph): a k-NN graph over
+  well-separated clusters has no edges between them.
+- **Where FAISS is clearly ahead:** HNSW construction (3×), NSG construction (4.5×), exact flat
+  search (1.6× — FAISS uses an optimized BLAS `sgemm`, FAISS.Net its own blocked kernel), and HNSW
+  search (1.35–1.85×).
 
-- **`IndexPQ` at 21.3%.** The synthetic data is a few hundred tight, well-separated clusters. A PQ
-  codebook trained on the raw vectors spends its whole budget encoding *which* cluster a vector is in
-  and has nothing left to distinguish points within one. `IndexIVFPQ` reaches 68.8% with the same
-  code size because it encodes residuals from the cell centroid, and cluster identity is already
-  carried by the cell. This is the clearest practical demonstration of why IVFPQ is the standard
-  large-scale recipe and standalone PQ is not.
-- **`IndexIVFSQ` slower than `IndexIVFFlat`.** Scalar quantization reads a quarter of the bytes but
-  decodes each candidate before comparing. At 10 MB the whole index already fits in cache, so the
-  memory saving buys nothing and the decode is pure added cost. The saving only pays off once the
-  index no longer fits — which is the situation you would reach for it in.
+![The Gallery's comparison screen](../images/gallery-measuring.png)
 
 ---
 
@@ -52,27 +66,40 @@ Two entries deserve explanation rather than defence:
 **SIMD in every distance kernel.** Dispatch at runtime to AVX-512, AVX2, SSE or NEON, unrolled to two
 independent accumulators. `FaissNet.SimdInfo` reports the active path.
 
-**Two threading strategies.** Batch search parallelizes over queries; a single query against a large
-database parallelizes over database blocks and merges the partial heaps. Without the second, an
-interactive lookup would use one core.
+**Blocked matrix product for query batches.** Batches of 16 or more L2 / inner-product queries are
+scored against cache-resident, transposed blocks of the database with a 4 × 16 register tile
+(`BlockedKnn`). Measured on the suite's data: 1.22 → 0.58 ms/query for a batch of 1,000 (2.1×).
 
-**Zero-allocation search.** Scratch buffers come from `ArrayPool<T>`; result heaps are built over the
-caller's own output arrays. A warm query allocates nothing.
+**Three threading strategies.** Batch search parallelizes over queries (or over query tiles in the
+blocked kernel); a single query against a large database parallelizes over database blocks and
+merges the partial heaps.
+
+**Precomputed IVFPQ tables (opt-in).** One table addition per probed cell instead of a table build.
+Measured: nprobe=8 0.083 → 0.049 ms/query (1.7×), nprobe=32 0.317 → 0.145 (2.2×).
+
+**Filtered search that skips work.** Flat evaluates the selector once per row and gathers small
+subsets into a contiguous buffer for the fast kernels; IVF checks membership before scoring; HNSW
+bounds its walk by `ef` over all nodes. Measured at a 10% filter, before → after: flat 0.121 → 0.088,
+IVF 0.086 → 0.015, HNSW 0.152 → 0.030 ms/query.
+
+**Zero-allocation search.** Scratch buffers come from `ArrayPool<T>` or per-thread pooled scratch;
+result heaps are built over the caller's own output arrays.
 
 **Generic specialization instead of branches.** Heap ordering is a compile-time policy
-(`AscendingOrder` / `DescendingOrder`), so the JIT emits one inlined comparison rather than a branch
-on the metric per candidate.
+(`AscendingOrder` / `DescendingOrder`), and the HNSW engine is generic over a struct distance
+computer, so the JIT emits inlined comparisons and distance calls rather than per-candidate branches
+or virtual calls.
 
 **Contiguous storage.** One `float[]` for vectors, one `int[]` for the entire HNSW graph, parallel
 id/code arrays per inverted list. Sequential access, one GC-tracked object, no pointer chasing.
 
-**1.5× growth.** Keeps the transient peak during a resize near 2.5× the live set rather than 3×.
+**Vectorized decode.** 8-bit codes are widened eight at a time; fp16 is converted eight lanes at a time
+by integer SIMD (bit-exact for all 65,536 inputs, tested); 4-bit codes go through a 256-entry table of
+pre-converted nibble pairs.
 
-**Parallel HNSW construction.** Per-node locks around link rewrites, lock-free reads.
-
-**Vectorized 8-bit decode.** Eight bytes read as one `ulong` and widened `byte → ushort → uint →
-float` in a few instructions. The widening, not the arithmetic, is what a scalar decode loop spends
-its time on; this closed most of the gap between a scalar-quantized scan and a raw float scan.
+**Parallel training.** k-means++ seeding, Lloyd assignment (through the blocked kernel for
+`k ≥ 256`), PQ sub-quantizers, OPQ's Procrustes accumulation — all reproducible bit for bit for a
+given seed.
 
 ---
 
@@ -80,17 +107,14 @@ its time on; this closed most of the gap between a scalar-quantized scan and a r
 
 Stated plainly, because a benchmark that hides its weak spots is not worth running.
 
-- **fp16 decode is scalar.** `IndexScalarQuantizer` with `Float16` converts one half at a time. It is
-  the slowest compressed scan in the library despite being the most accurate.
-- **No precomputed IVFPQ tables.** FAISS can precompute `nlist × m × ksub` floats so the ADC table is
-  not rebuilt per probed cell. Not implemented; `ByResidual = false` is the cheap alternative, at
-  some accuracy cost.
-- **No blocked matrix multiply for flat search.** FAISS computes many-to-many L2 through a BLAS
-  `sgemm` with the `‖x‖² + ‖y‖² − 2⟨x,y⟩` decomposition. FAISS.Net computes distances pairwise. For
-  large query batches against large databases, that is the biggest single gap against FAISS.
-- **The GPU backend covers flat indexes only.** No GPU IVF or PQ.
-- **`IndexShards` searches shards sequentially.** Each shard's own search is threaded, but the shards
-  are not searched in parallel with each other.
+- **HNSW construction is 3× slower than FAISS**, and NSG's 4.5×. Search is close; building is not.
+- **Exact flat search is 1.6× slower than FAISS's BLAS `sgemm`.** The blocked kernel halved the gap;
+  a fully tuned GEMM (packing, prefetching, AVX-512 micro-kernels) would be needed to close it.
+- **IVFPQ without precomputed tables is 2–3× slower** than FAISS, which precomputes by default.
+- **Mini-batch k-means trades objective for scale** — about 10–15% higher objective than Lloyd's in
+  the tests.
+- **The GPU backend has never run on real CUDA hardware.** Its kernels are verified against the CPU
+  library on ILGPU's CPU accelerator; no speed claim is made for it.
 
 ---
 
@@ -156,9 +180,11 @@ See [benchmarks/README.md](../../benchmarks/README.md) for how to read the compa
 
 1. Are you on an approximate index at all? A flat scan is exact but linear.
 2. Lower `Nprobe` / `EfSearch` and measure what recall you actually lose.
-3. Batch your queries. Per-query overhead amortizes and threading has more to work with.
-4. Reduce dimension with `PCAMatrix` — every distance gets cheaper.
-5. Check `ListStatistics()`. An unbalanced partition means some queries scan far more than `Nprobe`
+3. On IVFPQ with a large `Nprobe`, set `UsePrecomputedTable = true` (see `PrecomputedTableBytes`).
+4. Batch your queries. Per-query overhead amortizes, threading has more to work with, and flat
+   search switches to the blocked matrix product at 16 queries.
+5. Reduce dimension with `PCAMatrix` — every distance gets cheaper.
+6. Check `ListStatistics()`. An unbalanced partition means some queries scan far more than `Nprobe`
    suggests.
 
 **Using too much memory?**

@@ -20,7 +20,7 @@ Runs on pushes and pull requests that touch `FAISS.Net/**`.
 
 | Job | What it does |
 |---|---|
-| `test` | Restores, builds with `-warnaserror`, and runs the 86 tests on **ubuntu, windows and macos** |
+| `test` | Restores, builds with `-warnaserror`, and runs the 236 tests on **ubuntu, windows and macos** |
 | `pack` | Builds both NuGet packages and uploads them as artifacts |
 | `docs` | Verifies every relative link resolves and that `docs/en` and `docs/id` are still in step |
 

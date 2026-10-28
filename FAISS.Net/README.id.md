@@ -235,7 +235,7 @@ src/Faiss.Net              pustakanya
 src/Faiss.Net.Gpu          backend ILGPU (CUDA / OpenCL / fallback CPU)
 samples/…Samples.Console   tur berpandu, satu bagian per konsep
 samples/…Gallery           aplikasi desktop Avalonia
-tests/…Tests               86 pengujian: kebenaran, recall, round-trip
+tests/…Tests               236 pengujian: kebenaran, recall, round-trip
 benchmarks/                suite yang sepadan dengan Python FAISS, plus BenchmarkDotNet
 docs/                      dokumentasi bahasa Inggris dan Indonesia
 ```
@@ -244,7 +244,7 @@ docs/                      dokumentasi bahasa Inggris dan Indonesia
 
 ```bash
 dotnet build                                    # semuanya
-dotnet test                                     # 86 pengujian
+dotnet test                                     # 236 pengujian
 dotnet run -c Release --project samples/Faiss.Net.Samples.Console
 dotnet run -c Release --project samples/Faiss.Net.Gallery
 ```

@@ -6,95 +6,118 @@ Apa yang dioptimasi, apa yang sudah diukur, dan apa yang belum.
 
 ---
 
-## Angka hasil pengukuran
+## Diukur terhadap FAISS
 
-40.000 vektor berdimensi 64, 200 kueri yang disisihkan, `k = 10`, 8 core, AVX2, .NET 10. Diambil dari
-layar `measure` di Galeri, yang menghitung ground truth eksak lewat pemindaian penuh dan melaporkan
-recall terhadapnya.
+Suite yang dicocokkan: **100.000 vektor berdimensi 128, 1.000 kueri yang disisihkan, `k = 10`**,
+kedua implementasi membaca berkas `.fvecs` yang sama dan dinilai terhadap ground truth eksak yang
+sama. FAISS.Net 1.1 di .NET 10.0.12 (AVX2), Python FAISS 1.15.1 (`faiss-cpu`, 8 thread OpenMP), mesin
+8 core yang sama, diukur tanpa proses lain berjalan. Waktu adalah median dari lima putaran penuh atas
+seluruh kueri; rasio = waktu FAISS.Net ÷ waktu FAISS, jadi di bawah 1 berarti FAISS.Net lebih cepat.
 
-| Index | Bangun | ms/kueri | recall@10 | Memori |
-|---|--:|--:|--:|--:|
-| `IndexFlatL2` | 2 ms | 0,178 | 100,0% | 9,8 MB |
-| `IndexIVFFlat` nprobe=1 | 488 ms | 0,005 | 94,6% | 10,1 MB |
-| `IndexIVFFlat` nprobe=8 | 456 ms | 0,018 | 100,0% | 10,1 MB |
-| `IndexIVFFlat` nprobe=32 | 491 ms | 0,035 | 100,0% | 10,1 MB |
-| `IndexIVFPQ` nprobe=8, m=16 | 10,0 s | 0,088 | 68,8% | 1,0 MB |
-| `IndexIVFSQ` nprobe=8 | 754 ms | 0,417 | 98,3% | 2,8 MB |
-| `IndexSQ` 8-bit | 12 ms | 0,390 | 97,0% | 2,4 MB |
-| `IndexPQ` m=16 | 9,5 s | 0,206 | 21,3% | 689 KB |
-| `IndexHNSWFlat` ef=16 | 1,4 s | 0,008 | 98,6% | 18,0 MB |
-| `IndexHNSWFlat` ef=64 | 1,4 s | 0,014 | 99,7% | 18,0 MB |
+| Index | FAISS.Net ms/kueri | FAISS ms/kueri | rasio | recall FAISS.Net | recall FAISS |
+|---|--:|--:|--:|--:|--:|
+| `IndexFlatL2` | 0,791 | 0,501 | 1,58 | 100,0% | 100,0% |
+| `IndexIVFFlat` nprobe=8 | 0,075 | 0,090 | **0,83** | 100,0% | 100,0% |
+| `IndexIVFFlat` nprobe=32 | 0,391 | 0,468 | **0,84** | 100,0% | 100,0% |
+| `IndexIVFPQ` nprobe=8, tabel precomputed | 0,047 | 0,047 | 1,00 | 21,5% | 20,0% |
+| `IndexIVFPQ` nprobe=32, tabel precomputed | 0,140 | 0,131 | 1,07 | 21,5% | 20,0% |
+| `IndexIVFPQ` nprobe=8, tabel langsung | 0,098 | 0,046 | 2,15 | 21,5% | 20,0% |
+| `IndexIVFSQ8` nprobe=8 | 0,106 | 0,525 | **0,20** | 96,9% | 96,6% |
+| `IndexSQ8` | 1,859 | 6,615 | **0,28** | 96,5% | 96,5% |
+| `IndexPQ` m=16 | 0,467 | 0,409 | 1,14 | 4,8% | 4,9% |
+| `IndexHNSWFlat` ef=16 | 0,019 | 0,012 | 1,54 | 98,4% | 95,0% |
+| `IndexHNSWFlat` ef=64 | 0,028 | 0,021 | 1,35 | 99,5% | 100,0% |
+| `IndexHNSWSQ8` ef=64 | 0,025 | 0,044 | **0,57** | 95,8% | 96,4% |
+| `IndexNSGFlat` R=32, L=64 | 0,023 | 0,020 | 1,12 | 35,0% | 12,7% |
+| `IndexIVFPQ` + `RFlat`, k_factor=4 | 0,142 | 0,048 | 2,94 | 50,4% | 46,4% |
+| `IndexFlatL2`, filter 10% | 0,088 | 0,051 | 1,72 | 100,0% | 100,0% |
+| `IndexIVFFlat` nprobe=8, filter 10% | 0,015 | 0,015 | **0,97** | 100,0% | 100,0% |
+| `IndexHNSWFlat` ef=64, filter 10% | 0,030 | 0,021 | 1,47 | 99,5% | 99,6% |
 
-![Pengukuran yang sama di Galeri](../images/gallery-measuring.png)
+Waktu pembangunan pada putaran yang sama: pelatihan IVF 3,0 dtk vs 1,8 dtk; pelatihan IVFPQ
+**19 dtk vs 40 dtk** (k-means sub-quantizer paralel); konstruksi HNSW 8,3 dtk vs 2,8 dtk; NSG 85 dtk
+vs 19 dtk.
 
-Bacalah per baris, bukan per kolom. **Sebuah index lebih cepat daripada yang lain hanya pada recall
-yang setara.** `IVFFlat` pada nprobe=1 adalah baris tercepat di tabel sekaligus yang paling tidak
-akurat; `HNSW` pada ef=16 adalah 22× lebih cepat daripada pemindaian penuh *sekaligus* mempertahankan
-98,6% jawaban — dan itulah yang membuatnya jadi baris yang menarik.
+Cara membacanya:
 
-Dua entri layak dijelaskan, bukan dibela:
+- **Recall sama di semua baris** — selisihnya paling banyak dua poin, umumnya menguntungkan
+  FAISS.Net. Inilah pemeriksaan kebenarannya: keduanya menjalankan algoritma yang sama pada vektor
+  yang sama. Satu-satunya selisih besar, NSG, adalah sifat datanya (lihat di bawah), dan FAISS-lah
+  yang lebih terdampak.
+- **Jalur langsung IVFPQ 2–3× lebih lambat; jalur precomputed setara.** FAISS memakai tabel
+  precomputed secara default; FAISS.Net menjadikannya opsional (`UsePrecomputedTable`) karena biaya
+  memorinya. Aktifkan, dan keduanya setara.
+- **Baris refine mewarisi hal itu.** Pencarian dasarnya memakai jalur langsung; dengan tabel
+  precomputed sebagian besar selisihnya hilang.
+- **Dataset ini sulit bagi PQ.** Recall 21% untuk IVFPQ, 5% untuk PQ biasa: vektor yang dibangkitkan
+  berupa klaster rapat yang terpisah jauh, dan kode 16 byte menghabiskan anggarannya untuk membedakan
+  klaster. Kedua implementasi sepakat, dan justru itu intinya; pada embedding nyata PQ jauh lebih baik.
+- **NSG di 35% / 13%** memperlihatkan kelemahan yang dijelaskan di
+  [memilih index](memilih-index.md): graf k-NN di atas klaster yang terpisah jauh tidak punya sisi di
+  antara klaster-klaster itu.
+- **Di mana FAISS jelas unggul:** konstruksi HNSW (3×), konstruksi NSG (4,5×), pencarian flat eksak
+  (1,6× — FAISS memakai `sgemm` BLAS yang teroptimasi, FAISS.Net kernel blok buatannya sendiri), dan
+  pencarian HNSW (1,35–1,85×).
 
-- **`IndexPQ` pada 21,3%.** Data sintetisnya terdiri dari beberapa ratus klaster rapat yang saling
-  berjauhan. Codebook PQ yang dilatih pada vektor mentah menghabiskan seluruh anggarannya untuk
-  menyandikan *klaster mana* sebuah vektor berada dan tidak menyisakan apa pun untuk membedakan titik
-  di dalam satu klaster. `IndexIVFPQ` mencapai 68,8% dengan ukuran kode yang sama karena menyandikan
-  residual dari centroid sel, dan identitas klasternya sudah dibawa oleh selnya. Inilah peragaan
-  paling jelas mengapa IVFPQ menjadi resep baku skala besar dan PQ tunggal tidak.
-- **`IndexIVFSQ` lebih lambat daripada `IndexIVFFlat`.** Scalar quantization membaca seperempat
-  byte-nya tetapi mendekode tiap kandidat sebelum membandingkan. Pada 10 MB, seluruh index sudah muat
-  di cache, jadi penghematan memorinya tidak membeli apa pun dan dekodenya murni biaya tambahan.
-  Penghematan itu baru terbayar ketika index-nya tidak lagi muat — dan justru itulah situasi ketika
-  Anda memilihnya.
+![Layar perbandingan di Galeri](../images/gallery-measuring.png)
 
 ---
 
 ## Yang dioptimasi
 
-**SIMD di setiap kernel jarak.** Pemilihan saat runtime ke AVX-512, AVX2, SSE, atau NEON, diurai
-menjadi dua akumulator independen. `FaissNet.SimdInfo` melaporkan jalur yang aktif.
+**SIMD di setiap kernel jarak.** Dispatch saat runtime ke AVX-512, AVX2, SSE atau NEON, di-unroll ke dua
+akumulator independen. `FaissNet.SimdInfo` melaporkan jalur yang aktif.
 
-**Dua strategi threading.** Pencarian batch diparalelkan per kueri; satu kueri terhadap basis data
-besar diparalelkan per blok basis data lalu heap parsialnya digabung. Tanpa yang kedua, sebuah
-pencarian interaktif hanya memakai satu core.
+**Perkalian matriks berblok untuk batch kueri.** Batch berisi 16 kueri L2 / inner product atau lebih
+dinilai terhadap blok database yang ditransposisi dan muat di cache, dengan tile register 4 × 16
+(`BlockedKnn`). Diukur pada data suite: 1,22 → 0,58 ms/kueri untuk batch 1.000 kueri (2,1×).
 
-**Pencarian tanpa alokasi.** Buffer sementara berasal dari `ArrayPool<T>`; heap hasil dibangun di atas
-array keluaran milik pemanggil. Kueri yang sudah panas tidak mengalokasi apa pun.
+**Tiga strategi threading.** Pencarian batch diparalelkan per kueri (atau per tile kueri di kernel
+blok); satu kueri terhadap database besar diparalelkan per blok database lalu heap parsialnya
+digabung.
 
-**Spesialisasi generik alih-alih percabangan.** Urutan heap adalah kebijakan waktu kompilasi
-(`AscendingOrder` / `DescendingOrder`), sehingga JIT memancarkan satu perbandingan ter-inline alih-alih
-percabangan pada metrik untuk tiap kandidat.
+**Tabel IVFPQ precomputed (opsional).** Satu penjumlahan tabel per sel yang di-probe, bukan
+pembangunan tabel. Diukur: nprobe=8 0,083 → 0,049 ms/kueri (1,7×), nprobe=32 0,317 → 0,145 (2,2×).
 
-**Penyimpanan kontigu.** Satu `float[]` untuk vektor, satu `int[]` untuk seluruh graf HNSW, array id
-dan kode yang paralel per inverted list. Akses berurutan, satu objek yang dilacak GC, tanpa penelusuran
-pointer.
+**Pencarian terfilter yang melewati pekerjaan.** Flat mengevaluasi selector sekali per baris dan
+mengumpulkan subset kecil ke buffer bersambung untuk kernel cepat; IVF memeriksa keanggotaan sebelum
+menghitung skor; HNSW membatasi penyusurannya dengan `ef` atas semua node. Diukur pada filter 10%,
+sebelum → sesudah: flat 0,121 → 0,088, IVF 0,086 → 0,015, HNSW 0,152 → 0,030 ms/kueri.
 
-**Pertumbuhan 1,5×.** Menjaga puncak sementara saat resize di sekitar 2,5× data hidup alih-alih 3×.
+**Pencarian tanpa alokasi.** Buffer kerja berasal dari `ArrayPool<T>` atau scratch per thread yang
+di-pool; heap hasil dibangun di atas array keluaran milik pemanggil sendiri.
 
-**Konstruksi HNSW paralel.** Kunci per simpul di sekitar penulisan tautan, pembacaan tanpa kunci.
+**Spesialisasi generik, bukan percabangan.** Urutan heap adalah kebijakan waktu kompilasi
+(`AscendingOrder` / `DescendingOrder`), dan mesin HNSW generik atas struct penghitung jarak, sehingga
+JIT menghasilkan perbandingan dan pemanggilan jarak yang di-inline, bukan percabangan atau panggilan
+virtual per kandidat.
 
-**Dekode 8-bit tervektorisasi.** Delapan byte dibaca sebagai satu `ulong` lalu dilebarkan
-`byte → ushort → uint → float` dalam beberapa instruksi. Pelebaran itulah — bukan aritmetikanya — yang
-menghabiskan waktu perulangan dekode skalar; perbaikan ini menutup sebagian besar jarak antara
-pemindaian ter-scalar-quantize dan pemindaian float mentah.
+**Penyimpanan bersambung.** Satu `float[]` untuk vektor, satu `int[]` untuk seluruh graf HNSW, array
+id/kode paralel per inverted list. Akses berurutan, satu objek yang dilacak GC, tanpa lompatan pointer.
+
+**Decode tervektorisasi.** Kode 8-bit dilebarkan delapan sekaligus; fp16 dikonversi delapan lane
+sekaligus dengan SIMD integer (bit-exact untuk semua 65.536 masukan, diuji); kode 4-bit melewati tabel
+256 entri berisi pasangan nibble yang sudah dikonversi.
+
+**Pelatihan paralel.** Seeding k-means++, penugasan Lloyd (lewat kernel blok untuk `k ≥ 256`),
+sub-quantizer PQ, akumulasi Procrustes OPQ — semuanya reproducible bit demi bit untuk seed yang sama.
 
 ---
 
 ## Yang belum dioptimasi
 
-Disebutkan terus terang, karena benchmark yang menyembunyikan titik lemahnya tidak layak dijalankan.
+Dinyatakan terang-terangan, karena benchmark yang menyembunyikan titik lemahnya tidak layak dijalankan.
 
-- **Dekode fp16 masih skalar.** `IndexScalarQuantizer` dengan `Float16` mengonversi satu half pada satu
-  waktu. Ia jadi pemindaian terkompresi paling lambat di pustaka ini padahal paling akurat.
-- **Tidak ada tabel IVFPQ praskomputasi.** FAISS bisa mempraskomputasi `nlist × m × ksub` float agar
-  tabel ADC tidak dibangun ulang per sel yang diperiksa. Belum diimplementasikan; `ByResidual = false`
-  adalah alternatif murahnya, dengan sedikit biaya akurasi.
-- **Tidak ada perkalian matriks berblok untuk pencarian flat.** FAISS menghitung L2 banyak-ke-banyak
-  lewat `sgemm` BLAS dengan dekomposisi `‖x‖² + ‖y‖² − 2⟨x,y⟩`. FAISS.Net menghitung jarak
-  berpasangan. Untuk batch kueri besar terhadap basis data besar, di situlah selisih terbesarnya
-  terhadap FAISS.
-- **Backend GPU baru mencakup index flat.** Belum ada IVF atau PQ di GPU.
-- **`IndexShards` mencari shard secara berurutan.** Pencarian di dalam tiap shard sudah berulir, tapi
-  antar-shard belum diparalelkan.
+- **Konstruksi HNSW 3× lebih lambat daripada FAISS**, dan NSG 4,5×. Pencariannya dekat; pembangunannya
+  belum.
+- **Pencarian flat eksak 1,6× lebih lambat daripada `sgemm` BLAS milik FAISS.** Kernel blok
+  memangkas selisihnya separuh; GEMM yang benar-benar disetel (packing, prefetching, micro-kernel
+  AVX-512) diperlukan untuk menutupnya.
+- **IVFPQ tanpa tabel precomputed 2–3× lebih lambat** daripada FAISS, yang memakainya secara default.
+- **Mini-batch k-means menukar objektif dengan skala** — objektifnya sekitar 10–15% lebih tinggi
+  daripada Lloyd dalam pengujian.
+- **Backend GPU belum pernah berjalan di perangkat CUDA sungguhan.** Kernelnya diverifikasi terhadap
+  pustaka CPU di akselerator CPU ILGPU; tidak ada klaim kecepatan untuknya.
 
 ---
 
@@ -161,10 +184,11 @@ Lihat [benchmarks/README.md](../../benchmarks/README.md) untuk cara membaca perb
 
 1. Apakah Anda memang sudah memakai index aproksimatif? Pemindaian penuh itu eksak tapi linear.
 2. Turunkan `Nprobe` / `EfSearch` lalu ukur berapa recall yang benar-benar hilang.
-3. Kelompokkan kueri Anda. Overhead per kueri jadi teramortisasi dan threading punya lebih banyak
-   bahan.
-4. Kurangi dimensi dengan `PCAMatrix` — setiap perhitungan jarak jadi lebih murah.
-5. Periksa `ListStatistics()`. Partisi yang tidak seimbang membuat sebagian kueri memindai jauh lebih
+3. Pada IVFPQ dengan `Nprobe` besar, setel `UsePrecomputedTable = true` (lihat `PrecomputedTableBytes`).
+4. Kelompokkan kueri Anda. Overhead per kueri jadi teramortisasi, threading punya lebih banyak bahan,
+   dan pencarian flat beralih ke perkalian matriks berblok mulai 16 kueri.
+5. Kurangi dimensi dengan `PCAMatrix` — setiap perhitungan jarak jadi lebih murah.
+6. Periksa `ListStatistics()`. Partisi yang tidak seimbang membuat sebagian kueri memindai jauh lebih
    banyak daripada yang disiratkan `Nprobe`.
 
 **Memori terlalu besar?**

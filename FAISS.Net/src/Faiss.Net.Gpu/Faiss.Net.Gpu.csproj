@@ -5,11 +5,11 @@
     <AssemblyName>Faiss.Net.Gpu</AssemblyName>
     <PackageId>Gravicode.FaissNet.Gpu</PackageId>
     <Title>FAISS.Net.Gpu — GPU acceleration for FAISS.Net</Title>
-    <Description>GPU acceleration for FAISS.Net via ILGPU. Drop-in IndexFlatL2Gpu and IndexFlatIPGpu running on CUDA or OpenCL, with a CPU accelerator fallback so the same code still runs on a machine without a GPU.</Description>
+    <Description>GPU acceleration for FAISS.Net via ILGPU. Drop-in IndexFlatL2Gpu, IndexFlatIPGpu, GpuIndexIVFFlat and GpuIndexIVFPQ running on CUDA or OpenCL, with a CPU accelerator fallback so the same code still runs on a machine without a GPU.</Description>
     <PackageTags>faiss;vector-search;gpu;cuda;opencl;ilgpu;ann;knn;simd;embeddings</PackageTags>
     <PackageReadmeFile>PACKAGE.md</PackageReadmeFile>
     <PackageIcon>icon-gpu.png</PackageIcon>
-    <PackageReleaseNotes>1.0.1: built against Gravicode.FaissNet 1.0.1. New package icon.</PackageReleaseNotes>
+    <PackageReleaseNotes>1.1.0: GpuIndexIVFFlat and GpuIndexIVFPQ (8-bit), filtered search on every GPU index, per-call nprobe. Fixes: concurrent searches sharing a StandardGpuResources returned wrong results; kernels failed to launch on the CPU fallback accelerator. Validated on the CPU fallback only; no CUDA benchmarks yet.</PackageReleaseNotes>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);CS1591;CS1573</NoWarn>
   </PropertyGroup>

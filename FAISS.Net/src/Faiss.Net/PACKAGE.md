@@ -91,19 +91,23 @@ live.Add(batch);
 live.Checkpoint();
 ```
 
-## Measured
+## Measured against FAISS
 
-40,000 vectors of dimension 64, `k = 10`, 8 cores, AVX2, against exact ground truth:
+100,000 vectors of dimension 128, 1,000 queries, `k = 10`, the same files and ground truth for both,
+FAISS.Net 1.1 against Python FAISS 1.15.1 on the same 8-core machine:
 
-| Index | ms/query | recall@10 | Memory |
+| Index | FAISS.Net ms/query | FAISS ms/query | recall FAISS.Net / FAISS |
 |---|--:|--:|--:|
-| `IndexFlatL2` | 0.178 | 100.0% | 9.8 MB |
-| `IndexIVFFlat` nprobe=8 | 0.018 | 100.0% | 10.1 MB |
-| `IndexHNSWFlat` ef=16 | 0.008 | 98.6% | 18.0 MB |
-| `IndexIVFSQ` nprobe=8 | 0.417 | 98.3% | 2.8 MB |
-| `IndexIVFPQ` nprobe=8, m=16 | 0.088 | 68.8% | 1.0 MB |
+| `IndexFlatL2` | 0.791 | 0.501 | 100% / 100% |
+| `IndexIVFFlat` nprobe=8 | 0.075 | 0.090 | 100% / 100% |
+| `IndexIVFPQ` nprobe=8, precomputed | 0.047 | 0.047 | 21.5% / 20.0% |
+| `IndexIVFSQ8` nprobe=8 | 0.106 | 0.525 | 96.9% / 96.6% |
+| `IndexHNSWFlat` ef=64 | 0.028 | 0.021 | 99.5% / 100% |
+| `IndexHNSWFlat` ef=64, 10% filter | 0.030 | 0.021 | 99.5% / 99.6% |
+| `IndexIVFFlat` nprobe=8, 10% filter | 0.015 | 0.015 | 100% / 100% |
 
-An index is faster than another only at equal recall — compare rows, not columns.
+Recall agrees within two points everywhere; where FAISS is still faster (HNSW construction, exact flat
+search) is listed in the [performance notes](https://github.com/DotNetVibeCoderz/Vibe_Database/blob/main/FAISS.Net/docs/en/performance.md).
 
 ## Documentation
 

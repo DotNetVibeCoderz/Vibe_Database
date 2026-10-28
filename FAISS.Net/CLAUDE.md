@@ -16,7 +16,7 @@ only when asked.
 
 ```bash
 dotnet build                                    # whole solution (FAISS.Net.slnx)
-dotnet test                                     # 86 tests
+dotnet test                                     # 236 tests
 dotnet test --filter FullyQualifiedName~IndexFlatTests
 dotnet test --filter Name=HnswReachesHighRecall
 
@@ -121,7 +121,7 @@ These were each the source of a real bug during development.
 
 ## Testing
 
-86 tests, all passing. Recall assertions run on seeded data so failures reproduce exactly; a flaky
+236 tests, all passing. Recall assertions run on seeded data so failures reproduce exactly; a flaky
 recall test is indistinguishable from a real regression. Serialization tests assert *byte-identical*
 results after reload, not merely similar ones. GPU tests run everywhere — ILGPU falls back to a CPU
 accelerator, so the kernels are still exercised.

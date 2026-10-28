@@ -235,7 +235,7 @@ src/Faiss.Net              the library
 src/Faiss.Net.Gpu          ILGPU backend (CUDA / OpenCL / CPU fallback)
 samples/…Samples.Console   guided tour, one section per concept
 samples/…Gallery           Avalonia desktop app
-tests/…Tests               86 tests: correctness, recall, round-trips
+tests/…Tests               236 tests: correctness, recall, round-trips
 benchmarks/                matched suite vs Python FAISS, plus BenchmarkDotNet
 docs/                      English and Indonesian documentation
 ```
@@ -244,7 +244,7 @@ docs/                      English and Indonesian documentation
 
 ```bash
 dotnet build                                    # everything
-dotnet test                                     # 86 tests
+dotnet test                                     # 236 tests
 dotnet run -c Release --project samples/Faiss.Net.Samples.Console
 dotnet run -c Release --project samples/Faiss.Net.Gallery
 ```
