@@ -308,6 +308,39 @@ internal static class HnswAlgorithm
     }
 }
 
+/// <summary>Batch insertion shared by the float and binary HNSW indexes.</summary>
+internal static class HnswBuild
+{
+    /// <summary>
+    /// Links nodes <c>first .. first + levels.Length</c>, already stored and already reserved in the
+    /// graph. The first node of an empty graph becomes the entry point; the rest are linked in
+    /// parallel unless the batch is small.
+    /// </summary>
+    public static void InsertAll(HnswGraph graph, HnswSession session, int first, int[] levels, int efConstruction,
+        int threads, object entryPointLock, Func<HnswScratch> rent, Action<HnswScratch> release)
+    {
+        int n = levels.Length;
+        if (graph.EntryPoint < 0) graph.SetEntryPoint(first, levels[0]);
+        int start = graph.EntryPoint == first ? 1 : 0;
+
+        if (threads == 1 || n < 64)
+        {
+            var scratch = rent();
+            for (int i = start; i < n; i++)
+                session.Insert(graph, first + i, levels[i], efConstruction, scratch, entryPointLock);
+            release(scratch);
+            return;
+        }
+
+        Parallel.For(start, n, new ParallelOptions { MaxDegreeOfParallelism = threads }, i =>
+        {
+            var scratch = rent();
+            session.Insert(graph, first + i, levels[i], efConstruction, scratch, entryPointLock);
+            release(scratch);
+        });
+    }
+}
+
 /// <summary>
 /// One pinned view of an HNSW index's storage, opened for a build or for a batch of searches.
 /// The non-generic face is what <see cref="IndexHNSW"/> talks to; the generic subclass below is

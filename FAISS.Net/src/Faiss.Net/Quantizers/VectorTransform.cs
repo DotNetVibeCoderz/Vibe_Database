@@ -415,7 +415,7 @@ public sealed class OPQMatrix : LinearTransform
     }
 
     /// <summary>
-    /// Reads the linear part, then <see cref=M/>. Before 1.1 the reader stopped after the linear
+    /// Reads the linear part, then <see cref="M"/>. Before 1.1 the reader stopped after the linear
     /// part while the writer had already appended M, so everything after an OPQ transform in a file
     /// was read four bytes out of place; files written by those versions do contain M and load
     /// correctly here.

@@ -33,6 +33,20 @@ public sealed class ClusteringParameters
 
     /// <summary>Stop early when the objective improves by less than this fraction.</summary>
     public double Tolerance { get; set; } = 1e-6;
+
+    /// <summary>
+    /// When positive, trains with mini-batch k-means (Sculley, WWW 2010) on batches of this many
+    /// vectors instead of Lloyd iterations over a subsample. Each batch is assigned to the current
+    /// centroids and every centroid moves toward its new members with a learning rate of
+    /// <c>1 / (points it has absorbed so far)</c>. Memory and per-step cost depend on the batch, not on
+    /// the training set, so the whole of a very large training set can be used instead of the
+    /// <see cref="MaxPointsPerCentroid"/> subsample; the price is a somewhat higher final objective.
+    /// <c>0</c> (the default) uses ordinary Lloyd iterations.
+    /// </summary>
+    public int MiniBatchSize { get; set; }
+
+    /// <summary>Number of mini-batches when <see cref="MiniBatchSize"/> is positive.</summary>
+    public int MiniBatchIterations { get; set; } = 100;
 }
 
 /// <summary>
@@ -113,8 +127,10 @@ public sealed class Kmeans
         {
             var centroids = new float[(long)K * D];
             var history = new List<double>();
-            double objective = RunLloyd(sample, sampleCount, centroids, history,
-                new RandomGenerator(_parameters.Seed + redo));
+            var redoRng = new RandomGenerator(_parameters.Seed + redo);
+            double objective = _parameters.MiniBatchSize > 0
+                ? RunMiniBatch(x, n, sample, sampleCount, centroids, history, redoRng)
+                : RunLloyd(sample, sampleCount, centroids, history, redoRng);
 
             if (objective < best)
             {
@@ -223,6 +239,70 @@ public sealed class Kmeans
         }
 
         return objective;
+    }
+
+    /// <summary>
+    /// Mini-batch k-means. Seeded with k-means++ on the subsample, then each batch is drawn from the
+    /// whole training set. Updates run in batch order on one thread — a centroid's learning rate
+    /// depends on how many points it has absorbed, so the order is part of the algorithm — while the
+    /// assignment of each batch, the expensive part, uses the threaded brute-force kernel.
+    /// </summary>
+    private unsafe double RunMiniBatch(
+        ReadOnlySpan<float> x, int n, float[] sample, int sampleCount, float[] centroids, List<double> history, RandomGenerator rng)
+    {
+        KmeansPlusPlusInit(sample, sampleCount, centroids, rng);
+        if (_parameters.Spherical) NormalizeCentroids(centroids);
+
+        int batch = Math.Min(_parameters.MiniBatchSize, n);
+        var metric = _parameters.Spherical ? MetricType.InnerProduct : MetricType.L2;
+        var rows = new float[(long)batch * D];
+        var labels = new long[batch];
+        var distances = new float[batch];
+        var absorbed = new long[K];
+
+        for (int iteration = 0; iteration < Math.Max(1, _parameters.MiniBatchIterations); iteration++)
+        {
+            for (int i = 0; i < batch; i++) x.Slice(rng.NextInt(n) * D, D).CopyTo(rows.AsSpan(i * D, D));
+
+            fixed (float* px = rows)
+            fixed (float* pc = centroids)
+            fixed (float* pd = distances)
+            fixed (long* pl = labels)
+            {
+                BruteForce.Knn(px, batch, pc, K, D, 1, metric, pd, pl);
+
+                double objective = 0;
+                for (int i = 0; i < batch; i++) objective += distances[i];
+                history.Add(_parameters.Spherical ? -objective : objective);
+
+                for (int i = 0; i < batch; i++)
+                {
+                    int c = (int)labels[i];
+                    if (c < 0) continue;
+                    float eta = 1f / ++absorbed[c];
+                    // c <- (1 - eta) c + eta x, i.e. c += eta (x - c)
+                    float* centroid = pc + (long)c * D;
+                    float* row = px + (long)i * D;
+                    VectorOps.Scale(centroid, 1f - eta, D);
+                    VectorOps.AxPy(eta, row, centroid, D);
+                }
+            }
+            if (_parameters.Spherical) NormalizeCentroids(centroids);
+            if (_parameters.Verbose && (iteration + 1) % 10 == 0)
+                Console.WriteLine($"[kmeans] mini-batch {iteration + 1}/{_parameters.MiniBatchIterations} batch objective={history[^1]:G6}");
+        }
+
+        // Report the objective on the subsample so it is comparable with Lloyd's.
+        var sampleLabels = new long[sampleCount];
+        var sampleDistances = new float[sampleCount];
+        fixed (float* ps = sample)
+        fixed (float* pc = centroids)
+        fixed (float* pd = sampleDistances)
+        fixed (long* pl = sampleLabels)
+            BruteForce.Knn(ps, sampleCount, pc, K, D, 1, metric, pd, pl);
+        double total = 0;
+        foreach (float distance in sampleDistances) total += distance;
+        return _parameters.Spherical ? -total : total;
     }
 
     /// <summary>k-means++ seeding: each new centroid is drawn with probability proportional to D^2.</summary>

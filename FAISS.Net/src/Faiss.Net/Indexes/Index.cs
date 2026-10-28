@@ -42,6 +42,12 @@ public abstract class Index
     /// <summary>True when this index stores vectors verbatim and can reconstruct them exactly.</summary>
     public virtual bool SupportsReconstruct => false;
 
+    /// <summary>
+    /// True for coarse quantizers that train directly on the data instead of being filled with
+    /// k-means centroids by the IVF index that owns them — FAISS's <c>quantizer_trains_alone</c>.
+    /// </summary>
+    internal virtual bool TrainsAlone => false;
+
     protected Index(int dimension, MetricType metric)
     {
         if (dimension <= 0) throw new ArgumentOutOfRangeException(nameof(dimension), "Dimension must be positive.");

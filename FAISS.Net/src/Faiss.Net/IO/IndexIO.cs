@@ -31,6 +31,7 @@ public static class IndexIO
         [IndexTypeCode.Flat] = (d, m) => new IndexFlat(d, m),
         [IndexTypeCode.FlatL2] = (d, _) => new IndexFlatL2(d),
         [IndexTypeCode.FlatIP] = (d, _) => new IndexFlatIP(d),
+        [IndexTypeCode.MultiIndexQuantizer] = (d, _) => new MultiIndexQuantizer(d, 2, 1),
         // IVF and compressed indexes are constructed in a minimal shape; their bodies carry the real
         // parameters and replace the placeholder quantizer, codebooks and lists wholesale.
         [IndexTypeCode.IVFFlat] = (d, m) => new IndexIVFFlat(new IndexFlatL2(d), d, 1, m),
@@ -42,6 +43,7 @@ public static class IndexIO
         [IndexTypeCode.HNSWFlat] = (d, m) => new IndexHNSWFlat(d, 32, m),
         [IndexTypeCode.HNSWSQ] = (d, m) => new IndexHNSWSQ(d, ScalarQuantizerType.PerDimension8Bit, 32, m),
         [IndexTypeCode.HNSWPQ] = (d, m) => new IndexHNSWPQ(d, 1, 32, 8, m),
+        [IndexTypeCode.NSGFlat] = (d, m) => new IndexNSGFlat(d, 32, m),
         [IndexTypeCode.IDMap] = (d, m) => new IndexIDMap(new IndexFlat(d, m)),
         [IndexTypeCode.IDMap2] = (d, m) => new IndexIDMap2(new IndexFlat(d, m)),
         [IndexTypeCode.PreTransform] = IndexPreTransform.CreateForRead,
@@ -55,6 +57,7 @@ public static class IndexIO
     {
         [IndexTypeCode.BinaryFlat] = (d, _) => new IndexBinaryFlat(d),
         [IndexTypeCode.BinaryIVF] = (d, parameter) => new IndexBinaryIVF(d, Math.Max(1, parameter)),
+        [IndexTypeCode.BinaryHNSW] = (d, parameter) => new IndexBinaryHNSW(d, Math.Max(2, parameter)),
     };
 
     // ------------------------------------------------------------- Public API
@@ -139,6 +142,29 @@ public static class IndexIO
         var index = factory(d, parameter);
         index.ReadBody(reader);
         return index;
+    }
+
+    /// <summary>Writes a sparse index.</summary>
+    public static void WriteSparseIndex(Sparse.IndexSparseFlat index, string path)
+    {
+        using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 20);
+        using var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, leaveOpen: true);
+        writer.Write(Magic);
+        writer.Write(FormatVersion);
+        writer.Write((ushort)IndexTypeCode.SparseFlat);
+        index.Write(writer);
+    }
+
+    /// <summary>Reads a sparse index written by <see cref="WriteSparseIndex"/>.</summary>
+    public static Sparse.IndexSparseFlat ReadSparseIndex(string path)
+    {
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 20);
+        using var reader = new BinaryReader(stream, System.Text.Encoding.UTF8, leaveOpen: true);
+        VerifyHeader(reader);
+        var code = (IndexTypeCode)reader.ReadUInt16();
+        if (code != IndexTypeCode.SparseFlat)
+            throw new InvalidDataException($"Expected a sparse index, found type code {code}.");
+        return Sparse.IndexSparseFlat.Read(reader);
     }
 
     // ---------------------------------------------------------- Recursive IO

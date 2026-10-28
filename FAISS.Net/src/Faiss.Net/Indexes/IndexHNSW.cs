@@ -92,29 +92,8 @@ public abstract class IndexHNSW : Index
         _graph.AddNodes(levels);
 
         using (var session = OpenSession())
-        {
-            if (_graph.EntryPoint < 0) _graph.SetEntryPoint(first, levels[0]);
-
-            int threads = Threads > 0 ? Threads : Environment.ProcessorCount;
-            int start = _graph.EntryPoint == first ? 1 : 0;
-
-            if (threads == 1 || n < 64)
-            {
-                var scratch = RentScratch();
-                for (int i = start; i < n; i++)
-                    session.Insert(_graph, first + i, levels[i], EfConstruction, scratch, _entryPointLock);
-                ReturnScratch(scratch);
-            }
-            else
-            {
-                Parallel.For(start, n, new ParallelOptions { MaxDegreeOfParallelism = threads }, i =>
-                {
-                    var scratch = RentScratch();
-                    session.Insert(_graph, first + i, levels[i], EfConstruction, scratch, _entryPointLock);
-                    ReturnScratch(scratch);
-                });
-            }
-        }
+            HnswBuild.InsertAll(_graph, session, first, levels, EfConstruction,
+                Threads > 0 ? Threads : Environment.ProcessorCount, _entryPointLock, RentScratch, ReturnScratch);
 
         Ntotal = StorageCount;
     }

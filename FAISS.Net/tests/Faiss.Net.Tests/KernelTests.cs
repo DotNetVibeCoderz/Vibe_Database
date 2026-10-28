@@ -199,3 +199,39 @@ public class KernelTests
         Assert.Equal(8, ((OPQMatrix)((IndexPreTransform)reloaded).Transforms[0]).M);
     }
 }
+
+/// <summary>Mini-batch k-means: an approximation of Lloyd's that must stay close to it.</summary>
+public class MiniBatchKmeansTests
+{
+    [Fact]
+    public void MiniBatchObjectiveStaysCloseToLloyd()
+    {
+        const int d = 16, k = 32;
+        var data = FaissNet.RandomClusteredVectors(40_000, d, k, 0.1f, 17);
+
+        var lloyd = new Kmeans(d, k, new ClusteringParameters { Iterations = 20, Seed = 3 });
+        double full = lloyd.Train(data);
+        var miniBatch = new Kmeans(d, k, new ClusteringParameters { MiniBatchSize = 2048, MiniBatchIterations = 60, Seed = 3 });
+        double approximate = miniBatch.Train(data);
+
+        Assert.True(approximate < full * 1.15, $"mini-batch objective {approximate:G4} vs Lloyd {full:G4}");
+        Assert.Equal(60, miniBatch.ObjectiveHistory.Count);
+    }
+
+    [Fact]
+    public void IvfTrainsWithMiniBatchClustering()
+    {
+        const int d = 16;
+        var data = TestData.Clustered(5000, d);
+        var index = new IndexIVFFlat(d, nlist: 32)
+        {
+            ClusteringParameters = new ClusteringParameters { MiniBatchSize = 1024, MiniBatchIterations = 40 },
+            Nprobe = 4,
+        };
+        index.Train(data);
+        index.Add(data);
+        var queries = TestData.Slice(data, d, 50);
+        double recall = FaissNet.ComputeRecall(TestData.GroundTruth(data, queries, d, 10), index.Search(queries, 10));
+        Assert.True(recall > 0.9, $"recall@10 with mini-batch-trained centroids was {recall:P1}");
+    }
+}

@@ -49,6 +49,34 @@ public abstract class IndexBinary
 
     public abstract void Search(ReadOnlySpan<byte> queries, int nq, int k, Span<float> distances, Span<long> labels);
 
+    /// <summary>
+    /// Search with per-call options — a selector, or a beam width for graph indexes. Indexes that
+    /// cannot honour non-default parameters throw rather than silently ignore them.
+    /// </summary>
+    public virtual void Search(
+        ReadOnlySpan<byte> queries, int nq, int k, Span<float> distances, Span<long> labels, SearchParameters? parameters)
+    {
+        if (parameters is null || parameters.IsDefault)
+        {
+            Search(queries, nq, k, distances, labels);
+            return;
+        }
+        throw new NotSupportedException($"{GetType().Name} does not support search parameters or filtered search.");
+    }
+
+    /// <summary>k nearest neighbours under per-call options.</summary>
+    public SearchResult Search(ReadOnlySpan<byte> queries, int k, SearchParameters? parameters)
+    {
+        int nq = queries.Length / CodeSize;
+        var result = SearchResult.Allocate(nq, k);
+        Search(queries, nq, k, result.Distances, result.Labels, parameters);
+        return result;
+    }
+
+    /// <summary>k nearest neighbours restricted to the ids a selector accepts.</summary>
+    public SearchResult Search(ReadOnlySpan<byte> queries, int k, IDSelector selector) =>
+        Search(queries, k, new SearchParameters { Sel = selector ?? throw new ArgumentNullException(nameof(selector)) });
+
     /// <summary>Every code within <paramref name="radius"/> bits of each query.</summary>
     public abstract RangeSearchResult RangeSearch(ReadOnlySpan<byte> queries, int radius);
 
@@ -109,15 +137,20 @@ public sealed class IndexBinaryFlat : IndexBinary
         Ntotal = _count;
     }
 
-    public override unsafe void Search(ReadOnlySpan<byte> queries, int nq, int k, Span<float> distances, Span<long> labels)
+    public override void Search(ReadOnlySpan<byte> queries, int nq, int k, Span<float> distances, Span<long> labels) =>
+        Search(queries, nq, k, distances, labels, null);
+
+    public override unsafe void Search(
+        ReadOnlySpan<byte> queries, int nq, int k, Span<float> distances, Span<long> labels, SearchParameters? parameters)
     {
         if (nq == 0) return;
         if (_count == 0)
         {
-            distances.Fill(float.MaxValue);
-            labels.Fill(-1);
+            distances[..(nq * k)].Fill(float.MaxValue);
+            labels[..(nq * k)].Fill(-1);
             return;
         }
+        var sel = parameters?.Sel;
 
         // k is deliberately NOT clamped to ntotal: the caller sized its buffers for the k it asked
         // for, so the row stride must stay k. The heap pads the unused slots with -1, as FAISS does.
@@ -139,6 +172,7 @@ public sealed class IndexBinaryFlat : IndexBinary
                     new Span<long>((long*)lp + (long)q * k, k));
                 for (int i = 0; i < count; i++)
                 {
+                    if (sel is not null && !sel.IsMember(i)) continue;
                     float distance = HammingOps.Distance(query, database + (long)i * codeSize, codeSize);
                     if (distance < heap.WorstScore) heap.Push(distance, i);
                 }

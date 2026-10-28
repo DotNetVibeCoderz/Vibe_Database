@@ -205,7 +205,7 @@ public class ConcurrencyTests
     [InlineData("SQ8")]
     [InlineData("HNSW8")]
     [InlineData("HNSW8,SQ8")]
-    public void SearchesRunSafelyWhileOneWriterAdds(string description)
+    public async Task SearchesRunSafelyWhileOneWriterAdds(string description)
     {
         var data = TestData.Clustered(12_000, D, seed: 3);
         var index = FaissNet.IndexFactory(D, description);
@@ -237,14 +237,14 @@ public class ConcurrencyTests
         for (int start = 1000; start < 12_000; start += 500)
             index.Add(data.AsSpan(start * D, 500 * D));
         stop.Cancel();
-        Task.WaitAll(readers);
+        await Task.WhenAll(readers);
 
         Assert.Empty(failures);
         Assert.Equal(12_000, index.Ntotal);
     }
 
     [Fact]
-    public void RemovalDoesNotDisturbAConcurrentFlatScan()
+    public async Task RemovalDoesNotDisturbAConcurrentFlatScan()
     {
         var data = TestData.Clustered(20_000, D, seed: 5);
         var index = new IndexFlatL2(D);
@@ -263,12 +263,12 @@ public class ConcurrencyTests
         });
         for (int round = 0; round < 20; round++) index.RemoveIds(id => id % 97 == round);
         stop.Cancel();
-        reader.Wait();
+        await reader;
         Assert.Empty(failures);
     }
 
     [Fact]
-    public void SynchronizedIndexAllowsAnyMixOfReadersAndWriters()
+    public async Task SynchronizedIndexAllowsAnyMixOfReadersAndWriters()
     {
         var data = TestData.Clustered(6000, D, seed: 9);
         using var index = new SynchronizedIndex(new IndexShards(D));
@@ -290,7 +290,7 @@ public class ConcurrencyTests
         }
         for (int r = 0; r < 3; r++)
             tasks.Add(Task.Run(() => { for (int i = 0; i < 50; i++) index.Search(queries, 5); }));
-        Task.WaitAll([.. tasks]);
+        await Task.WhenAll(tasks);
 
         Assert.Equal(6000, index.Ntotal);
         Assert.Equal(6000, shards.Ntotal);

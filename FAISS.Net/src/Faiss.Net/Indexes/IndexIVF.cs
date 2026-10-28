@@ -82,7 +82,14 @@ public abstract class IndexIVF : Index
         int n = ValidateBatch(x, nameof(x));
         if (n == 0) throw new ArgumentException("No training vectors supplied.", nameof(x));
 
-        if (Quantizer.Ntotal != Nlist)
+        if (Quantizer.TrainsAlone)
+        {
+            if (!Quantizer.IsTrained) Quantizer.Train(x);
+            if (Quantizer.Ntotal != Nlist)
+                throw new InvalidOperationException(
+                    $"The quantizer defines {Quantizer.Ntotal} cells but this index was created with nlist={Nlist}.");
+        }
+        else if (Quantizer.Ntotal != Nlist)
         {
             var kmeans = new Kmeans(D, Nlist, new ClusteringParameters
             {
@@ -94,6 +101,8 @@ public abstract class IndexIVF : Index
                 Verbose = ClusteringParameters.Verbose,
                 Spherical = MetricType == MetricType.InnerProduct,
                 Tolerance = ClusteringParameters.Tolerance,
+                MiniBatchSize = ClusteringParameters.MiniBatchSize,
+                MiniBatchIterations = ClusteringParameters.MiniBatchIterations,
             });
             kmeans.Train(x);
             Quantizer.Reset();

@@ -99,6 +99,23 @@ public static class FaissNet
                     $"'{description}' declares IVF{nlist} but no encoding. Add ',Flat', ',PQ<m>' or ',SQ8'.",
                     nameof(description));
         }
+        else if (head.StartsWith("IMI", StringComparison.OrdinalIgnoreCase))
+        {
+            // IMI<m>x<nbits>: an inverted multi-index with 2^(m * nbits) implicit cells.
+            string spec = head[3..];
+            int cross = spec.IndexOf('x');
+            if (cross < 0) throw new ArgumentException($"'{head}': expected IMI<m>x<nbits>, e.g. IMI2x10.", nameof(description));
+            int m = ParseInt(spec[..cross], head);
+            int nbits = ParseInt(spec[(cross + 1)..], head);
+            if (currentDimension % m != 0)
+                throw new ArgumentException($"'{head}': m={m} must divide d={currentDimension}.", nameof(description));
+            var imi = new MultiIndexQuantizer(currentDimension, m, nbits);
+            coarse = imi;
+            nlist = checked((int)imi.CellCount);
+            position++;
+            if (position >= parts.Count)
+                throw new ArgumentException($"'{description}' declares {head} but no encoding.", nameof(description));
+        }
 
         string encoding = parts[position++];
         string? storage = null;
@@ -244,6 +261,13 @@ public static class FaissNet
             string rest = encoding[4..];
             int m = rest.Length == 0 ? 32 : ParseInt(rest, encoding);
             return new IndexHNSWFlat(dimension, m, metric);
+        }
+
+        if (encoding.StartsWith("NSG", StringComparison.OrdinalIgnoreCase))
+        {
+            if (nlist > 0) throw new ArgumentException($"'{description}': NSG cannot sit under an IVF level.");
+            string rest = encoding[3..];
+            return new IndexNSGFlat(dimension, rest.Length == 0 ? 32 : ParseInt(rest, encoding), metric);
         }
 
         if (encoding.StartsWith("PQ", StringComparison.OrdinalIgnoreCase))
