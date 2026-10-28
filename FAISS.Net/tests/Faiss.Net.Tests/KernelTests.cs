@@ -235,3 +235,28 @@ public class MiniBatchKmeansTests
         Assert.True(recall > 0.9, $"recall@10 with mini-batch-trained centroids was {recall:P1}");
     }
 }
+
+/// <summary>
+/// Seeded training must be reproducible bit for bit. Regression: k-means and OPQ merged per-thread
+/// partial sums in completion order, so the same seed trained slightly different codebooks.
+/// </summary>
+public class ReproducibilityTests
+{
+    [Theory]
+    [InlineData("IVF64,PQ8")]
+    [InlineData("OPQ8,IVF32,PQ8")]
+    [InlineData("IVF64,SQ8")]
+    public void SameSeedTrainsByteIdenticalIndexes(string description)
+    {
+        const int d = 32;
+        var data = TestData.Clustered(6000, d);
+        byte[] Build()
+        {
+            var index = FaissNet.IndexFactory(d, description);
+            index.Train(data);
+            index.Add(data);
+            return Faiss.Net.IO.IndexIO.Serialize(index);
+        }
+        Assert.Equal(Build(), Build());
+    }
+}

@@ -387,16 +387,21 @@ public sealed class Kmeans
         Array.Clear(counts);
         Array.Clear(centroids);
 
-        var pool = new ConcurrentBag<(float[] Sums, int[] Counts)>();
-        int threads = Environment.ProcessorCount;
+        // Float addition is not associative, so the partial sums must be combined in a fixed order,
+        // over a chunking that does not depend on the machine. Merging them in completion order (as
+        // a ConcurrentBag does), or chunking by core count, makes the same seed train slightly
+        // different centroids from run to run and from machine to machine.
+        const int Chunks = 32;
+        var partials = new (float[] Sums, int[] Counts)?[Chunks];
 
-        Parallel.For(0, threads, new ParallelOptions { MaxDegreeOfParallelism = threads }, t =>
+        Parallel.For(0, Chunks, new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount }, t =>
         {
-            var sums = new float[(long)K * D];
-            var localCounts = new int[K];
-            int chunk = (n + threads - 1) / threads;
+            int chunk = (n + Chunks - 1) / Chunks;
             int start = t * chunk;
             int end = Math.Min(n, start + chunk);
+            if (start >= end) return;
+            var sums = new float[(long)K * D];
+            var localCounts = new int[K];
 
             for (int i = start; i < end; i++)
             {
@@ -407,11 +412,12 @@ public sealed class Kmeans
                 var target = sums.AsSpan(c * D, D);
                 for (int j = 0; j < D; j++) target[j] += source[j];
             }
-            pool.Add((sums, localCounts));
+            partials[t] = (sums, localCounts);
         });
 
-        foreach (var (sums, localCounts) in pool)
+        foreach (var partial in partials)
         {
+            if (partial is not var (sums, localCounts)) continue;
             for (int c = 0; c < K; c++) counts[c] += localCounts[c];
             for (int j = 0; j < centroids.Length; j++) centroids[j] += sums[j];
         }

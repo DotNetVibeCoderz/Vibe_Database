@@ -364,11 +364,13 @@ public sealed class OPQMatrix : LinearTransform
             // it runs on per-thread matrices that are summed once at the end rather than contending
             // on a shared one.
             var cross = new double[(long)d * d];
-            var partials = new System.Collections.Concurrent.ConcurrentBag<double[]>();
-            int threads = Environment.ProcessorCount;
-            int chunk = (n + threads - 1) / threads;
+            // Fixed chunking, merged in chunk order: summation order then never depends on thread
+            // scheduling or core count, so a seeded OPQ trains the same rotation everywhere.
+            const int Chunks = 16;
+            var partials = new double[]?[Chunks];
+            int chunk = (n + Chunks - 1) / Chunks;
 
-            Parallel.For(0, threads, t =>
+            Parallel.For(0, Chunks, t =>
             {
                 int start = t * chunk;
                 int end = Math.Min(n, start + chunk);
@@ -387,10 +389,10 @@ public sealed class OPQMatrix : LinearTransform
                         for (int b = 0; b < dOut; b++) local[row + b] += va * reconstructed[yOffset + b];
                     }
                 }
-                partials.Add(local);
+                partials[t] = local;
             });
 
-            foreach (var local in partials)
+            foreach (var local in partials.OfType<double[]>())
                 for (long i = 0; i < cross.Length; i++) cross[i] += local[i];
 
             MatrixOps.Svd(cross, d, out double[] u, out _, out double[] v);
