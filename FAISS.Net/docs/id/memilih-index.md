@@ -304,9 +304,9 @@ Hasil pengukuran pada 4.000 vektor berklaster berdimensi 32 dengan `M × nbits` 
 
 | | PQ | RQ | LSQ |
 |---|--:|--:|--:|
-| MSE rekonstruksi | 0,121 | **0,035** | 0,060 |
-| recall@10 flat | 25,0% | **58,5%** | 49,5% |
-| recall@10 IVF (nlist 16, nprobe 4) | 53,1% | **63,0%** | 54,5% |
+| MSE rekonstruksi | 0,121 | **0,035** | 0,044 |
+| recall@10 flat | 25,3% | **59,0%** | 53,1% |
+| recall@10 IVF (nlist 16, nprobe 4) | 53,1% | **63,3%** | 55,0% |
 
 Harganya ada di waktu pelatihan dan penyandian — keduanya jauh lebih lambat daripada PQ — dan, di
 bawah L2, 4 byte tambahan per vektor untuk norma yang disimpan. `M` tidak harus membagi habis `d`.

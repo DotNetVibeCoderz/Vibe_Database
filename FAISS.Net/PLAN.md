@@ -21,6 +21,7 @@ unrelated project; consumers still write `using Faiss.Net;`.
 | **1.0** | Ten index families, four metrics, GPU flat search, versioned persistence, memory-mapped indexes, a benchmark suite matched against Python FAISS, bilingual documentation, a desktop gallery |
 | **1.0.1** | Upstream sync through FAISS 2026-10-27, `RemoveIds` on shards, package icons, CI that actually runs |
 | **1.1** | Everything that was planned for 1.1, 1.2, 1.3 and 2.0 below, except the two hardware items |
+| **1.1.1** | LSQ training made stable across seeds and CPU architectures (it failed CI on arm64) |
 
 What 1.1 contains, by the milestone it was originally planned under — the measured results are in
 [Progress.md](Progress.md):

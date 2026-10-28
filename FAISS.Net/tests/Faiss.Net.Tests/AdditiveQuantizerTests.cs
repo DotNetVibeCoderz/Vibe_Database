@@ -372,3 +372,45 @@ public class AdditiveQuantizerTests(ITestOutputHelper output)
     public void FactoryRejectsOversizedLsq() =>
         Assert.Throws<ArgumentException>(() => FaissNet.IndexFactory(D, "LSQ64x8"));
 }
+
+/// <summary>
+/// Regression: LSQ trained from random codes landed in a different basin per seed — final MSE from
+/// 0.054 to 0.443 on this data, with PQ at 0.121 — and which basin a seed reached depended on the
+/// SIMD width, so CI failed on arm64 what passed on x64. It now starts from residual-quantizer
+/// codes and keeps its best codebooks.
+/// </summary>
+public class LocalSearchQuantizerStabilityTests
+{
+    [Fact]
+    public void EverySeedBeatsProductQuantization()
+    {
+        const int d = 32;
+        var data = TestData.Clustered(4000, d, seed: 42);
+        double Mse(AdditiveQuantizer q)
+        {
+            var codes = q.ComputeCodes(data);
+            var reconstruction = new float[data.Length];
+            q.Decode(codes, 4000, reconstruction);
+            double sum = 0;
+            for (int i = 0; i < data.Length; i++) { double e = data[i] - reconstruction[i]; sum += e * e; }
+            return sum / 4000;
+        }
+
+        var pq = new ProductQuantizer(d, 8, 6);
+        pq.Train(data);
+        var pqCodes = pq.ComputeCodes(data);
+        var pqReconstruction = new float[data.Length];
+        pq.Decode(pqCodes, 4000, pqReconstruction);
+        double pqMse = 0;
+        for (int i = 0; i < data.Length; i++) { double e = data[i] - pqReconstruction[i]; pqMse += e * e; }
+        pqMse /= 4000;
+
+        foreach (long seed in new long[] { 1, 2, 3, 4 })
+        {
+            var lsq = new LocalSearchQuantizer(d, 8, 6) { RandomSeed = seed, TrainIters = 10 };
+            lsq.Train(data);
+            double mse = Mse(lsq);
+            Assert.True(mse < 0.6 * pqMse, $"seed {seed}: LSQ MSE {mse:F4} vs PQ {pqMse:F4}");
+        }
+    }
+}

@@ -2,14 +2,14 @@
 
 Tracking checklist for FAISS.Net. For where the project is going, see **[PLAN.md](PLAN.md)**.
 
-**Status:** v1.1.0 · Release build clean with `-warnaserror` · **236/236 tests passing** · .NET 10
+**Status:** v1.1.1 · Release build clean with `-warnaserror` · **236/237 tests passing** · .NET 10
 
 | | |
 |---|---|
 | Library | ~15,500 lines across 61 source files (core + GPU) |
 | Tests | 236, all passing |
 | Documentation | 7 pages × 2 languages + index, 0 broken links |
-| Packages | [Gravicode.FaissNet](https://www.nuget.org/packages/Gravicode.FaissNet) · [Gravicode.FaissNet.Gpu](https://www.nuget.org/packages/Gravicode.FaissNet.Gpu) — 1.0.0, 1.0.1, 1.1.0 |
+| Packages | [Gravicode.FaissNet](https://www.nuget.org/packages/Gravicode.FaissNet) · [Gravicode.FaissNet.Gpu](https://www.nuget.org/packages/Gravicode.FaissNet.Gpu) — 1.0.0, 1.0.1, 1.1.0, 1.1.1 |
 | Benchmarks | Matched suite run against Python FAISS 1.15.1 on the same machine and files |
 | Projects | 6 in `FAISS.Net.slnx` |
 
@@ -168,6 +168,7 @@ documented in [CLAUDE.md](CLAUDE.md).
 
 | Bug | Symptom | Cause | Fix |
 |---|---|---|---|
+| **LSQ training landed in a random basin** (1.1.0) | CI failed on arm64 only: LSQ MSE 0.45, worse than PQ's 0.12, where x64 gave 0.06 | Training started from random codes; eight seeds gave 0.054–0.443 on the same CPU, and the SIMD width's rounding decided which basin a seed reached | Start from residual-quantizer codes, keep the best codebooks: 0.0437–0.0441 for every seed on both widths. `LocalSearchQuantizerStabilityTests`; the suite also runs green with `DOTNET_EnableAVX=0` |
 | **OPQ indexes could not be reloaded** (1.0.x) | Any saved index containing an OPQ transform was misread from the transform onward | `OPQMatrix.Write` appended `M`, the reader never consumed it | Reader consumes `M`; files written by 1.0.x contain it and now load. `IndexesBehindAnOpqTransformRoundTrip` |
 | **Seeded training not reproducible** | Two trainings with one seed gave codebooks differing in the 7th digit | k-means and OPQ merged per-thread float sums in `ConcurrentBag` completion order, over a core-count chunking | Fixed 32/16-chunk split merged in order. `ReproducibilityTests` asserts byte-identical indexes |
 | **Filtered HNSW lost 13 points of recall** | 86% recall at a 10% filter where FAISS has 99.6% | The bounded walk dropped members scored just outside its bound | Offer every scored member to the results first, as FAISS's `add_to_heap` does. `HnswKeepsRecallUnderASelectiveFilter` |
@@ -208,7 +209,7 @@ Run before considering any change complete:
 
 ```bash
 dotnet build -c Release -warnaserror                                 # 0 warnings, 0 errors
-dotnet test -c Release                                               # expect 236/236
+dotnet test -c Release                                               # expect 237/237
 python .github/scripts/check_docs.py .                               # links + EN/ID parity
 dotnet run -c Release --project benchmarks/Faiss.Net.Benchmarks -- suite --data data --out results-dotnet.json
 ```

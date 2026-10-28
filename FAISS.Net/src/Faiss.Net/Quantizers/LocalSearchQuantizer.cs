@@ -85,8 +85,20 @@ public sealed class LocalSearchQuantizer : AdditiveQuantizer
         var data = x[..(n * D)].ToArray();
 
         var rng = new RandomGenerator(RandomSeed);
+
+        // Start from residual-quantizer codes, not random ones. From random codes the alternation
+        // of least squares and ICM settles in whichever basin it falls into: on the clustered test
+        // data, eight seeds gave a final MSE anywhere from 0.054 to 0.443 (PQ at the same size:
+        // 0.121), and which basin a given seed reached even changed with the SIMD width, failing on
+        // arm64 what passed on x64. RQ codes are already a good joint assignment, so LSQ refines
+        // from there instead of gambling on the start.
         var codes = new int[(long)n * M];
-        for (int i = 0; i < codes.Length; i++) codes[i] = rng.NextInt(Ksub);
+        var start = new ResidualQuantizer(D, M, Nbits)
+        {
+            ClusteringParameters = new ClusteringParameters { Iterations = 10, Seed = RandomSeed },
+        };
+        start.Train(data);
+        start.ComputeUnpackedCodes(data, n, codes);
 
         // Per-dimension standard deviation scales the codebook perturbation to the data.
         var stddev = new float[D];
@@ -104,6 +116,11 @@ public sealed class LocalSearchQuantizer : AdditiveQuantizer
             stddev[j] = (float)Math.Sqrt(sum / n);
         }
 
+        // The annealing perturbation can move the codebooks to a worse place than they were, so the
+        // best codebooks seen (by training error) are kept and restored at the end.
+        float[]? best = null;
+        double bestError = double.MaxValue;
+
         for (int iteration = 0; iteration < TrainIters; iteration++)
         {
             UpdateCodebooks(data, codes, n);
@@ -114,10 +131,40 @@ public sealed class LocalSearchQuantizer : AdditiveQuantizer
 
             long roundSeed = ((long)rng.NextInt(int.MaxValue) << 31) ^ rng.NextInt(int.MaxValue);
             IcmEncode(data, n, codes, TrainIlsIters, roundSeed, freshStart: false);
+
+            // Refit the codebooks to the new codes before scoring them: that is what the next
+            // iteration (or the end of training) would keep.
+            UpdateCodebooks(data, codes, n);
+            UpdateCodebookNorms();
+            double error = TrainingError(data, codes, n);
+            if (error < bestError)
+            {
+                bestError = error;
+                best = (float[])Codebooks.Clone();
+            }
         }
 
+        if (best is not null) best.CopyTo(Codebooks, 0);
         UpdateCodebookNorms();
         IsTrained = true;
+    }
+
+    /// <summary>Mean squared reconstruction error of the training set under its current codes.</summary>
+    private double TrainingError(float[] x, int[] codes, int n)
+    {
+        var partial = new double[Math.Max(1, Math.Min(16, n))];
+        int chunk = (n + partial.Length - 1) / partial.Length;
+        Parallel.For(0, partial.Length, t =>
+        {
+            var reconstruction = new float[D];
+            double sum = 0;
+            for (int i = t * chunk; i < Math.Min(n, (t + 1) * chunk); i++)
+                sum += ReconstructionError(x.AsSpan(i * D, D), codes.AsSpan(i * M, M), reconstruction);
+            partial[t] = sum;
+        });
+        double total = 0;
+        foreach (double value in partial) total += value; // fixed order: reproducible
+        return total / n;
     }
 
     /// <summary>Beam-search starting codes, then <see cref="EncodeIlsIters"/> rounds of local search; see <see cref="BeamInit"/>.</summary>

@@ -299,9 +299,9 @@ Measured on 4,000 clustered vectors of dimension 32 at the same `M × nbits` (8 
 
 | | PQ | RQ | LSQ |
 |---|--:|--:|--:|
-| reconstruction MSE | 0.121 | **0.035** | 0.060 |
-| flat recall@10 | 25.0% | **58.5%** | 49.5% |
-| IVF recall@10 (nlist 16, nprobe 4) | 53.1% | **63.0%** | 54.5% |
+| reconstruction MSE | 0.121 | **0.035** | 0.044 |
+| flat recall@10 | 25.3% | **59.0%** | 53.1% |
+| IVF recall@10 (nlist 16, nprobe 4) | 53.1% | **63.3%** | 55.0% |
 
 The price is training and encoding time — both are far slower than PQ — and, under L2, 4 extra bytes
 per vector for a stored norm. `M` need not divide `d`. LSQ is limited to `M × 2^nbits ≤ 8192`.

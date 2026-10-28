@@ -235,7 +235,7 @@ src/Faiss.Net              the library
 src/Faiss.Net.Gpu          ILGPU backend (CUDA / OpenCL / CPU fallback)
 samples/…Samples.Console   guided tour, one section per concept
 samples/…Gallery           Avalonia desktop app
-tests/…Tests               236 tests: correctness, recall, round-trips
+tests/…Tests               237 tests: correctness, recall, round-trips
 benchmarks/                matched suite vs Python FAISS, plus BenchmarkDotNet
 docs/                      English and Indonesian documentation
 ```
@@ -244,7 +244,7 @@ docs/                      English and Indonesian documentation
 
 ```bash
 dotnet build                                    # everything
-dotnet test                                     # 236 tests
+dotnet test                                     # 237 tests
 dotnet run -c Release --project samples/Faiss.Net.Samples.Console
 dotnet run -c Release --project samples/Faiss.Net.Gallery
 ```
@@ -283,8 +283,8 @@ Publishing is tag-driven:
 
 ```bash
 # bump <Version> in Directory.Build.props first — the workflow refuses to publish if they disagree
-git tag faissnet-v1.1.0
-git push origin faissnet-v1.1.0
+git tag faissnet-v1.1.1
+git push origin faissnet-v1.1.1
 ```
 
 Tags are namespaced because this project lives inside a monorepo. The workflows themselves sit at

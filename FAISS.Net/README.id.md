@@ -235,7 +235,7 @@ src/Faiss.Net              pustakanya
 src/Faiss.Net.Gpu          backend ILGPU (CUDA / OpenCL / fallback CPU)
 samples/…Samples.Console   tur berpandu, satu bagian per konsep
 samples/…Gallery           aplikasi desktop Avalonia
-tests/…Tests               236 pengujian: kebenaran, recall, round-trip
+tests/…Tests               237 pengujian: kebenaran, recall, round-trip
 benchmarks/                suite yang sepadan dengan Python FAISS, plus BenchmarkDotNet
 docs/                      dokumentasi bahasa Inggris dan Indonesia
 ```
@@ -244,7 +244,7 @@ docs/                      dokumentasi bahasa Inggris dan Indonesia
 
 ```bash
 dotnet build                                    # semuanya
-dotnet test                                     # 236 pengujian
+dotnet test                                     # 237 pengujian
 dotnet run -c Release --project samples/Faiss.Net.Samples.Console
 dotnet run -c Release --project samples/Faiss.Net.Gallery
 ```
@@ -283,8 +283,8 @@ commit. Penerbitan dipicu oleh tag:
 
 ```bash
 # naikkan <Version> di Directory.Build.props dulu — workflow menolak menerbitkan bila keduanya beda
-git tag faissnet-v1.1.0
-git push origin faissnet-v1.1.0
+git tag faissnet-v1.1.1
+git push origin faissnet-v1.1.1
 ```
 
 Tag diberi awalan nama proyek karena proyek ini berada di dalam sebuah monorepo. Berkas workflow-nya

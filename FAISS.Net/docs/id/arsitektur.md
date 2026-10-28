@@ -329,7 +329,7 @@ saat menambahkan IVF.
 
 ## Pengujian
 
-236 pengujian, dan alasan di balik pilihannya sama pentingnya dengan jumlahnya:
+237 pengujian, dan alasan di balik pilihannya sama pentingnya dengan jumlahnya:
 
 - **Kernel diuji terhadap implementasi rujukan skalar** pada tujuh belas dimensi yang dipilih untuk
   menutup setiap lebar register beserta sisanya. Bug yang menarik selalu bersembunyi di penanganan

@@ -9,7 +9,7 @@
     <PackageTags>faiss;vector-search;gpu;cuda;opencl;ilgpu;ann;knn;simd;embeddings</PackageTags>
     <PackageReadmeFile>PACKAGE.md</PackageReadmeFile>
     <PackageIcon>icon-gpu.png</PackageIcon>
-    <PackageReleaseNotes>1.1.0: GpuIndexIVFFlat and GpuIndexIVFPQ (8-bit), filtered search on every GPU index, per-call nprobe. Fixes: concurrent searches sharing a StandardGpuResources returned wrong results; kernels failed to launch on the CPU fallback accelerator. Validated on the CPU fallback only; no CUDA benchmarks yet.</PackageReleaseNotes>
+    <PackageReleaseNotes>1.1.1: built against Gravicode.FaissNet 1.1.1. 1.1.0: GpuIndexIVFFlat and GpuIndexIVFPQ (8-bit), filtered search on every GPU index, per-call nprobe. Fixes: concurrent searches sharing a StandardGpuResources returned wrong results; kernels failed to launch on the CPU fallback accelerator. Validated on the CPU fallback only; no CUDA benchmarks yet.</PackageReleaseNotes>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);CS1591;CS1573</NoWarn>
   </PropertyGroup>
