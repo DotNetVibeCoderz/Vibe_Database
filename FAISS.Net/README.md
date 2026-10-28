@@ -78,6 +78,7 @@ Every index type measured on the same vectors against the same exact ground trut
 | **Coarse quantizers** | any index, including `IndexHNSWFlat` (with sink repair) and `MultiIndexQuantizer` (IMI) |
 | **Graph** | `IndexHNSWFlat`, `IndexHNSWSQ`, `IndexHNSWPQ`, `IndexNSGFlat` |
 | **Compressed flat** | `IndexPQ`, `IndexScalarQuantizer` (SIMD fp16, 8-bit and 4-bit decode) |
+| **Additive quantizers** | `IndexResidualQuantizer`, `IndexLocalSearchQuantizer` and their IVF variants |
 | **Re-ranking** | `IndexRefine`, `IndexRefineFlat` |
 | **Binary** | `IndexBinaryFlat`, `IndexBinaryIVF`, `IndexBinaryHNSW` |
 | **Sparse** | `IndexSparseFlat` — exact inner product over an inverted index |
@@ -85,7 +86,7 @@ Every index type measured on the same vectors against the same exact ground trut
 | **Composition** | `IndexIDMap`, `IndexIDMap2`, `IndexPreTransform`, `IndexReplicas`, `IndexShards`, `SynchronizedIndex` |
 | **Transforms** | `PCAMatrix`, `OPQMatrix` (square or dimension-reducing), `RandomRotationMatrix`, `NormalizationTransform` |
 | **Quantizers** | `ProductQuantizer`, `ScalarQuantizer`, `Kmeans` (Lloyd or mini-batch) |
-| **GPU** | `IndexFlatL2Gpu`, `IndexFlatIPGpu`, `StandardGpuResources` |
+| **GPU** | `IndexFlatL2Gpu`, `IndexFlatIPGpu`, `GpuIndexIVFFlat`, `GpuIndexIVFPQ`, `StandardGpuResources` |
 | **Persistence** | Versioned binary format, byte-array serialization, `MappedIndexFlat`, `PersistentIndex` (snapshot + journal) |
 
 Metrics: squared L2, inner product, L1, L-infinity.

@@ -9,199 +9,72 @@ filtered search does not.
 
 ---
 
-## Now — v1.0
+## Shipped
 
-Shipped and **published to nuget.org** as
-[`Gravicode.FaissNet`](https://www.nuget.org/packages/Gravicode.FaissNet) and
-[`Gravicode.FaissNet.Gpu`](https://www.nuget.org/packages/Gravicode.FaissNet.Gpu).
+Published to nuget.org as [`Gravicode.FaissNet`](https://www.nuget.org/packages/Gravicode.FaissNet)
+and [`Gravicode.FaissNet.Gpu`](https://www.nuget.org/packages/Gravicode.FaissNet.Gpu). The package
+ids carry the `Gravicode.` prefix because `FAISS.Net.Gpu` on nuget.org already belongs to an
+unrelated project; consumers still write `using Faiss.Net;`.
 
-The package ids carry the `Gravicode.` prefix because `FAISS.Net.Gpu` on nuget.org already belongs
-to an unrelated project. Assembly names and namespaces are unaffected — consumers still write
-`using Faiss.Net;`.
+| Release | What it delivered |
+|---|---|
+| **1.0** | Ten index families, four metrics, GPU flat search, versioned persistence, memory-mapped indexes, a benchmark suite matched against Python FAISS, bilingual documentation, a desktop gallery |
+| **1.0.1** | Upstream sync through FAISS 2026-10-27, `RemoveIds` on shards, package icons, CI that actually runs |
+| **1.1** | Everything that was planned for 1.1, 1.2, 1.3 and 2.0 below, except the two hardware items |
 
- Ten index families, four metrics, GPU flat search, versioned persistence, memory-mapped
-indexes, a matched benchmark suite against Python FAISS, bilingual documentation, and a desktop
-gallery. 86 tests passing.
+What 1.1 contains, by the milestone it was originally planned under — the measured results are in
+[Progress.md](Progress.md):
 
-The full inventory is in [Progress.md](Progress.md).
-
----
-
-### 1.0.1 — upstream sync
-
-A maintenance release: fixes found while reviewing upstream FAISS through 2026-10-27, `RemoveIds` on
-`IndexShards`, parallel k-means++ seeding, package icons, and CI that actually runs. Details and
-measurements in [Progress.md](Progress.md#upstream-sync). Two upstream HNSW changes — sample-based
-level-0 links (#5705) and cosine pruning for inner-product graphs (#5774) — are queued for v1.2.
-
----
-
-## v1.1 — make it usable in a production service
-
-Nothing here is exotic. These are the things that come up in the first week of putting a vector
-index behind an API, and their absence is felt more sharply than any missing index type.
-
-### Filtered search
-
-**The gap.** There is no way to restrict a search to a subset of ids. Today you over-fetch and filter
-afterwards, which silently breaks: ask for 10, filter to your tenant, and you may be left with 2.
-
-**The plan.** An `IDSelector` abstraction — range, bitmap, and predicate — threaded through
-`Search` as an optional parameter, applied inside the scan so `k` results really are `k` results.
-
-```csharp
-var results = index.Search(query, k: 10, selector: IDSelector.Range(1000, 2000));
-var results = index.Search(query, k: 10, selector: IDSelector.Predicate(id => IsVisible(id)));
-```
-
-The predicate form costs a delegate call per surviving candidate; the bitmap form is a bit test and
-should be nearly free. IVF gets an extra win — a list whose ids are entirely excluded can be skipped
-without scanning it at all.
-
-**Why first.** Multi-tenancy, soft deletes, permission filtering and time-window queries all need
-this, and every one of them is a correctness problem rather than a performance one.
-
-### IndexRefine
-
-**The gap.** A PQ index gives up real recall (68.8% measured at `m=16`). Most of that is recoverable
-by re-ranking: fetch `k * factor` candidates from the compressed index, then re-score just those
-against full-precision vectors.
-
-**The plan.** `IndexRefine(baseIndex, refineIndex)` with a `KFactor` dial, matching FAISS.
-
-```csharp
-var index = new IndexRefine(new IndexIVFPQ(d, 1024, m: 16), new IndexFlatL2(d)) { KFactor = 4 };
-```
-
-**Why.** The highest recall-per-line-of-code in the whole roadmap. It needs no new kernels — it
-composes two indexes that already exist — and it turns IVFPQ from "60-ish percent" into "90-plus
-percent at a fraction of flat memory", which is the configuration most large deployments actually
-run.
-
-### Concurrent reads during writes
-
-**The gap.** Searches are safe concurrently on a *built* index. Adding while searching is not.
-Services that ingest continuously have to swap whole indexes.
-
-**The plan.** A documented reader-writer contract, plus an `IndexSnapshot` that gives searches a
-stable view while an add is in flight. Not lock-free — copy-on-write of the affected list is enough
-and is far easier to reason about.
-
-**Why.** Rebuilding to add one vector is the most common operational complaint about vector indexes.
-
-### ~~Packaging and CI~~ — done
-
-Shipped ahead of the rest of v1.1. `.github/workflows/faissnet-ci.yml` builds and tests on Windows,
-Linux and macOS — a real test rather than a formality, because the three runners exercise different
-SIMD dispatch paths — packs both libraries on every commit, and checks documentation links and
-English/Indonesian parity. `faissnet-release.yml` publishes to nuget.org from a `faissnet-v*` tag,
-refusing to run if the tag disagrees with the declared version.
-
-Both workflows must be moved to the monorepo root to run; see
-[.github/workflows/README.md](.github/workflows/README.md).
+- **Production (planned 1.1)** — filtered search with `IDSelector` and per-call `SearchParameters`
+  in every index; `IndexRefine` / `IndexRefineFlat`; one writer and many lock-free readers, plus
+  `SynchronizedIndex` for everything else.
+- **Performance gaps (planned 1.2)** — blocked matrix product for flat search; SIMD fp16 and 4-bit
+  decode; precomputed IVFPQ tables; parallel shard search; upstream sink repair for HNSW (#5705).
+- **GPU (planned 1.3)** — `GpuIndexIVFFlat`, `GpuIndexIVFPQ`, filtered search on every GPU index.
+- **Index families (planned 2.0)** — `IndexHNSWSQ`, `IndexHNSWPQ`, IVF with an HNSW coarse
+  quantizer, `IndexNSGFlat`, IMI (`MultiIndexQuantizer`), additive quantizers (RQ, LSQ),
+  `IndexBinaryHNSW`, dimension-reducing OPQ, sparse vectors (`IndexSparseFlat`).
+- **Also from the checklist** — mini-batch k-means; incremental, crash-safe persistence
+  (`PersistentIndex`).
 
 ---
 
-## v1.2 — close the performance gaps
+## Open
 
-Each of these is already named as a known weakness in
-[docs/en/performance.md](docs/en/performance.md). Fixing them is bounded work with measurable
-outcomes.
+Two items remain, and neither can be closed by writing code.
 
-### Blocked matrix product for flat search
+### Benchmark the GPU backend on real CUDA hardware
 
-**The gap.** The largest single performance difference against FAISS. FAISS computes many-to-many L2
-through a BLAS `sgemm` using `‖x‖² + ‖y‖² − 2⟨x,y⟩`; FAISS.Net computes distances pairwise. For large
-query batches against large databases, that costs several times.
+**The gap.** Every GPU kernel — flat, IVFFlat, IVFPQ — is validated only against ILGPU's CPU
+fallback accelerator. That proves the results correct (the tests assert they match the CPU library)
+and says nothing about speed. The development machine has no CUDA device.
 
-**The plan.** A blocked, cache-tiled SIMD matrix product in `MatrixOps`, with `BruteForce` switching
-to the norm decomposition above a batch-size threshold. Precomputed database norms are already cheap
-to keep.
+**The plan.** Run the GPU rows of the benchmark suite on a CUDA machine; publish the numbers, or
+publish that the kernels need work. Until then the GPU package makes no speed claims.
 
-**Risk.** The decomposition is less numerically stable than direct subtraction when `‖x‖` and `‖y‖`
-are large and the distance is small. Needs a tolerance test against the direct path before it becomes
-the default.
+### Verify multi-GPU on hardware
 
-### Vectorized fp16 decode
-
-**The gap.** `ScalarQuantizerType.Float16` is the most accurate compressed option and the slowest
-scan in the library, because it converts one `Half` at a time.
-
-**The plan.** Widen eight halves per iteration, mirroring what was already done for the 8-bit path —
-that change alone cut 8-bit scan time by more than half.
-
-### Precomputed IVFPQ tables
-
-**The gap.** The ADC lookup table is rebuilt for every probed cell because codes are residuals.
-
-**The plan.** Optional precomputation of the `nlist × m × ksub` term, opt-in because it is a large
-memory cost (67 MB at `nlist=4096, m=16`) that is not always worth it.
-
-### Parallel shard search
-
-**The gap.** `IndexShards` searches its shards one after another. Each shard's own search is threaded,
-but the shards are not searched concurrently — so the wrapper scales capacity without scaling
-latency.
-
-### 4-bit SIMD decode
-
-Same treatment as 8-bit and fp16. Lower priority: 4-bit's recall cost means it is rarely the right
-choice anyway.
+**The gap.** `IndexReplicas` over `StandardGpuResources.ForEachGpu()` is wired and unit-tested on a
+single (fallback) device; it has never run on a machine with two GPUs.
 
 ---
 
-## v1.3 — more of the GPU
-
-**The gap.** The GPU backend covers flat indexes only. That is the workload GPUs suit best, but it
-caps the useful database size at whatever fits in device memory.
-
-**The plan.**
-
-- **`IndexIVFFlatGpu`** — coarse quantization on device, list scanning on device.
-- **`IndexIVFPQGpu`** — ADC tables in shared memory, which is where the real speedup lives.
-- **Multi-GPU via `IndexReplicas`** — the wiring exists (`StandardGpuResources.ForEachGpu()`); it has
-  never been run on a machine with two GPUs.
-
-**Honest caveat.** All GPU work here has been validated only against ILGPU's CPU fallback
-accelerator, which proves the kernels correct but says nothing about performance. Before promising
-GPU numbers, the existing flat backend needs benchmarking on real CUDA hardware. That comes first.
-
----
-
-## v2.0 — new index families
-
-Deliberately last. Each of these serves a narrower case than the work above.
-
-| Index | What it adds | Notes |
-|---|---|---|
-| `IndexHNSWPQ` / `IndexHNSWSQ` | Graph speed at a fraction of graph memory | Highest value of this group — HNSW's memory footprint is its main drawback |
-| `IndexIVF*` with an HNSW coarse quantizer | Sub-linear coarse assignment | Matters once `nlist` reaches tens of thousands |
-| `IndexNSG` | Another graph family, cheaper to build than HNSW | |
-| `IndexIMI` | Multi-index quantizer, very large `nlist` | Superseded in practice by large flat `nlist` |
-| Additive quantizers (RQ, LSQ) | Better accuracy than PQ at equal code size | Substantially more complex to train |
-| `IndexBinaryHNSW` | Graph search in Hamming space | |
-
-Also in this window:
-
-- **OPQ with dimensionality reduction.** `OPQMatrix` currently requires `dOut == dIn`; the reducing
-  form needs a PCA step folded in. The workaround (`PCA64,OPQ16`) already works and is documented.
-- **Sparse vector support.** A different data layout throughout — closer to a sibling library than a
-  feature.
-
----
-
-## Not planned
+## Considered and not planned
 
 Stated so nobody spends time proposing them:
 
 - **FAISS file-format compatibility.** Reading FAISS's format would mean tracking its internal layout
   across versions, and it changes. Rebuild from source vectors to move between the two.
 - **A native FAISS wrapper.** The entire point of this project is not having one.
-- **A vector database.** Persistence, replication, filtering and transactions belong a layer up.
-  FAISS.Net is the index inside such a system, not the system.
+- **A vector database.** Replication, transactions and query languages belong a layer up. FAISS.Net is
+  the index inside such a system — with the filtering, concurrency and journaling an embedding needs —
+  not the system.
 - **HNSW deletion.** Removing a node strands the links pointing at it, and repairing the graph costs
-  as much as rebuilding it. FAISS does not support this either. Rebuild periodically, or keep a
-  tombstone set — which filtered search (v1.1) makes clean.
+  as much as rebuilding it. FAISS does not support this either. Exclude removed ids with
+  `IDSelector.Not(...)` and rebuild periodically.
+- **RaBitQ, PiPNN, fast-scan, SVS/Vamana, Panorama.** Recent upstream families, tracked in
+  [Progress.md](Progress.md#upstream-sync); each is a substantial port of its own and none is needed
+  for the workloads the current families serve.
 
 ---
 

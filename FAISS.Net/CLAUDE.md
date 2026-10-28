@@ -54,14 +54,18 @@ overloads exist but copy. Never change a hot path to jagged arrays.
 Layered; nothing above `Core` writes an element loop.
 
 ```
-src/Faiss.Net.Gpu     ILGPU backend — flat indexes only, CPU-accelerator fallback
+src/Faiss.Net.Gpu     ILGPU backend — Flat, IVFFlat, IVFPQ; CPU-accelerator fallback
 src/Faiss.Net/
-  Indexes/            Index base · Flat · IVF{Flat,PQ,SQ} · HNSW · PQ · SQ · IDMap · PreTransform · Replicas/Shards
-  Quantizers/         ProductQuantizer · ScalarQuantizer · Kmeans · VectorTransform (PCA, OPQ, rotation)
-  Binary/             IndexBinary base · BinaryFlat · BinaryIVF · HammingOps
-  Core/               VectorOps (SIMD) · BruteForce (threaded) · MatrixOps · VectorStore
+  Indexes/            Index base · Flat · IVF{Flat,PQ,SQ,RQ,LSQ} · HNSW{Flat,SQ,PQ} · NSG · PQ · SQ ·
+                      RQ/LSQ · Refine · IDMap · PreTransform · Replicas/Shards · Synchronized · IMI
+  Indexes/Hnsw/       HnswEngine (generic graph algorithms) · HnswSinkRepair
+  Search/             IDSelector family · SearchParameters{,IVF,HNSW,Refine}
+  Quantizers/         ProductQuantizer · ScalarQuantizer · Additive (RQ, LSQ) · Kmeans · VectorTransform
+  Binary/             IndexBinary base · BinaryFlat · BinaryIVF · BinaryHNSW · HammingOps
+  Sparse/             IndexSparseFlat · SparseVector
+  Core/               VectorOps (SIMD) · BruteForce · BlockedKnn (GEMM) · MatrixOps · VectorStore · CodeStore
   Utils/              KnnHeap · ScoreOrder · SearchResult · VisitedTable · RandomGenerator
-  IO/                 IndexIO (versioned format) · MappedIndexFlat · IndexTypeCode
+  IO/                 IndexIO (versioned format) · MappedIndexFlat · PersistentIndex (journal) · IndexTypeCode
 ```
 
 Index classes live in namespace `Faiss.Net` (root) regardless of folder; helpers are in
@@ -73,8 +77,16 @@ Things that are not obvious from the file names:
   `DescendingOrder`), so the JIT specializes each kernel. Call sites switch on the metric *once*,
   then call the generic path — never branch on metric per candidate.
 - **`IndexIVF` owns everything except encoding.** Subclasses implement `EncodeVectors` and
-  `ComputeListScores`, which scores a whole list into a buffer rather than exposing a per-candidate
-  callback. That seam is deliberate; keep per-list setup hoisted out of the inner loop.
+  `ComputeListScores(query, list, coarse, codes, scores, queryState)`, which scores a whole list into
+  a buffer rather than exposing a per-candidate callback. That seam is deliberate; keep per-list
+  setup hoisted out of the inner loop, and per-query setup in `PrepareQuery`.
+- **HNSW is one generic engine.** `HnswAlgorithm` is written over a struct `IHnswComputer`; each
+  storage (flat, SQ, PQ, binary) supplies a computer and a session that pins a storage snapshot. Put
+  graph logic in the engine, never in one index, or the other three silently diverge.
+- **Search parameters are the 6-argument `Search`.** Indexes override
+  `Search(..., SearchParameters?)` and make the 5-argument one forward with `null`. An index that
+  cannot honour a non-default parameter must throw, not ignore it. Passing a literal `null` needs a
+  name (`parameters: null`) because the `IDSelector` overload also accepts null.
 - **`IndexIO` type codes are append-only.** Renumbering an existing `IndexTypeCode` breaks every file
   ever written.
 
@@ -93,6 +105,19 @@ These were each the source of a real bug during development.
   HNSW read 44% recall where it actually achieves 99%.
 - **Warm up on the full query set, not one query.** A single-query warm-up leaves the threaded batch
   path un-JIT-ed and inflates the first timed run threefold.
+- **Never modify storage a reader can see.** The one-writer/many-readers contract rests on it:
+  append past the published count, grow into a new array (never `Array.Resize` in place), remove by
+  copy-on-write, and publish the new snapshot last with `Volatile.Write`. One in-place edit breaks
+  every concurrent search on that index.
+- **Parallel reductions must merge in a fixed order over a fixed chunking.** Merging per-thread
+  float sums in completion order (a `ConcurrentBag`), or chunking by core count, made seeded k-means
+  and OPQ train different codebooks run to run. `ReproducibilityTests` guards it.
+- **A reader must consume exactly what its writer wrote.** `OPQMatrix` wrote `M` and the reader
+  skipped it, misaligning every byte after an OPQ transform — undetected for a whole release because
+  nothing round-tripped an OPQ index. Every new serializable type needs a round-trip test.
+- **Check the machine is idle before benchmarking.** Another process saturating the cores made one
+  run show a 10× "regression" in code that had not changed. `Get-Counter '\Processor(_Total)\%
+  Processor Time'` first.
 
 ## Testing
 

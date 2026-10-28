@@ -44,7 +44,12 @@ bernama sama di setiap tempat pemanggilan.
 | `AddWithIds(x, ids)` | `index.add_with_ids` | Native di IVF; lainnya perlu `IndexIDMap` |
 | `Search(queries, k)` | `index.search(x, k)` | Mengembalikan `SearchResult` |
 | `Search(queries, nq, k, distances, labels)` | — | Menulis ke buffer pemanggil; tanpa alokasi |
+| `Search(queries, k, parameters)` | `index.search(x, k, params=...)` | Opsi per pemanggilan; lihat di bawah |
+| `Search(queries, k, selector)` | `params=SearchParameters(sel=...)` | Pencarian tersaring |
+| `Search(queries, nq, k, distances, labels, parameters)` | — | Bentuk berbuffer dengan opsi |
 | `RangeSearch(queries, radius)` | `index.range_search` | Mengembalikan `RangeSearchResult` |
+| `RangeSearch(queries, radius, parameters / selector)` | `range_search(x, r, params=...)` | Pencarian radius tersaring |
+| `ComputeDistanceSubset(query, ids, out)` | `compute_distance_subset` | Jarak ke id yang didaftarkan; dipakai oleh `IndexRefine` |
 | `RemoveIds(ids)` | `index.remove_ids` | Mengembalikan jumlah yang dihapus |
 | `RemoveIds(predicate)` | `remove_ids(IDSelector)` | |
 | `Reset()` | `index.reset()` | Membuang vektor, mempertahankan pelatihan |
@@ -69,6 +74,31 @@ var distances = new float[nq * k];
 var labels = new long[nq * k];
 index.Search(queries, nq, k, distances, labels);   // tanpa alokasi
 ```
+
+### Parameter pencarian dan selector
+
+```csharp
+index.Search(q, k: 10, selector: IDSelector.Range(0, 1000));
+index.Search(q, k: 10, new SearchParametersIVF { Nprobe = 32, Sel = sel });
+```
+
+| Tipe | Python | Field |
+|---|---|---|
+| `SearchParameters` | `faiss.SearchParameters` | `Sel` (alias `Selector`) |
+| `SearchParametersIVF` | `faiss.SearchParametersIVF` | `Nprobe`, `MaxCodes`, `QuantizerParams` |
+| `SearchParametersHNSW` | `faiss.SearchParametersHNSW` | `EfSearch` (juga pool milik NSG) |
+| `SearchParametersRefine` | `faiss.IndexRefineSearchParameters` | `KFactor`, `BaseIndexParams` |
+
+| Selector | Python |
+|---|---|
+| `IDSelector.Range(min, max)` / `IDSelectorRange` | `faiss.IDSelectorRange` |
+| `IDSelector.Batch(ids)` / `IDSelectorBatch` | `faiss.IDSelectorBatch` |
+| `IDSelector.Bitmap(bytes)`, `IDSelectorBitmap.FromIds(ids, n)` | `faiss.IDSelectorBitmap` |
+| `IDSelector.Not / And / Or / XOr / All` | `faiss.IDSelectorNot` … |
+| `IDSelector.Predicate(f)` | — (tambahan khas C#) |
+
+Parameter yang tidak bisa dipenuhi sebuah index melempar `NotSupportedException`. Meneruskan `null`
+perlu nama argumen, `Search(q, k, parameters: null)`, karena overload selector juga menerima null.
 
 ---
 
@@ -141,11 +171,19 @@ new IndexIVFScalarQuantizer(dimension, nlist, type, metric)
 | `ClusteringParameters` | `index.cp` | |
 | `MakeDirectMap()` | `index.make_direct_map()` | Wajib sebelum `Reconstruct` |
 | `ListStatistics()` | — | `(Min, Max, Mean, Empty)` isi sel |
+| `UsePrecomputedTable` (IVFPQ) | `index.use_precomputed_table` | Mati secara bawaan; lihat `PrecomputedTableBytes` |
+
+`Index` apa pun bisa menjadi quantizer, termasuk `IndexHNSWFlat` (`IVF<n>_HNSW<M>`) dan
+`MultiIndexQuantizer(d, m, nbits)` (`IMI2x<bits>`), yang sel-selnya merupakan hasil kali implisit dari
+dua codebook.
 
 ### Graf
 
 ```csharp
 new IndexHNSWFlat(dimension, m, metric)
+new IndexHNSWSQ(dimension, type, m, metric)        // Train dulu
+new IndexHNSWPQ(dimension, pqM, m, pqNbits, metric) // Train dulu
+new IndexNSGFlat(dimension, r, metric)            // Add sekali saja
 ```
 
 | Anggota | Python | |
@@ -154,8 +192,35 @@ new IndexHNSWFlat(dimension, m, metric)
 | `EfSearch` | `index.hnsw.efSearch` | Lebar berkas saat kueri; tuas recall |
 | `M` | `index.hnsw.M` | Tautan per simpul di atas lapisan 0 |
 | `Graph` | `index.hnsw` | `LayerSizes()`, `AverageDegree()` |
+| `AddLevel0LinksFromSample(x)` | `index.add_level_0_links_from_sample(x)` | Perbaikan sink; mengembalikan `HNSWLevel0LinkStats` |
+| `Level0LinkSamplesPerNode` | `index.level_0_link_samples_per_node` | Dipakai pelatihan IVF; 3, 0 menonaktifkan |
+| `R`, `SearchL`, `GK` (NSG) | `index.nsg.R`, `search_L`, `GK` | Out-degree, pool kueri, k untuk graf k-NN |
 
-`RemoveIds` melempar exception — HNSW tidak mendukung penghapusan, sama seperti FAISS.
+`RemoveIds` melempar exception pada index graf — index graf tidak mendukung penghapusan, sama
+seperti FAISS. Sebagai gantinya, kecualikan id saat pencarian dengan selector.
+
+### Additive quantizer
+
+```csharp
+new IndexResidualQuantizer(dimension, m, nbits, metric)
+new IndexLocalSearchQuantizer(dimension, m, nbits, metric)
+new IndexIVFResidualQuantizer(dimension, nlist, m, nbits, metric)
+new IndexIVFLocalSearchQuantizer(dimension, nlist, m, nbits, metric)
+
+var rq = new ResidualQuantizer(d, m, nbits) { MaxBeamSize = 5 };
+var lsq = new LocalSearchQuantizer(d, m, nbits) { TrainIters = 25, EncodeIlsIters = 16 };
+```
+
+Keduanya turunan `AdditiveQuantizer` (`Codebooks`, `ComputeCodes`, `Decode`, `ComputeLookupTable`),
+sebagaimana `faiss.ResidualQuantizer` dan `faiss.LocalSearchQuantizer` diturunkan dari
+`AdditiveQuantizer`.
+
+### Pemeringkatan ulang
+
+```csharp
+new IndexRefine(baseIndex, refineIndex) { KFactor = 4 }
+new IndexRefineFlat(baseIndex)            // tahap refine IndexFlat yang eksak
+```
 
 ### Flat terkompresi
 
@@ -171,6 +236,7 @@ Keduanya memaparkan `CompressionRatio` dan quantizer di dalamnya (`Pq` / `Sq`), 
 ```csharp
 new IndexBinaryFlat(dimension)          // dimensi dalam bit, kelipatan 8
 new IndexBinaryIVF(dimension, nlist)
+new IndexBinaryHNSW(dimension, m)       // EfSearch, AddLevel0LinksFromSample
 ```
 
 Vektornya berupa byte terpaket. `HammingOps` menyediakan `Distance`, `PopCount`, `Binarize`,
@@ -184,7 +250,18 @@ new IndexIDMap2(baseIndex)                       // menambah tabel id balik
 new IndexPreTransform(transform, baseIndex)
 new IndexPreTransform(transforms, baseIndex)
 new IndexReplicas(dimension, metric)             // AddReplica(index)
-new IndexShards(dimension, metric)               // AddShard(index)
+new IndexShards(dimension, metric)               // AddShard(index); Threaded, RemoveIds
+new SynchronizedIndex(index)                     // reader-writer lock di sekeliling apa pun
+PersistentIndex.Open(path, () => index)          // snapshot + journal write-ahead; Checkpoint()
+```
+
+### Sparse — namespace `Faiss.Net.Sparse`
+
+```csharp
+var index = new IndexSparseFlat(dimension, normalizeOnAdd: false);
+index.Add(new SparseVector(indices, values));
+index.Search(queries, k, selector);
+index.RemoveIds(ids); index.Compact();
 ```
 
 ### GPU — namespace `Faiss.Net.Gpu`
@@ -192,6 +269,8 @@ new IndexShards(dimension, metric)               // AddShard(index)
 ```csharp
 using var index = new IndexFlatL2Gpu(dimension);
 using var index = new IndexFlatIPGpu(dimension);
+using var ivf   = new GpuIndexIVFFlat(dimension, nlist, metric);
+using var ivfpq = new GpuIndexIVFPQ(dimension, nlist, m, nbits: 8, metric);
 ```
 
 | Anggota | Python | |
@@ -199,12 +278,19 @@ using var index = new IndexFlatIPGpu(dimension);
 | `StandardGpuResources.Default` | `faiss.StandardGpuResources()` | Konteks bersama |
 | `StandardGpuResources.IsGpuAvailable()` | — | Ada CUDA atau OpenCL |
 | `StandardGpuResources.EnumerateDevices()` | — | |
-| `GpuIndexFlat.FromCpu(index)` | `faiss.index_cpu_to_gpu` | |
+| `GpuIndexFlat.FromCpu(index)`, `GpuIndexIVFFlat.FromCpu`, `GpuIndexIVFPQ.FromCpu` | `faiss.index_cpu_to_gpu` | |
 | `index.ToCpu()` | `faiss.index_gpu_to_cpu` | |
+| `Search(..., selector / SearchParametersIVF)` | `params=` | Selector dievaluasi di host menjadi mask; `Nprobe` per pemanggilan |
 | `IsHardwareAccelerated` | — | False pada akselerator CPU cadangan |
 
 Bila tidak ada GPU, ILGPU jatuh ke akselerator CPU sehingga kode yang sama tetap jalan — hanya tanpa
 percepatan. Periksa `IsHardwareAccelerated` sebelum menarik kesimpulan dari sebuah benchmark.
+
+Index IVF GPU melatih dan menyandikan di CPU lalu mencari di perangkat: kuantisasi coarse (selalu
+pencarian eksak atas centroid), satu kernel pemindaian per (kueri, daftar yang diperiksa) yang menulis
+hasil top-k parsial, dan satu kernel penggabung. `GpuIndexIVFPQ` hanya mendukung kode 8 bit. Semua
+kerja perangkat pada satu `StandardGpuResources` dijalankan berurutan, karena stream-nya dipakai
+bersama.
 
 ---
 
@@ -215,6 +301,7 @@ new NormalizationTransform(d)               // normalisasi L2 -> cosine lewat in
 new RandomRotationMatrix(d, seed)           // rotasi tetap, tanpa pelatihan
 new PCAMatrix(dIn, dOut, eigenPower)        // -0.5 melakukan whitening
 new OPQMatrix(d, m)                         // rotasi terpelajar untuk PQ sesudahnya
+new OPQMatrix(d, m, dOut)                   // proyeksi terpelajar ke dOut dimensi
 ```
 
 Semuanya turunan `VectorTransform`: `Train`, `Apply`, `ReverseTransform`. Rangkai dengan
@@ -241,6 +328,9 @@ kmeans.Centroids;                                 // datar k * d
 kmeans.Assign(x);                                 // (label, jarak)
 kmeans.ObjectiveHistory;                          // objektif per iterasi
 kmeans.ToIndex();                                 // index flat atas centroid
+
+// K-means mini-batch untuk himpunan latih yang sangat besar
+new Kmeans(d, k, new ClusteringParameters { MiniBatchSize = 4096, MiniBatchIterations = 100 });
 ```
 
 `ScalarQuantizerType`: `Float16`, `Uniform8Bit`, `PerDimension8Bit`, `PerDimension4Bit`.
@@ -256,6 +346,11 @@ IndexIO.Serialize(index);                    // byte[]
 IndexIO.Deserialize(bytes);
 IndexIO.WriteBinaryIndex(binaryIndex, path);
 IndexIO.ReadBinaryIndex(path);
+IndexIO.WriteSparseIndex(sparseIndex, path);
+IndexIO.ReadSparseIndex(path);
+
+using var persistent = PersistentIndex.Open(path, () => new IndexFlatL2(d));
+persistent.Checkpoint();
 
 MappedIndexFlat.Write(flatIndex, path);
 MappedIndexFlat.Write(anyReconstructableIndex, path);
@@ -278,7 +373,8 @@ VectorOps.InnerProduct(a, b);
 VectorOps.NormalizeL2(span, d);
 VectorOps.SimdDescription;
 
-BruteForce.Knn(...);          // kernel menyeluruh, berulir dan SIMD
+BruteForce.Knn(...);          // kernel menyeluruh, berulir dan SIMD; GEMM berblok untuk batch
+BruteForce.UseBlockedKernel;  // true secara bawaan; false memaksa kernel berpasangan
 BruteForce.RangeSearch(...);
 
 MatrixOps.SymmetricEigen(...);
@@ -303,6 +399,15 @@ MatrixOps.RandomOrthonormal(d, seed);
 | `D, I = index.search(x, k)` | `var (D, I) = index.Search(x, k)` |
 | `lims, D, I = index.range_search(x, r)` | `var r = index.RangeSearch(x, radius)` |
 | `index.remove_ids(sel)` | `index.RemoveIds(predicate)` |
+| `index.search(x, k, params=faiss.SearchParameters(sel=sel))` | `index.Search(x, k, selector: sel)` |
+| `faiss.SearchParametersIVF(nprobe=32)` | `new SearchParametersIVF { Nprobe = 32 }` |
+| `faiss.IndexRefineFlat(index)` | `new IndexRefineFlat(index)` |
+| `faiss.IndexHNSWSQ(d, faiss.ScalarQuantizer.QT_8bit, 32)` | `new IndexHNSWSQ(d, ScalarQuantizerType.PerDimension8Bit, 32)` |
+| `faiss.IndexNSGFlat(d, 32)` | `new IndexNSGFlat(d, 32)` |
+| `faiss.MultiIndexQuantizer(d, 2, 10)` | `new MultiIndexQuantizer(d, 2, 10)` |
+| `faiss.IndexBinaryHNSW(d, 32)` | `new IndexBinaryHNSW(d, 32)` |
+| `faiss.IndexResidualQuantizer(d, 16, 8)` | `new IndexResidualQuantizer(d, 16, 8)` |
+| `faiss.GpuIndexIVFFlat(res, d, nlist, metric)` | `new GpuIndexIVFFlat(d, nlist, metric, res)` |
 | `index.reconstruct(i)` | `index.Reconstruct(i)` |
 | `index.nprobe = 8` | `index.Nprobe = 8` |
 | `index.hnsw.efSearch = 64` | `index.EfSearch = 64` |

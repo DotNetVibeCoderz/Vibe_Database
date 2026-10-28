@@ -40,8 +40,11 @@ var sel = IDSelector.And(IDSelector.Range(0, 50_000), IDSelector.Not(IDSelector.
 
 Ids are the ids the index reports: positions for `IndexFlat`, caller ids under `IndexIDMap` and in
 the IVF family. Every index in the library supports selectors, including the graph indexes —
-there, non-members are still *walked through* (the graph must stay navigable) but never returned,
-so the walk widens under a selective filter instead of returning a short list.
+there, non-members are still *walked through* (the graph must stay navigable) but never returned.
+As in FAISS, the walk is bounded by `EfSearch` over all the nodes it visits, so a filtered search
+costs about what an unfiltered one does; under a very selective filter (a few percent of the ids)
+that can return fewer than `k` members — raise `EfSearch` for those, or use a flat or IVF index,
+where the selector is exact.
 
 ### Per-call parameters
 
@@ -97,7 +100,7 @@ Most indexes allow **one writer and any number of concurrent readers without a l
 | `IndexIVFFlat`, `IndexIVFPQ`, `IndexIVFScalarQuantizer` | ✅ | ✅ |
 | `IndexPQ`, `IndexScalarQuantizer` | ✅ | ✅ |
 | `IndexHNSWFlat`, `IndexHNSWSQ`, `IndexHNSWPQ`, `IndexBinaryHNSW` | ✅ | — (no removal) |
-| `IndexIDMap`, `IndexPreTransform`, `IndexRefine` over the above | ✅ | — |
+| `IndexIDMap`, `IndexPreTransform`, `IndexRefine` over the above | ✅ | wrap in `SynchronizedIndex` — the wrapper's own id table is not copy-on-write |
 | `IndexSparseFlat` | ✅ | ✅ |
 | everything else, or more than one writer | wrap in `SynchronizedIndex` | wrap in `SynchronizedIndex` |
 

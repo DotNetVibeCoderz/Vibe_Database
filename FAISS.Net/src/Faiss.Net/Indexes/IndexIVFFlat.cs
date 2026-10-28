@@ -37,16 +37,33 @@ public sealed class IndexIVFFlat : IndexIVF
     protected override void EncodeVectors(ReadOnlySpan<float> x, int n, ReadOnlySpan<long> listNos, Span<byte> codes) =>
         MemoryMarshal.AsBytes(x[..(n * D)]).CopyTo(codes);
 
-    protected override unsafe void ComputeListScores(
+    protected override void ComputeListScores(
         ReadOnlySpan<float> query, int list, float coarseScore, ReadOnlySpan<byte> codes, Span<float> scores,
-        object? queryState)
+        object? queryState) =>
+        ScoreList(query, list, coarseScore, codes, default, scores, queryState);
+
+    protected override void ComputeListScoresSubset(
+        ReadOnlySpan<float> query, int list, float coarseScore, ReadOnlySpan<byte> codes,
+        ReadOnlySpan<int> offsets, Span<float> scores, object? queryState) =>
+        ScoreList(query, list, coarseScore, codes, offsets, scores, queryState);
+
+    /// <summary>Scores every entry when <paramref name="offsets"/> is empty, otherwise only those entries.</summary>
+    private unsafe void ScoreList(
+        ReadOnlySpan<float> query, int list, float coarseScore, ReadOnlySpan<byte> codes,
+        ReadOnlySpan<int> offsets, Span<float> scores, object? queryState)
     {
+        bool all = offsets.IsEmpty;
         var vectors = MemoryMarshal.Cast<byte, float>(codes);
         fixed (float* pq = query)
         fixed (float* pv = vectors)
         {
-            for (int i = 0; i < scores.Length; i++)
-                scores[i] = VectorOps.Distance(pq, pv + (long)i * D, D, MetricType);
+            // Two loops rather than one with a per-entry choice: the unfiltered scan stays branch-free.
+            if (all)
+                for (int i = 0; i < scores.Length; i++)
+                    scores[i] = VectorOps.Distance(pq, pv + (long)i * D, D, MetricType);
+            else
+                for (int i = 0; i < scores.Length; i++)
+                    scores[i] = VectorOps.Distance(pq, pv + (long)offsets[i] * D, D, MetricType);
         }
     }
 

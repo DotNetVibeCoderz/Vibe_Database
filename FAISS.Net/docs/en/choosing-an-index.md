@@ -277,6 +277,37 @@ cell, at a memory cost of `nlist × m × 256 × 4` bytes (`PrecomputedTableBytes
 
 ---
 
+### Additive quantizers — RQ and LSQ, more accuracy per byte
+
+Product quantization splits the vector and encodes each piece independently. Additive quantizers
+instead approximate the *whole* vector as a sum of `M` codewords, one from each of `M` codebooks
+over the full dimension — so the codebooks can cooperate, and the same code size buys a markedly
+better approximation.
+
+```csharp
+var rq  = new IndexResidualQuantizer(128, m: 16, nbits: 8);       // or "RQ16x8"
+var lsq = new IndexLocalSearchQuantizer(128, m: 16, nbits: 8);    // or "LSQ16x8"
+var ivf = FaissNet.IndexFactory(128, "IVF1024,RQ16x8");
+```
+
+- **`ResidualQuantizer` (RQ)** trains stage by stage on what the previous stages left over and encodes
+  with a beam search (`MaxBeamSize`, 5).
+- **`LocalSearchQuantizer` (LSQ, LSQ++)** trains all codebooks jointly by least squares and encodes by
+  iterated conditional modes with perturbations.
+
+Measured on 4,000 clustered vectors of dimension 32 at the same `M × nbits` (8 × 6 bits):
+
+| | PQ | RQ | LSQ |
+|---|--:|--:|--:|
+| reconstruction MSE | 0.121 | **0.035** | 0.060 |
+| flat recall@10 | 25.0% | **58.5%** | 49.5% |
+| IVF recall@10 (nlist 16, nprobe 4) | 53.1% | **63.0%** | 54.5% |
+
+The price is training and encoding time — both are far slower than PQ — and, under L2, 4 extra bytes
+per vector for a stored norm. `M` need not divide `d`. LSQ is limited to `M × 2^nbits ≤ 8192`.
+
+---
+
 ### Millions of cells: IMI and an HNSW coarse quantizer
 
 A flat coarse quantizer stops scaling around tens of thousands of cells — training and assigning
@@ -393,6 +424,7 @@ then the encoding.
 | `IVF1024,PQ16,RFlat` | IVFPQ re-ranked by an exact flat index |
 | `PQ16,Refine(SQfp16)` | Any refine stage |
 | `OPQ16_64,IVF1024,PQ16` | Dimension-reducing OPQ, then IVFPQ |
+| `RQ16x8`, `LSQ16x8`, `IVF1024,RQ16x8` | Additive quantizers, flat or under IVF |
 | `PCA64,Flat` | PCA to 64 dimensions, then flat |
 | `OPQ16,IVF1024,PQ16` | Learned rotation, then IVFPQ |
 | `IDMap,Flat` | `IndexIDMap2` around a flat index |

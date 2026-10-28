@@ -90,10 +90,22 @@ public sealed class IndexIVFScalarQuantizer : IndexIVF
         Sq.EncodeBatch(residuals, n, codes);
     }
 
-    protected override unsafe void ComputeListScores(
+    protected override void ComputeListScores(
         ReadOnlySpan<float> query, int list, float coarseScore, ReadOnlySpan<byte> codes, Span<float> scores,
-        object? queryState)
+        object? queryState) =>
+        ScoreList(query, list, coarseScore, codes, default, scores, queryState);
+
+    protected override void ComputeListScoresSubset(
+        ReadOnlySpan<float> query, int list, float coarseScore, ReadOnlySpan<byte> codes,
+        ReadOnlySpan<int> offsets, Span<float> scores, object? queryState) =>
+        ScoreList(query, list, coarseScore, codes, offsets, scores, queryState);
+
+    /// <summary>Scores every entry when <paramref name="offsets"/> is empty, otherwise only those entries.</summary>
+    private unsafe void ScoreList(
+        ReadOnlySpan<float> query, int list, float coarseScore, ReadOnlySpan<byte> codes,
+        ReadOnlySpan<int> offsets, Span<float> scores, object? queryState)
     {
+        bool all = offsets.IsEmpty;
         float[] scratch = ArrayPool<float>.Shared.Rent(D * 2);
         try
         {
@@ -120,10 +132,22 @@ public sealed class IndexIVFScalarQuantizer : IndexIVF
             fixed (float* poffsets = Sq.Offsets)
             fixed (float* psteps = Sq.Steps)
             {
-                for (int i = 0; i < scores.Length; i++)
+                // Two loops rather than one with a per-entry choice: the unfiltered scan stays branch-free.
+                if (all)
                 {
-                    Sq.DecodeUnchecked(pcodes + (long)i * codeSize, pd, poffsets, psteps);
-                    scores[i] = VectorOps.Distance(pq, pd, D, MetricType);
+                    for (int i = 0; i < scores.Length; i++)
+                    {
+                        Sq.DecodeUnchecked(pcodes + (long)i * codeSize, pd, poffsets, psteps);
+                        scores[i] = VectorOps.Distance(pq, pd, D, MetricType);
+                    }
+                }
+                else
+                {
+                    for (int i = 0; i < scores.Length; i++)
+                    {
+                        Sq.DecodeUnchecked(pcodes + (long)offsets[i] * codeSize, pd, poffsets, psteps);
+                        scores[i] = VectorOps.Distance(pq, pd, D, MetricType);
+                    }
                 }
             }
         }

@@ -44,10 +44,91 @@ public static unsafe class BruteForce
         MetricType metric, float* outDistances, long* outLabels,
         long* ids = null, int maxThreads = 0, IDSelector? sel = null)
     {
+        if (sel is not null)
+        {
+            FilteredKnn(xq, nq, xb, nb, d, k, metric, outDistances, outLabels, ids, maxThreads, sel);
+            return;
+        }
         if (metric.IsSimilarity())
-            KnnCore<DescendingOrder>(xq, nq, xb, nb, d, k, metric, outDistances, outLabels, ids, maxThreads, sel);
+            KnnCore<DescendingOrder>(xq, nq, xb, nb, d, k, metric, outDistances, outLabels, ids, maxThreads, null);
         else
-            KnnCore<AscendingOrder>(xq, nq, xb, nb, d, k, metric, outDistances, outLabels, ids, maxThreads, sel);
+            KnnCore<AscendingOrder>(xq, nq, xb, nb, d, k, metric, outDistances, outLabels, ids, maxThreads, null);
+    }
+
+    /// <summary>Gathered subsets above this many bytes are scanned in place behind a mask instead.</summary>
+    private const long MaxGatherBytes = 512L * 1024 * 1024;
+
+    /// <summary>
+    /// Filtered exhaustive search. The selector is evaluated <em>once per database row</em>, not once
+    /// per (query, row) — with 1,000 queries that is a thousandth of the selector calls. When the
+    /// subset is at most half the database, its rows are gathered into one contiguous buffer and
+    /// searched by the ordinary unfiltered kernels, so a filtered batch gets the blocked matrix
+    /// product too; otherwise rows are skipped in place by a one-byte mask test.
+    /// </summary>
+    private static void FilteredKnn(
+        float* xq, int nq, float* xb, int nb, int d, int k, MetricType metric,
+        float* outDistances, long* outLabels, long* ids, int maxThreads, IDSelector sel)
+    {
+        int threads = maxThreads > 0 ? maxThreads : Environment.ProcessorCount;
+        var mask = new byte[nb];
+        nint pi = (nint)ids;
+        int chunks = Math.Max(1, Math.Min(threads, nb / 4096));
+        int chunkSize = (nb + chunks - 1) / chunks;
+        var memberCounts = new int[chunks];
+        Parallel.For(0, chunks, new ParallelOptions { MaxDegreeOfParallelism = threads }, c =>
+        {
+            long* rowIds = (long*)pi;
+            int end = Math.Min(nb, (c + 1) * chunkSize), count = 0;
+            for (int j = c * chunkSize; j < end; j++)
+                if (sel.IsMember(rowIds != null ? rowIds[j] : j)) { mask[j] = 1; count++; }
+            memberCounts[c] = count;
+        });
+        int members = memberCounts.Sum();
+
+        bool similarity = metric.IsSimilarity();
+        if (members == 0)
+        {
+            new Span<float>(outDistances, nq * k).Fill(similarity ? float.MinValue : float.MaxValue);
+            new Span<long>(outLabels, nq * k).Fill(-1);
+            return;
+        }
+
+        if (members == nb)
+        {
+            Knn(xq, nq, xb, nb, d, k, metric, outDistances, outLabels, ids, maxThreads);
+            return;
+        }
+
+        if (members <= nb / 2 && (long)members * d * sizeof(float) <= MaxGatherBytes)
+        {
+            var gathered = GC.AllocateUninitializedArray<float>(members * d);
+            var gatheredIds = new long[members];
+            int write = 0;
+            for (int j = 0; j < nb; j++)
+            {
+                if (mask[j] == 0) continue;
+                new ReadOnlySpan<float>(xb + (long)j * d, d).CopyTo(gathered.AsSpan(write * d, d));
+                gatheredIds[write++] = ids != null ? ids[j] : j;
+            }
+            fixed (float* pg = gathered)
+            fixed (long* pgi = gatheredIds)
+                Knn(xq, nq, pg, members, d, k, metric, outDistances, outLabels, pgi, maxThreads);
+            return;
+        }
+
+        // Large subset: scan in place, skipping rejected rows with a byte test. The mask is indexed by
+        // row, so it stands in for the selector only when rows are the ids.
+        var rowSelector = ids == null ? new RowMask(mask) : sel;
+        if (similarity)
+            KnnCore<DescendingOrder>(xq, nq, xb, nb, d, k, metric, outDistances, outLabels, ids, maxThreads, rowSelector);
+        else
+            KnnCore<AscendingOrder>(xq, nq, xb, nb, d, k, metric, outDistances, outLabels, ids, maxThreads, rowSelector);
+    }
+
+    /// <summary>A precomputed membership mask over row positions.</summary>
+    private sealed class RowMask(byte[] mask) : IDSelector
+    {
+        public override bool IsMember(long id) => mask[id] != 0;
     }
 
     private static void KnnCore<TOrder>(
@@ -98,27 +179,40 @@ public static unsafe class BruteForce
         float* outDistances, long* outLabels, long* ids, long idOffset, IDSelector? sel)
         where TOrder : struct, IScoreOrder
     {
-        var heap = new KnnHeap<TOrder>(new Span<float>(outDistances, k), new Span<long>(outLabels, k));
         if (sel is not null)
         {
-            // Separate loop so the unfiltered scan keeps its single predictable branch.
-            for (int j = 0; j < nb; j++)
-            {
-                long id = ids != null ? ids[j] : idOffset + j;
-                if (!sel.IsMember(id)) continue;
-                float score = VectorOps.Distance(query, xb + (long)j * d, d, metric);
-                if (TOrder.Better(score, heap.WorstScore)) heap.Push(score, id);
-            }
-            heap.Finish();
+            ScanOneFiltered<TOrder>(query, xb, nb, d, k, metric, outDistances, outLabels, ids, idOffset, sel);
             return;
         }
 
+        var heap = new KnnHeap<TOrder>(new Span<float>(outDistances, k), new Span<long>(outLabels, k));
         for (int j = 0; j < nb; j++)
         {
             float score = VectorOps.Distance(query, xb + (long)j * d, d, metric);
             // One predictable branch rejects almost every candidate once the heap is full.
             if (TOrder.Better(score, heap.WorstScore))
                 heap.Push(score, ids != null ? ids[j] : idOffset + j);
+        }
+        heap.Finish();
+    }
+
+    /// <summary>
+    /// The filtered scan, kept out of <see cref="ScanOne{TOrder}"/> so the unfiltered hot loop stays
+    /// exactly as small as it was before selectors existed.
+    /// </summary>
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private static void ScanOneFiltered<TOrder>(
+        float* query, float* xb, int nb, int d, int k, MetricType metric,
+        float* outDistances, long* outLabels, long* ids, long idOffset, IDSelector sel)
+        where TOrder : struct, IScoreOrder
+    {
+        var heap = new KnnHeap<TOrder>(new Span<float>(outDistances, k), new Span<long>(outLabels, k));
+        for (int j = 0; j < nb; j++)
+        {
+            long id = ids != null ? ids[j] : idOffset + j;
+            if (!sel.IsMember(id)) continue;
+            float score = VectorOps.Distance(query, xb + (long)j * d, d, metric);
+            if (TOrder.Better(score, heap.WorstScore)) heap.Push(score, id);
         }
         heap.Finish();
     }

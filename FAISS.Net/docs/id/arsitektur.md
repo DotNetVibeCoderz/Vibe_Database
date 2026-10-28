@@ -12,17 +12,20 @@ menilai apakah layak dipercaya — bukan bacaan wajib untuk memakainya.
 Setiap lapisan bisa dibangun dan diuji tanpa lapisan di atasnya.
 
 ```
-   Faiss.Net.Gpu          IndexFlatL2Gpu · StandardGpuResources          (ILGPU)
+   Faiss.Net.Gpu          Flat · IVFFlat · IVFPQ di device · StandardGpuResources   (ILGPU)
         │
-   komposisi              IDMap · PreTransform · Replicas · Shards
+   komposisi              IDMap · PreTransform · Refine · Replicas · Shards · Synchronized · Persistent
         │
-   jenis index            Flat · IVF{Flat,PQ,SQ} · HNSW · PQ · SQ · Binary
+   jenis index            Flat · IVF{Flat,PQ,SQ,RQ,LSQ} · HNSW{Flat,SQ,PQ} · NSG · PQ · SQ · RQ · LSQ
+                          Binary{Flat,IVF,HNSW} · SparseFlat · MultiIndexQuantizer
         │
-   penyandian             ProductQuantizer · ScalarQuantizer · Kmeans · transformasi
+   pencarian              IDSelector · SearchParameters · mesin HNSW · perbaikan sink
         │
-   kernel                 VectorOps (SIMD) · BruteForce (berulir) · MatrixOps
+   penyandian             ProductQuantizer · ScalarQuantizer · Additive (RQ, LSQ) · Kmeans · transformasi
         │
-   penyimpanan            VectorStore · InvertedLists · HnswGraph · KnnHeap
+   kernel                 VectorOps (SIMD) · BruteForce (berulir) · BlockedKnn (GEMM) · MatrixOps
+        │
+   penyimpanan            VectorStore · CodeStore · InvertedLists · HnswGraph · KnnHeap
 ```
 
 Tidak ada satu pun di atas lapisan kernel yang menulis perulangan per elemen. Setiap perhitungan
@@ -66,6 +69,17 @@ Dua strategi paralel, dipilih otomatis, karena kedua rezimnya berbentuk berlawan
 Semua memori sementara berasal dari `ArrayPool<T>`. Pencarian yang sudah panas tidak mengalokasi
 apa pun.
 
+Strategi ketiga mengambil alih untuk **batch kueri L2 atau inner product** (16 kueri atau lebih,
+terhadap sedikitnya 256 vektor, tanpa selector): `BlockedKnn`, sebuah perkalian matriks berblok.
+Sekelompok kueri diskor terhadap blok basis data yang ditransposisi dan tinggal di cache, dengan
+tile register akumulator berukuran 4 × (2 × lebar vektor), sehingga setiap nilai basis data yang
+dimuat dipakai ulang oleh empat kueri dan setiap nilai kueri oleh sejumlah baris seukuran satu vektor
+— kernel berpasangan sebaliknya mengalirkan seluruh basis data sekali per kueri dan tetap terbatas
+bandwidth. L2 dihitung dari `‖x‖² + ‖y‖² − 2⟨x, y⟩`; dekomposisi itu kehilangan presisi bila dua
+vektor jauh lebih dekat satu sama lain daripada ke titik asal, jadi hasil negatif dipotong ke nol dan
+kernel ini diuji terhadap kernel berpasangan dengan toleransi. `BruteForce.UseBlockedKernel = false`
+menonaktifkannya.
+
 ### `KnnHeap<TOrder>` — pemilihan top-k
 
 Heap berkapasitas tetap di atas penyimpanan milik pemanggil — biasanya potongan dari array keluaran
@@ -103,6 +117,10 @@ pun banyak vektor yang tersimpan.
 Pertumbuhannya 1,5×, bukan 2×. Itu menjaga puncak sementara saat resize di sekitar 2,5× dari data
 hidup alih-alih 3× — selisih yang menentukan apakah sebuah index besar masih muat di RAM.
 
+Array dan jumlah data hidupnya dipublikasikan bersama sebagai satu snapshot yang tidak berubah.
+Itulah seluruh mekanisme konkurensinya — lihat [Konkurensi](#konkurensi) di bawah. `CodeStore` adalah
+hal yang sama untuk kode byte berukuran tetap (PQ, SQ, HNSW biner).
+
 ### `InvertedLists`
 
 Id dan kode ditaruh di dua array paralel per daftar. Sebuah pemindaian menyentuh kode untuk setiap
@@ -111,6 +129,9 @@ aliran panas tetap padat dan mencegah byte id mengusir byte kode dari cache.
 
 Daftar tumbuh sendiri-sendiri, karena data nyata tidak pernah seimbang: beberapa centroid menarik
 vektor jauh lebih banyak daripada rata-rata.
+
+Setiap daftar dipublikasikan sebagai snapshot yang tidak berubah berisi id, kode, jumlah, dan batas
+id (`GetList`). Batas itu memungkinkan selector rentang melewati sebuah daftar tanpa menskornya.
 
 ### `HnswGraph`
 
@@ -131,8 +152,15 @@ penggabungan hasil. Subkelas hanya menyediakan penyandian dan penskoran:
 
 ```csharp
 protected abstract void EncodeVectors(ReadOnlySpan<float> x, int n, ReadOnlySpan<long> listNos, Span<byte> codes);
-protected abstract void ComputeListScores(ReadOnlySpan<float> query, int list, float coarseScore, Span<float> scores);
+protected abstract void ComputeListScores(ReadOnlySpan<float> query, int list, float coarseScore,
+    ReadOnlySpan<byte> codes, Span<float> scores, object? queryState);
+protected virtual object? PrepareQuery(ReadOnlySpan<float> query);   // persiapan per kueri, opsional
 ```
+
+Kodenya datang sebagai parameter, dari snapshot daftar yang sama dengan id yang dibaca kelas dasar,
+sehingga id dan kode selalu cocok meskipun ada penulis yang sedang menambah. `PrepareQuery`
+mengangkat kerja yang dipakai bersama oleh setiap daftar yang diperiksa — `IndexIVFPQ` memakainya
+untuk suku kueri dari tabel praskomputasinya.
 
 `ComputeListScores` menskor satu daftar penuh sekaligus alih-alih memaparkan callback per kandidat.
 Itulah yang menjaga perulangan dalam tetap ketat: subkelas mengangkat semua persiapan per daftar —
@@ -151,13 +179,27 @@ memetakannya jauh lebih halus — dari sinilah sebagian besar keunggulan IVFPQ a
 berasal.
 
 Biayanya: satu tabel lookup dibangun per sel yang diperiksa, bukan sekali per kueri, karena tabelnya
-bergantung pada `kueri - centroid`.
+bergantung pada `kueri - centroid`. `UsePrecomputedTable` menghapus biaya itu dengan memecah jaraknya
+menjadi `‖x − c‖²` (jarak coarse, yang sudah diketahui), suku sel-dan-codeword yang dipraskomputasi
+sekali, dan suku kueri-dan-codeword yang dihitung sekali per kueri — sehingga setiap sel yang diperiksa
+hanya memakan satu penjumlahan tabel.
 
 Di bawah inner product, dekomposisi residual memerlukan suku koreksi tambahan per kandidat, jadi yang
 disandikan adalah vektor mentah: lebih sederhana, dan eksak terhadap vektor hasil dekode.
 `ByResidual` melaporkan mana yang dipakai.
 
 ---
+
+## Satu mesin graf, beberapa penyimpanan
+
+HNSW ditulis sekali saja, di `HnswAlgorithm`, sebagai method generik atas struct yang
+mengimplementasikan `IHnswComputer` (`Query(node)`, `Pair(a, b)`, lebih kecil lebih baik). Setiap
+penyimpanan menyediakan computer-nya sendiri — float mentah untuk `IndexHNSWFlat`, dekode-lalu-bandingkan
+untuk `IndexHNSWSQ`, tabel ADC untuk `IndexHNSWPQ`, popcount untuk `IndexBinaryHNSW` — dan JIT
+menspesialisasi seluruh algoritmanya per computer, sehingga pemanggilan jarak ter-inline alih-alih
+melewati virtual dispatch per kandidat. Sebuah sesi mengunci satu snapshot penyimpanan untuk satu
+pembangunan atau satu batch pencarian; sesi itu pula yang menjadi dasar perbaikan sink
+(`AddLevel0LinksFromSample`), sehingga perbaikan itu melayani setiap penyimpanan.
 
 ## Cara kerja konstruksi HNSW
 
@@ -202,6 +244,30 @@ presisi yang cukup untuk merusak ortogonalitas.
 
 ---
 
+## Konkurensi
+
+Kontraknya adalah **satu penulis, pembaca berapa pun, tanpa kunci**, untuk index flat, IVF,
+flat-kode, HNSW, dan sparse. Kontrak itu bertumpu pada satu aturan: *apa pun yang bisa dilihat
+pembaca tidak pernah diubah di tempat.*
+
+- **Penambahan** menulis melewati ujung penyimpanan yang sudah dipublikasikan, lalu memublikasikan
+  snapshot yang lebih panjang dengan release write. Pembaca yang memegang snapshot lama tidak pernah
+  melihat melewati ujung lamanya.
+- **Pertumbuhan** mengalokasi array baru lalu menyalin, tidak pernah `Array.Resize` di tempat;
+  pembaca tetap memegang array lamanya yang masih sah.
+- **Penghapusan** membangun array baru lalu memublikasikannya — copy-on-write, dan untuk IVF hanya
+  daftar yang kehilangan entri.
+- Pembaca **HNSW** membaca titik masuk *sebelum* snapshot penyimpanan (simpul masuk sudah disimpan
+  sebelum ditautkan, jadi snapshot pasti memuatnya) dan melewati tautan ke simpul di luar
+  snapshot-nya. Simpul masuk dan level puncak dikemas dalam satu word 64-bit sehingga tidak pernah
+  terbaca robek.
+
+Yang berada di luar kontrak — beberapa penulis, `Train` atau `Reset` selagi pencarian berjalan,
+pembungkus komposit yang menyimpan tabel mutable sendiri — adalah kegunaan `SynchronizedIndex`
+(sebuah reader-writer lock). Pengujian konkurensi menjalankan pencarian di tiga thread sementara satu
+penulis menambah, untuk setiap index dalam kontrak, dan memastikan tidak ada exception maupun id yang
+mustahil.
+
 ## Persistensi
 
 Little-endian, mendeskripsikan diri, berversi. Setiap index menulis header tetap (tag tipe, dimensi,
@@ -216,6 +282,14 @@ mengganggu berkas yang ditulis build lama; berkas dari build 1.x mana pun tetap 
 build 1.x berikutnya.
 
 Formatnya milik FAISS.Net sendiri dan tidak kompatibel dengan berkas FAISS.
+
+`PersistentIndex` menambahkan persistensi inkremental di atasnya: sebuah snapshot dalam format ini,
+diawali nomor generasi, dan journal append-only berisi record mutasi yang diperiksa CRC dengan
+generasi yang sama. Record ditulis sebelum diterapkan; checkpoint menulis snapshot ke berkas
+sementara, mem-flush-nya, mengganti nama berkas itu menimpa yang lama, lalu mengosongkan journal.
+Journal yang generasinya lebih tua daripada snapshot-nya dikenali sebagai sudah terlipat ke dalamnya,
+sehingga crash di titik mana pun tidak menghilangkan penulisan yang sudah dikonfirmasi dan tidak
+memutar ulang satu penulisan dua kali.
 
 ---
 
@@ -234,7 +308,22 @@ panggilan.
 
 Bila tidak ada perangkat CUDA atau OpenCL, ILGPU jatuh ke akselerator CPU dan kernel yang sama tetap
 berjalan, sehingga kode GPU tetap benar di mesin tanpa GPU. Suite pengujian mengandalkan ini:
-pengujian GPU berjalan di mana saja.
+pengujian GPU berjalan di mana saja. (Akselerator CPU memancarkan peluncur kernel ke dalam assembly
+dinamis bernama `ILGPURuntime`, yang harus bisa melihat tipe argumen kernel yang internal — karena
+itulah ada `InternalsVisibleTo("ILGPURuntime")` di berkas proyek. Tanpanya, setiap runner yang tidak
+punya GPU akan gagal meluncurkan kernel IVF.)
+
+Index IVF tetap melatih dan menyandikan di CPU, lalu mengunggah daftarnya dalam urutan CSR (kode
+digabung berurutan, dengan offset, ukuran, dan id). Sebuah pencarian menjalankan empat kernel: jarak
+ke centroid, pemilihan top-nprobe, pemindaian dengan satu thread per (kueri, daftar yang diperiksa)
+yang menulis `k` hasil parsial ke buffer `[nq, nprobe, k]`, dan penggabungan yang memilih `k` akhir
+dari `nprobe × k`. IVFPQ menambah kernel tabel yang mengisi satu tabel ADC per (kueri, daftar yang
+diperiksa). Selector dievaluasi di host menjadi mask keanggotaan yang diunggah bersama pencarian.
+
+Kerja perangkat dijalankan berurutan per `StandardGpuResources`: index yang memakai satu
+`StandardGpuResources` yang sama juga berbagi stream-nya, dan dua pencarian yang berselang-seling di
+stream itu dulu mengembalikan hasil rusak — cacat yang sudah ada di index flat sejak 1.0, ditemukan
+saat menambahkan IVF.
 
 ---
 
@@ -258,10 +347,8 @@ pengujian GPU berjalan di mana saja.
 
 - **Tidak ada `unsafe` di API publik.** Pointer hidup di kernel; pemanggil melihat span.
 - **Tidak ada async.** Pencarian terbatas CPU. `Task.Run` di tempat pemanggilan adalah alat yang tepat.
-- **Tidak ada index yang aman untuk penulisan bersamaan.** *Pencarian* bersamaan aman pada index yang
-  sudah dibangun.
-- **Tidak ada IMI, NSG, RaBitQ, atau `IndexRefine`.** Keluarga yang ada sudah menutup kebutuhan umum.
-- **Tidak ada tabel IVFPQ yang dipraskomputasi.** FAISS secara opsional mempraskomputasi
-  `nlist × m × ksub` float agar tabel ADC tidak dibangun ulang per sel yang diperiksa. Itu optimasi
-  nyata sekaligus biaya memori besar (67 MB pada `nlist=4096, m=16`); yang diimplementasikan di sini
-  jalur sederhananya, dengan `ByResidual = false` sebagai alternatif murah.
+- **Tidak ada penulis bersamaan tanpa kunci.** Satu penulis boleh berjalan berdampingan dengan
+  pencarian berapa pun; lebih dari satu penulis memerlukan `SynchronizedIndex`.
+- **Tidak ada RaBitQ, PiPNN, fast-scan, atau Vamana.** Keluarga FAISS upstream di luar cakupan porting
+  ini.
+- **Tidak ada kompatibilitas berkas FAISS.** Memang dirancang begitu; bangun ulang dari vektor sumber.

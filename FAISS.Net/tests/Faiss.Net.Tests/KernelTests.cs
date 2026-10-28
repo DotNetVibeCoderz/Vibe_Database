@@ -23,10 +23,8 @@ public class KernelTests
         var index = new IndexFlat(d, metric);
         index.Add(data);
 
-        // A selector that accepts everything forces the pairwise kernel for this one call, without
-        // touching global state that tests in other classes may be relying on concurrently.
         var blocked = index.Search(queries, k);
-        var pairwise = index.Search(queries, k, IDSelector.All());
+        var pairwise = DirectSearch(data, queries, d, k, metric);
 
         int mismatches = 0;
         for (int i = 0; i < blocked.Labels.Length; i++)
@@ -43,6 +41,29 @@ public class KernelTests
         }
         // Reordering is only allowed between near-ties, which on continuous data is very rare.
         Assert.True(mismatches <= blocked.Labels.Length / 200, $"{mismatches} of {blocked.Labels.Length} labels differ");
+    }
+
+    /// <summary>
+    /// Reference k-NN by the scalar-exact pairwise kernel and a full sort — no index, no blocked
+    /// product, no global switch that concurrently running tests could observe.
+    /// </summary>
+    private static SearchResult DirectSearch(float[] data, float[] queries, int d, int k, MetricType metric)
+    {
+        int n = data.Length / d, nq = queries.Length / d;
+        var result = SearchResult.Allocate(nq, k);
+        bool similarity = metric.IsSimilarity();
+        for (int q = 0; q < nq; q++)
+        {
+            var scored = Enumerable.Range(0, n)
+                .Select(i => (Id: (long)i, Score: VectorOps.Distance(queries.AsSpan(q * d, d), data.AsSpan(i * d, d), metric)))
+                .OrderBy(x => similarity ? -x.Score : x.Score).ThenBy(x => x.Id).Take(k).ToArray();
+            for (int r = 0; r < k; r++)
+            {
+                result.Labels[q * k + r] = r < scored.Length ? scored[r].Id : -1;
+                result.Distances[q * k + r] = r < scored.Length ? scored[r].Score : (similarity ? float.MinValue : float.MaxValue);
+            }
+        }
+        return result;
     }
 
     [Fact]

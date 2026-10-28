@@ -1,6 +1,6 @@
 # FAISS.Net.Gpu
 
-GPU acceleration for [FAISS.Net](https://www.nuget.org/packages/Gravicode.FaissNet), via [ILGPU](https://ilgpu.net/). Drop-in replacements for the flat indexes that run on CUDA or OpenCL.
+GPU acceleration for [FAISS.Net](https://www.nuget.org/packages/Gravicode.FaissNet), via [ILGPU](https://ilgpu.net/). Drop-in replacements for the flat and IVF indexes that run on CUDA or OpenCL.
 
 ```csharp
 using Faiss.Net.Gpu;
@@ -17,6 +17,23 @@ Exhaustive search is the ideal GPU workload: every candidate is independent, the
 Two kernels run per query chunk. The first fills a `chunk × ntotal` distance matrix, one thread per (query, vector) pair. The second selects the top k per query on the device, so only `chunk × k` results cross the bus instead of the whole matrix — the transfer, not the arithmetic, is what would otherwise dominate.
 
 Query batches are chunked automatically so the distance matrix stays inside a configurable device-memory budget, which lets a database far larger than device memory still be searched in one call.
+
+## IVF on the GPU
+
+```csharp
+using var ivf = new GpuIndexIVFFlat(dimension: 128, nlist: 1024);
+ivf.Train(sample);                         // trained and encoded on the CPU
+ivf.Add(database);
+ivf.Nprobe = 16;
+var hits = ivf.Search(queries, k: 10);     // scanned on the device
+
+using var pq = GpuIndexIVFPQ.FromCpu(existingIvfPq);   // 8-bit codes
+```
+
+Coarse quantization runs on the device; one kernel per (query, probed list) scans the list and keeps
+a partial top-k, and a merge kernel picks the final k. Filtered search works on every GPU index:
+the `IDSelector` is evaluated on the host into a membership mask that the scan honours, and
+`SearchParametersIVF.Nprobe` applies per call.
 
 ## It runs without a GPU
 
@@ -56,9 +73,10 @@ replicas.Add(database);
 
 ## Scope and honesty
 
-- **Flat indexes only.** GPU IVF and PQ are on the roadmap, not in this release.
+- **Flat, IVFFlat and IVFPQ (8-bit).** No GPU HNSW, SQ or range search.
 - **Validated against ILGPU's CPU fallback accelerator.** The kernels are covered by tests that assert results identical to the CPU library, but the backend has not yet been benchmarked on real CUDA hardware — so this package makes no speed claims.
-- **Vectors live in device memory.** `Add` re-uploads the database, so build once and query many times.
+- **Data lives in device memory.** A change re-uploads the whole database or list layout, so build once and query many times.
+- **One `StandardGpuResources` serializes its work.** Indexes sharing it share one stream; give concurrent searchers their own resources.
 
 ## Documentation
 

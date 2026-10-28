@@ -127,6 +127,23 @@ public class FilteredSearchTests
         Assert.True(recall > 0.9, $"filtered HNSW recall@10 was {recall:P1}");
     }
 
+    [Fact]
+    public void HnswKeepsRecallUnderASelectiveFilter()
+    {
+        // Regression: the bounded walk dropped members scored just outside its bound, which cost
+        // 13 points of recall at a 10% filter. One id in ten here, as in the benchmark suite.
+        var data = TestData.Clustered(N, D);
+        var queries = TestData.Slice(data, D, 50);
+        var index = new IndexHNSWFlat(D, m: 16) { EfConstruction = 80 };
+        index.Add(data);
+
+        var sel = IDSelector.Range(0, N / 10);
+        var found = index.Search(queries, K, new SearchParametersHNSW { Sel = sel, EfSearch = 64 });
+        AssertAllMembers(found, sel);
+        double recall = FilteredRecall(ExactFiltered(data, queries, sel), found);
+        Assert.True(recall > 0.95, $"HNSW recall@10 at a 10% filter was {recall:P1}");
+    }
+
     [Theory]
     [InlineData("PQ8")]
     [InlineData("SQ8")]

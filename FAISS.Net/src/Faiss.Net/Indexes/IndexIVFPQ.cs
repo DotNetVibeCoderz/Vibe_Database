@@ -196,10 +196,22 @@ public sealed class IndexIVFPQ : IndexIVF
         Pq.ComputeCodes(residuals, n, codes);
     }
 
-    protected override unsafe void ComputeListScores(
+    protected override void ComputeListScores(
         ReadOnlySpan<float> query, int list, float coarseScore, ReadOnlySpan<byte> codes, Span<float> scores,
-        object? queryState)
+        object? queryState) =>
+        ScoreList(query, list, coarseScore, codes, default, scores, queryState);
+
+    protected override void ComputeListScoresSubset(
+        ReadOnlySpan<float> query, int list, float coarseScore, ReadOnlySpan<byte> codes,
+        ReadOnlySpan<int> offsets, Span<float> scores, object? queryState) =>
+        ScoreList(query, list, coarseScore, codes, offsets, scores, queryState);
+
+    /// <summary>Scores every entry when <paramref name="offsets"/> is empty, otherwise only those entries.</summary>
+    private unsafe void ScoreList(
+        ReadOnlySpan<float> query, int list, float coarseScore, ReadOnlySpan<byte> codes,
+        ReadOnlySpan<int> offsets, Span<float> scores, object? queryState)
     {
+        bool all = offsets.IsEmpty;
         int tableSize = Pq.DistanceTableSize;
         if (queryState is PrecomputedQuery precomputed && _precomputed is { } cellTerms)
         {
@@ -212,8 +224,13 @@ public sealed class IndexIVFPQ : IndexIVF
                 Buffer.MemoryCopy(pcell + (long)list * tableSize, pt, (long)tableSize * sizeof(float), (long)tableSize * sizeof(float));
                 VectorOps.Add(pt, pq, tableSize);
                 int codeSize = CodeSize;
-                for (int i = 0; i < scores.Length; i++)
-                    scores[i] = coarseScore + Pq.DistanceFromTable(pt, pc + (long)i * codeSize);
+                // Two loops rather than one with a per-entry choice: the unfiltered scan stays branch-free.
+                if (all)
+                    for (int i = 0; i < scores.Length; i++)
+                        scores[i] = coarseScore + Pq.DistanceFromTable(pt, pc + (long)i * codeSize);
+                else
+                    for (int i = 0; i < scores.Length; i++)
+                        scores[i] = coarseScore + Pq.DistanceFromTable(pt, pc + (long)offsets[i] * codeSize);
             }
             return;
         }
@@ -240,8 +257,12 @@ public sealed class IndexIVFPQ : IndexIVF
             fixed (float* pt = table)
             fixed (byte* pc = codes)
             {
-                for (int i = 0; i < scores.Length; i++)
-                    scores[i] = Pq.DistanceFromTable(pt, pc + (long)i * codeSize);
+                if (all)
+                    for (int i = 0; i < scores.Length; i++)
+                        scores[i] = Pq.DistanceFromTable(pt, pc + (long)i * codeSize);
+                else
+                    for (int i = 0; i < scores.Length; i++)
+                        scores[i] = Pq.DistanceFromTable(pt, pc + (long)offsets[i] * codeSize);
             }
         }
         finally

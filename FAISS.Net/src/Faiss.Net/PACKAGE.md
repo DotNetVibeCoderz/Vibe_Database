@@ -37,6 +37,7 @@ Using FAISS from .NET has meant shipping native binaries, matching them to every
 | **Coarse quantizers** | any index, including `IndexHNSWFlat` (with sink repair) and `MultiIndexQuantizer` (IMI) |
 | **Graph** | `IndexHNSWFlat`, `IndexHNSWSQ`, `IndexHNSWPQ`, `IndexNSGFlat` |
 | **Compressed flat** | `IndexPQ`, `IndexScalarQuantizer` |
+| **Additive quantizers** | `IndexResidualQuantizer`, `IndexLocalSearchQuantizer`, and IVF variants |
 | **Re-ranking** | `IndexRefine`, `IndexRefineFlat` |
 | **Binary** | `IndexBinaryFlat`, `IndexBinaryIVF`, `IndexBinaryHNSW` |
 | **Sparse** | `IndexSparseFlat` |

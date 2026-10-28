@@ -197,6 +197,21 @@ new IndexNSGFlat(dimension, r, metric)            // Add once
 `RemoveIds` throws on the graph indexes — they do not support deletion, matching FAISS. Exclude ids
 at search time with a selector instead.
 
+### Additive quantizers
+
+```csharp
+new IndexResidualQuantizer(dimension, m, nbits, metric)
+new IndexLocalSearchQuantizer(dimension, m, nbits, metric)
+new IndexIVFResidualQuantizer(dimension, nlist, m, nbits, metric)
+new IndexIVFLocalSearchQuantizer(dimension, nlist, m, nbits, metric)
+
+var rq = new ResidualQuantizer(d, m, nbits) { MaxBeamSize = 5 };
+var lsq = new LocalSearchQuantizer(d, m, nbits) { TrainIters = 25, EncodeIlsIters = 16 };
+```
+
+Both derive from `AdditiveQuantizer` (`Codebooks`, `ComputeCodes`, `Decode`, `ComputeLookupTable`),
+as `faiss.ResidualQuantizer` and `faiss.LocalSearchQuantizer` derive from `AdditiveQuantizer`.
+
 ### Re-ranking
 
 ```csharp
@@ -251,6 +266,8 @@ index.RemoveIds(ids); index.Compact();
 ```csharp
 using var index = new IndexFlatL2Gpu(dimension);
 using var index = new IndexFlatIPGpu(dimension);
+using var ivf   = new GpuIndexIVFFlat(dimension, nlist, metric);
+using var ivfpq = new GpuIndexIVFPQ(dimension, nlist, m, nbits: 8, metric);
 ```
 
 | Member | Python | |
@@ -258,12 +275,18 @@ using var index = new IndexFlatIPGpu(dimension);
 | `StandardGpuResources.Default` | `faiss.StandardGpuResources()` | Shared context |
 | `StandardGpuResources.IsGpuAvailable()` | — | CUDA or OpenCL present |
 | `StandardGpuResources.EnumerateDevices()` | — | |
-| `GpuIndexFlat.FromCpu(index)` | `faiss.index_cpu_to_gpu` | |
+| `GpuIndexFlat.FromCpu(index)`, `GpuIndexIVFFlat.FromCpu`, `GpuIndexIVFPQ.FromCpu` | `faiss.index_cpu_to_gpu` | |
 | `index.ToCpu()` | `faiss.index_gpu_to_cpu` | |
+| `Search(..., selector / SearchParametersIVF)` | `params=` | Selector evaluated on the host into a mask; `Nprobe` per call |
 | `IsHardwareAccelerated` | — | False on the CPU fallback accelerator |
 
 With no GPU present ILGPU falls back to a CPU accelerator, so the same code runs — without the
 speedup. Check `IsHardwareAccelerated` before drawing conclusions from a benchmark.
+
+The GPU IVF indexes train and encode on the CPU and search on the device: coarse quantization
+(always an exact search over the centroids), a scan kernel per (query, probed list) writing partial
+top-k results, and a merge kernel. `GpuIndexIVFPQ` supports 8-bit codes only. All device work on
+one `StandardGpuResources` is serialized, because its stream is shared.
 
 ---
 
@@ -379,6 +402,8 @@ MatrixOps.RandomOrthonormal(d, seed);
 | `faiss.IndexNSGFlat(d, 32)` | `new IndexNSGFlat(d, 32)` |
 | `faiss.MultiIndexQuantizer(d, 2, 10)` | `new MultiIndexQuantizer(d, 2, 10)` |
 | `faiss.IndexBinaryHNSW(d, 32)` | `new IndexBinaryHNSW(d, 32)` |
+| `faiss.IndexResidualQuantizer(d, 16, 8)` | `new IndexResidualQuantizer(d, 16, 8)` |
+| `faiss.GpuIndexIVFFlat(res, d, nlist, metric)` | `new GpuIndexIVFFlat(d, nlist, metric, res)` |
 | `index.reconstruct(i)` | `index.Reconstruct(i)` |
 | `index.nprobe = 8` | `index.Nprobe = 8` |
 | `index.hnsw.efSearch = 64` | `index.EfSearch = 64` |

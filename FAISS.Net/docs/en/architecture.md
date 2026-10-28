@@ -12,17 +12,20 @@ trust it — not required reading to use it.
 Each layer is buildable and testable without the one above it.
 
 ```
-   Faiss.Net.Gpu          IndexFlatL2Gpu · StandardGpuResources          (ILGPU)
+   Faiss.Net.Gpu          Flat · IVFFlat · IVFPQ on the device · StandardGpuResources   (ILGPU)
         │
-   composition            IDMap · PreTransform · Replicas · Shards
+   composition            IDMap · PreTransform · Refine · Replicas · Shards · Synchronized · Persistent
         │
-   index types            Flat · IVF{Flat,PQ,SQ} · HNSW · PQ · SQ · Binary
+   index types            Flat · IVF{Flat,PQ,SQ,RQ,LSQ} · HNSW{Flat,SQ,PQ} · NSG · PQ · SQ · RQ · LSQ
+                          Binary{Flat,IVF,HNSW} · SparseFlat · MultiIndexQuantizer
         │
-   encoding               ProductQuantizer · ScalarQuantizer · Kmeans · transforms
+   search                 IDSelector · SearchParameters · HNSW engine · sink repair
         │
-   kernels                VectorOps (SIMD) · BruteForce (threaded) · MatrixOps
+   encoding               ProductQuantizer · ScalarQuantizer · Additive (RQ, LSQ) · Kmeans · transforms
         │
-   storage                VectorStore · InvertedLists · HnswGraph · KnnHeap
+   kernels                VectorOps (SIMD) · BruteForce (threaded) · BlockedKnn (GEMM) · MatrixOps
+        │
+   storage                VectorStore · CodeStore · InvertedLists · HnswGraph · KnnHeap
 ```
 
 Nothing above the kernel layer writes an element loop. Every distance in the library goes through
@@ -287,7 +290,21 @@ which lets a database far larger than device memory still be searched in one cal
 
 With no CUDA or OpenCL device present ILGPU falls back to a CPU accelerator and the same kernels
 run, so GPU code stays correct on a machine without one. The test suite relies on this: the GPU
-tests run everywhere.
+tests run everywhere. (The CPU accelerator emits kernel launchers into a dynamic assembly named
+`ILGPURuntime`, which must see the internal kernel-argument types — hence the
+`InternalsVisibleTo("ILGPURuntime")` in the project file. Without it every runner lacking a GPU
+would fail to launch the IVF kernels.)
+
+The IVF indexes keep training and encoding on the CPU and upload the lists in CSR order (codes
+concatenated, with offsets, sizes and ids). A search runs four kernels: centroid distances, top-nprobe
+selection, a scan with one thread per (query, probed list) writing `k` partial results into an
+`[nq, nprobe, k]` buffer, and a merge choosing the final `k` of `nprobe × k`. IVFPQ adds a table
+kernel filling one ADC table per (query, probed list). A selector is evaluated on the host into a
+membership mask uploaded with the search.
+
+Device work is serialized per `StandardGpuResources`: indexes sharing one share its stream, and two
+searches interleaving on it returned garbage — a defect the flat index had had since 1.0, found while
+adding IVF.
 
 ---
 

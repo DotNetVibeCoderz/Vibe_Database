@@ -261,6 +261,7 @@ public abstract class IndexIVF : Index
         var sel = scan.Selector;
 
         float[] scores = ArrayPool<float>.Shared.Rent(256);
+        int[] members = sel is null ? [] : ArrayPool<int>.Shared.Rent(256);
         object? state = PrepareQuery(query);
         long scanned = 0;
         try
@@ -283,12 +284,11 @@ public abstract class IndexIVF : Index
                     scores = ArrayPool<float>.Shared.Rent(size);
                 }
 
-                var slice = scores.AsSpan(0, size);
-                ComputeListScores(query, list, coarseScores[p], view.Codes, slice, state);
-
                 var ids = view.Ids;
                 if (sel is null)
                 {
+                    var slice = scores.AsSpan(0, size);
+                    ComputeListScores(query, list, coarseScores[p], view.Codes, slice, state);
                     for (int i = 0; i < size; i++)
                     {
                         float score = slice[i];
@@ -297,12 +297,29 @@ public abstract class IndexIVF : Index
                 }
                 else
                 {
-                    // Score test first: it rejects most candidates for one comparison, so the
-                    // selector runs only on the few that could enter the heap.
-                    for (int i = 0; i < size; i++)
+                    // Membership first, as FAISS does: a selective filter then also saves the
+                    // distance computations of the entries it rejects, not just their heap pushes.
+                    if (members.Length < size)
                     {
-                        float score = slice[i];
-                        if (TOrder.Better(score, heap.WorstScore) && sel.IsMember(ids[i])) heap.Push(score, ids[i]);
+                        ArrayPool<int>.Shared.Return(members);
+                        members = ArrayPool<int>.Shared.Rent(size);
+                    }
+                    int count = 0;
+                    for (int i = 0; i < size; i++)
+                        if (sel.IsMember(ids[i])) members[count++] = i;
+                    if (count > 0)
+                    {
+                        var offsets = members.AsSpan(0, count);
+                        var slice = scores.AsSpan(0, count);
+                        if (count == size)
+                            ComputeListScores(query, list, coarseScores[p], view.Codes, slice, state);
+                        else
+                            ComputeListScoresSubset(query, list, coarseScores[p], view.Codes, offsets, slice, state);
+                        for (int i = 0; i < count; i++)
+                        {
+                            float score = slice[i];
+                            if (TOrder.Better(score, heap.WorstScore)) heap.Push(score, ids[offsets[i]]);
+                        }
                     }
                 }
 
@@ -314,6 +331,7 @@ public abstract class IndexIVF : Index
         {
             ReleaseQuery(state);
             ArrayPool<float>.Shared.Return(scores);
+            if (members.Length > 0) ArrayPool<int>.Shared.Return(members);
         }
 
         heap.Finish();
@@ -333,6 +351,29 @@ public abstract class IndexIVF : Index
     protected abstract void ComputeListScores(
         ReadOnlySpan<float> query, int list, float coarseScore, ReadOnlySpan<byte> codes, Span<float> scores,
         object? queryState);
+
+    /// <summary>
+    /// Scores only the entries at <paramref name="offsets"/> (ascending positions within the list),
+    /// writing one score per offset. Used by filtered search, so rejected entries cost no distance.
+    /// The default scores the whole list and gathers, which is correct for any subclass; the
+    /// built-in subclasses override it to skip the rejected entries' work.
+    /// </summary>
+    protected virtual void ComputeListScoresSubset(
+        ReadOnlySpan<float> query, int list, float coarseScore, ReadOnlySpan<byte> codes,
+        ReadOnlySpan<int> offsets, Span<float> scores, object? queryState)
+    {
+        int size = codes.Length / CodeSize;
+        float[] full = ArrayPool<float>.Shared.Rent(size);
+        try
+        {
+            ComputeListScores(query, list, coarseScore, codes, full.AsSpan(0, size), queryState);
+            for (int i = 0; i < offsets.Length; i++) scores[i] = full[offsets[i]];
+        }
+        finally
+        {
+            ArrayPool<float>.Shared.Return(full);
+        }
+    }
 
     /// <summary>
     /// Per-query setup shared by every probed list — a lookup-table term that does not depend on the

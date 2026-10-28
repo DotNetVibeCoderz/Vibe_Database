@@ -34,6 +34,7 @@ Yang Anda dapatkan:
 - **SIMD di seluruh jalur panas.** Kernel jarak memilih AVX-512, AVX2, SSE, atau NEON saat runtime; tidak ada yang skalar kecuali memang perangkat kerasnya begitu.
 - **Pencarian tanpa alokasi.** Memori sementara diambil dari `ArrayPool<T>`; kueri yang sudah panas tidak mengalokasikan apa pun.
 - **API bergaya Python.** `Train`, `Add`, `Search`, `RangeSearch`, `Reconstruct`, `RemoveIds`, `index_factory` — semuanya ada, dengan penamaan yang sudah Anda kenal.
+- **Dibuat untuk layanan, bukan sekadar notebook.** Pencarian tersaring di dalam pemindaian, parameter pencarian per pemanggilan, pencarian yang tetap berjalan sementara penulis menambah data, dan persistensi inkremental yang aman terhadap crash.
 
 ---
 
@@ -72,16 +73,21 @@ Setiap jenis index diukur pada vektor yang sama terhadap ground truth eksak yang
 
 | | |
 |---|---|
-| **Eksak** | `IndexFlatL2`, `IndexFlatIP`, `IndexFlat` |
-| **Inverted file** | `IndexIVFFlat`, `IndexIVFPQ`, `IndexIVFScalarQuantizer` |
-| **Graf** | `IndexHNSWFlat` |
-| **Flat terkompresi** | `IndexPQ`, `IndexScalarQuantizer` |
-| **Biner** | `IndexBinaryFlat`, `IndexBinaryIVF` |
-| **Komposisi** | `IndexIDMap`, `IndexIDMap2`, `IndexPreTransform`, `IndexReplicas`, `IndexShards` |
-| **Transformasi** | `PCAMatrix`, `OPQMatrix`, `RandomRotationMatrix`, `NormalizationTransform` |
-| **Quantizer** | `ProductQuantizer`, `ScalarQuantizer`, `Kmeans` |
-| **GPU** | `IndexFlatL2Gpu`, `IndexFlatIPGpu`, `StandardGpuResources` |
-| **Persistensi** | Format biner berversi, serialisasi ke byte array, `MappedIndexFlat` |
+| **Eksak** | `IndexFlatL2`, `IndexFlatIP`, `IndexFlat` — perkalian matriks berblok untuk batch kueri |
+| **Inverted file** | `IndexIVFFlat`, `IndexIVFPQ` (tabel praskomputasi opsional), `IndexIVFScalarQuantizer` |
+| **Coarse quantizer** | index apa pun, termasuk `IndexHNSWFlat` (dengan perbaikan sink) dan `MultiIndexQuantizer` (IMI) |
+| **Graf** | `IndexHNSWFlat`, `IndexHNSWSQ`, `IndexHNSWPQ`, `IndexNSGFlat` |
+| **Flat terkompresi** | `IndexPQ`, `IndexScalarQuantizer` (dekode fp16, 8-bit, dan 4-bit dengan SIMD) |
+| **Additive quantizer** | `IndexResidualQuantizer`, `IndexLocalSearchQuantizer`, beserta varian IVF-nya |
+| **Pemeringkatan ulang** | `IndexRefine`, `IndexRefineFlat` |
+| **Biner** | `IndexBinaryFlat`, `IndexBinaryIVF`, `IndexBinaryHNSW` |
+| **Sparse** | `IndexSparseFlat` — inner product eksak di atas inverted index |
+| **Penyaringan** | `IDSelector` (range, batch, bitmap, predikat, not/and/or/xor), `SearchParameters*` |
+| **Komposisi** | `IndexIDMap`, `IndexIDMap2`, `IndexPreTransform`, `IndexReplicas`, `IndexShards`, `SynchronizedIndex` |
+| **Transformasi** | `PCAMatrix`, `OPQMatrix` (persegi atau menurunkan dimensi), `RandomRotationMatrix`, `NormalizationTransform` |
+| **Quantizer** | `ProductQuantizer`, `ScalarQuantizer`, `Kmeans` (Lloyd atau mini-batch) |
+| **GPU** | `IndexFlatL2Gpu`, `IndexFlatIPGpu`, `GpuIndexIVFFlat`, `GpuIndexIVFPQ`, `StandardGpuResources` |
+| **Persistensi** | Format biner berversi, serialisasi ke byte array, `MappedIndexFlat`, `PersistentIndex` (snapshot + journal) |
 
 Metrik: L2 kuadrat, inner product, L1, L-infinity.
 
@@ -135,6 +141,27 @@ var index = new IndexPreTransform(new NormalizationTransform(128), new IndexFlat
 index.Add(embeddings);                        // kueri ikut dinormalisasi secara otomatis
 ```
 
+**Pencarian tersaring** — k *anggota* terbaik dari sebuah subset, diterapkan di dalam pemindaian.
+
+```csharp
+var mine = index.Search(query, k: 10, selector: IDSelector.Range(tenantStart, tenantEnd));
+var tuned = ivf.Search(query, k: 10, new SearchParametersIVF { Nprobe = 32, Sel = visible });
+```
+
+**Kompres, lalu rebut kembali recall-nya.**
+
+```csharp
+var index = FaissNet.IndexFactory(128, "IVF1024,PQ16,RFlat");   // kode 16 byte diperingkat ulang secara eksak
+```
+
+**Cari sambil menambah, simpan sambil jalan.**
+
+```csharp
+using var index = PersistentIndex.Open("live.index", () => new IndexHNSWFlat(128));
+index.Add(batch);          // tercatat di journal, aman terhadap crash; pencarian tetap berjalan
+index.Checkpoint();
+```
+
 **Id milik Anda sendiri, dan penghapusan.**
 
 ```csharp
@@ -173,7 +200,10 @@ var results = index.Search(queries, 10);      // API sama, hasil sama
 | Tidak muat di memori | `IndexIVFScalarQuantizer` | 4× lebih kecil, biasanya kehilangan recall di bawah satu poin. |
 | Jauh dari muat | `IndexIVFPQ` | 16–64× lebih kecil. Standar untuk skala miliaran. |
 | Lebih besar dari RAM | `MappedIndexFlat` | Dicari langsung dari disk, dan dibagi antar proses. |
-| Kode biner | `IndexBinaryFlat` | XOR dan popcount; 32× lebih kecil daripada float32. |
+| Kecepatan graf, memori lebih hemat | `IndexHNSWSQ` | Graf HNSW di atas vektor 8-bit. |
+| Terkompresi tapi akurat | `IndexRefineFlat` di atas IVFPQ | Pindai kode, lalu peringkat ulang secara eksak. |
+| Kode biner | `IndexBinaryFlat`, `IndexBinaryHNSW` | XOR dan popcount; 32× lebih kecil daripada float32. |
+| Vektor sparse | `IndexSparseFlat` | SPLADE atau bag-of-words; hanya menskor posting yang disentuh kueri. |
 
 Panduan lengkap, termasuk cara menentukan `nlist`, `m`, dan `efSearch`: **[Memilih index](docs/id/memilih-index.md)**.
 
@@ -186,13 +216,13 @@ Panduan lengkap, termasuk cara menentukan `nlist`, `m`, dan `efSearch`: **[Memil
 | [Memulai](docs/id/memulai.md) | Instalasi, index pertama, bentuk API-nya |
 | [Memilih index](docs/id/memilih-index.md) | Semua jenis index, kapan dipakai, cara menakarnya |
 | [Referensi API](docs/id/referensi-api.md) | Tipe, method, dan padanan Python untuk masing-masing |
+| [Menjalankan di produksi](docs/id/produksi.md) | Penyaringan, pemeringkatan ulang, pembacaan bersamaan, persistensi inkremental |
 | [Arsitektur](docs/id/arsitektur.md) | Cara kerjanya di dalam, dan alasan rancangannya |
 | [Performa](docs/id/performa.md) | Apa yang dioptimasi, apa yang diukur, dan apa yang belum |
 | [Galeri](docs/id/gallery.md) | Keenam layar demo, dijelaskan satu per satu |
 
 Pelacakan proyek: **[PLAN.md](PLAN.md)** (peta jalan) · **[Progress.md](Progress.md)** (apa yang
-sudah selesai, apa yang belum, dan bug yang ditemukan sepanjang jalan). Keduanya berbahasa Inggris —
-lihat catatan di bawah.
+sudah selesai, apa yang belum, dan bug yang ditemukan sepanjang jalan). Keduanya berbahasa Inggris.
 
 Tersedia juga dalam **[bahasa Inggris](docs/en/)**.
 
@@ -239,8 +269,10 @@ Disengaja, dan sebaiknya diketahui sebelum Anda memindahkan kode:
 - **`FaissNet.X()` alih-alih `faiss.x()`.** Fungsi tingkat modul berada di kelas statis bernama `FaissNet`, karena namespace akar `Faiss.Net` yang diwajibkan sudah memakai nama `Faiss`, dan sebuah namespace menutupi tipe bernama sama di setiap tempat pemanggilan.
 - **Format berkasnya milik FAISS.Net sendiri.** Index tidak bisa dipertukarkan antara FAISS.Net dan FAISS. Bangun ulang dari vektor sumber untuk berpindah.
 - **`IndexIVFPQ` menyandikan residual untuk L2 dan vektor mentah untuk inner product.** Dekomposisi residual memerlukan suku koreksi tambahan pada inner product; menyandikan langsung lebih sederhana dan eksak terhadap vektor hasil dekode.
-- **HNSW tidak mendukung penghapusan**, sama seperti FAISS. Bangun ulang, atau saring id yang dihapus dari hasil.
-- **Tidak ada IMI, NSG, RaBitQ, maupun `IndexRefine`.** Keluarga index yang ada sudah menutup kebutuhan umum; yang ini belum diimplementasikan.
+- **Index graf tidak mendukung penghapusan**, sama seperti FAISS. Bangun ulang, atau kecualikan id yang dihapus saat pencarian dengan `IDSelector.Not(...)`.
+- **`IDSelector.Predicate` adalah tambahan khas C#.** FAISS tidak punya padanan langsungnya; biayanya satu pemanggilan delegate per kandidat.
+- **Vektor sparse punya jenis index sendiri**, `IndexSparseFlat`, alih-alih melewati API `Index` yang padat.
+- **Tidak ada RaBitQ, PiPNN, fast-scan, maupun Vamana.** Keluarga FAISS upstream terbaru yang berada di luar cakupan porting ini.
 
 ---
 
@@ -251,13 +283,12 @@ commit. Penerbitan dipicu oleh tag:
 
 ```bash
 # naikkan <Version> di Directory.Build.props dulu — workflow menolak menerbitkan bila keduanya beda
-git tag faissnet-v1.0.1
-git push origin faissnet-v1.0.1
+git tag faissnet-v1.1.0
+git push origin faissnet-v1.1.0
 ```
 
 Tag diberi awalan nama proyek karena proyek ini berada di dalam sebuah monorepo. Berkas workflow-nya
-sendiri harus diletakkan di akar repositori — lihat
-[.github/workflows/README.md](.github/workflows/README.md).
+sendiri berada di akar repositori — lihat [.github/workflows/README.md](.github/workflows/README.md).
 
 ## Kontribusi
 
