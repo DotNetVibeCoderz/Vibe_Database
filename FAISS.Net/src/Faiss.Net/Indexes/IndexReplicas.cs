@@ -51,12 +51,17 @@ public sealed class IndexReplicas : Index
         Ntotal = _replicas.Count > 0 ? _replicas[0].Ntotal : 0;
     }
 
-    public override unsafe void Search(ReadOnlySpan<float> queries, int nq, int k, Span<float> distances, Span<long> labels)
+    public override void Search(ReadOnlySpan<float> queries, int nq, int k, Span<float> distances, Span<long> labels) =>
+        Search(queries, nq, k, distances, labels, null);
+
+    public override unsafe void Search(
+        ReadOnlySpan<float> queries, int nq, int k, Span<float> distances, Span<long> labels,
+        SearchParameters? parameters)
     {
         if (_replicas.Count == 0) throw new InvalidOperationException("IndexReplicas has no replicas.");
         if (_replicas.Count == 1 || nq == 1)
         {
-            _replicas[0].Search(queries, nq, k, distances, labels);
+            _replicas[0].Search(queries, nq, k, distances, labels, parameters);
             return;
         }
 
@@ -78,15 +83,25 @@ public sealed class IndexReplicas : Index
                 _replicas[r].Search(
                     new ReadOnlySpan<float>((float*)qp + (long)start * d, count * d), count, k,
                     new Span<float>((float*)dp + (long)start * k, count * k),
-                    new Span<long>((long*)lp + (long)start * k, count * k));
+                    new Span<long>((long*)lp + (long)start * k, count * k),
+                    parameters);
             });
         }
     }
 
     public override RangeSearchResult RangeSearch(ReadOnlySpan<float> queries, float radius) =>
+        RangeSearch(queries, radius, parameters: null);
+
+    public override RangeSearchResult RangeSearch(ReadOnlySpan<float> queries, float radius, SearchParameters? parameters) =>
         _replicas.Count > 0
-            ? _replicas[0].RangeSearch(queries, radius)
+            ? _replicas[0].RangeSearch(queries, radius, parameters: parameters)
             : throw new InvalidOperationException("IndexReplicas has no replicas.");
+
+    public override void ComputeDistanceSubset(ReadOnlySpan<float> query, ReadOnlySpan<long> ids, Span<float> distances)
+    {
+        if (_replicas.Count == 0) throw new InvalidOperationException("IndexReplicas has no replicas.");
+        _replicas[0].ComputeDistanceSubset(query, ids, distances);
+    }
 
     public override long RemoveIds(ReadOnlySpan<long> ids)
     {
@@ -162,6 +177,13 @@ public sealed class IndexShards : Index
     /// <summary>When true, <see cref="Add"/> sends the whole batch to one shard, round-robin.</summary>
     public bool RoundRobinAdds { get; set; } = true;
 
+    /// <summary>
+    /// Searches shards concurrently. On by default: each shard's own search is threaded, but with
+    /// the shards searched one after another a query's latency is the <em>sum</em> over shards
+    /// rather than the slowest one. Named <c>threaded</c> in FAISS.
+    /// </summary>
+    public bool Threaded { get; set; } = true;
+
     public IndexShards(int dimension, MetricType metric = MetricType.L2) : base(dimension, metric) { }
 
     /// <summary>Adds a shard. Its ids are offset by the total count of the preceding shards.</summary>
@@ -219,23 +241,96 @@ public sealed class IndexShards : Index
         Ntotal = offset;
     }
 
-    public override void Search(ReadOnlySpan<float> queries, int nq, int k, Span<float> distances, Span<long> labels)
+    public override void Search(ReadOnlySpan<float> queries, int nq, int k, Span<float> distances, Span<long> labels) =>
+        Search(queries, nq, k, distances, labels, null);
+
+    /// <summary>
+    /// Searches every shard and merges the per-shard top-k lists. A selector is re-expressed in each
+    /// shard's local ids, and a shard whose id range cannot hold a member is skipped entirely.
+    /// </summary>
+    public override void Search(
+        ReadOnlySpan<float> queries, int nq, int k, Span<float> distances, Span<long> labels,
+        SearchParameters? parameters)
     {
         if (_shards.Count == 0) throw new InvalidOperationException("IndexShards has no shards.");
 
-        var partials = new SearchResult[_shards.Count];
-        for (int s = 0; s < _shards.Count; s++)
+        int shardCount = _shards.Count;
+        var offsets = _idOffsets.ToArray();
+        var partials = new SearchResult?[shardCount];
+        var queryArray = queries[..(nq * D)].ToArray();
+        var sel = parameters?.Sel;
+
+        void SearchShard(int s)
         {
-            partials[s] = SearchResult.Allocate(nq, k);
-            _shards[s].Search(queries, nq, k, partials[s].Distances, partials[s].Labels);
+            var shard = _shards[s];
+            long offset = offsets[s];
+            if (shard.Ntotal == 0) return;
+            if (sel is not null && !sel.MayIntersect(offset, offset + shard.Ntotal - 1)) return;
+
+            var shardParams = sel is null
+                ? parameters
+                : SearchParametersCopy.WithSelector(parameters, IDSelectorTranslated.Offset(sel, offset));
+            var partial = SearchResult.Allocate(nq, k);
+            shard.Search(queryArray, nq, k, partial.Distances, partial.Labels, shardParams);
+            partials[s] = partial;
         }
 
-        if (MetricType.IsSimilarity()) Merge<DescendingOrder>(partials, nq, k, distances, labels);
-        else Merge<AscendingOrder>(partials, nq, k, distances, labels);
+        if (Threaded && shardCount > 1) Parallel.For(0, shardCount, SearchShard);
+        else for (int s = 0; s < shardCount; s++) SearchShard(s);
+
+        if (MetricType.IsSimilarity()) Merge<DescendingOrder>(partials, offsets, nq, k, distances, labels);
+        else Merge<AscendingOrder>(partials, offsets, nq, k, distances, labels);
+    }
+
+    public override RangeSearchResult RangeSearch(ReadOnlySpan<float> queries, float radius) =>
+        RangeSearch(queries, radius, parameters: null);
+
+    /// <summary>Radius search on every shard, with each shard's local ids rebased into the global space.</summary>
+    public override RangeSearchResult RangeSearch(ReadOnlySpan<float> queries, float radius, SearchParameters? parameters)
+    {
+        if (_shards.Count == 0) throw new InvalidOperationException("IndexShards has no shards.");
+        int nq = ValidateBatch(queries, nameof(queries));
+        int shardCount = _shards.Count;
+        var offsets = _idOffsets.ToArray();
+        var queryArray = queries[..(nq * D)].ToArray();
+        var partials = new RangeSearchResult?[shardCount];
+        var sel = parameters?.Sel;
+
+        void SearchShard(int s)
+        {
+            var shard = _shards[s];
+            long offset = offsets[s];
+            if (shard.Ntotal == 0) return;
+            if (sel is not null && !sel.MayIntersect(offset, offset + shard.Ntotal - 1)) return;
+            var shardParams = sel is null
+                ? parameters
+                : SearchParametersCopy.WithSelector(parameters, IDSelectorTranslated.Offset(sel, offset));
+            partials[s] = shard.RangeSearch(queryArray, radius, parameters: shardParams);
+        }
+
+        if (Threaded && shardCount > 1) Parallel.For(0, shardCount, SearchShard);
+        else for (int s = 0; s < shardCount; s++) SearchShard(s);
+
+        var perQuery = new List<(long Id, float Distance)>[nq];
+        for (int q = 0; q < nq; q++)
+        {
+            var hits = new List<(long, float)>();
+            for (int s = 0; s < shardCount; s++)
+            {
+                var partial = partials[s];
+                if (partial is null) continue;
+                var ids = partial.LabelsFor(q);
+                var dist = partial.DistancesFor(q);
+                for (int i = 0; i < ids.Length; i++) hits.Add((ids[i] + offsets[s], dist[i]));
+            }
+            perQuery[q] = hits;
+        }
+        return Core.BruteForce.Flatten(perQuery);
     }
 
     /// <summary>Merges per-shard top-k lists, rebasing each shard's local ids into the global space.</summary>
-    private unsafe void Merge<TOrder>(SearchResult[] partials, int nq, int k, Span<float> distances, Span<long> labels)
+    private static unsafe void Merge<TOrder>(
+        SearchResult?[] partials, long[] offsets, int nq, int k, Span<float> distances, Span<long> labels)
         where TOrder : struct, IScoreOrder
     {
         fixed (float* pdis = distances)
@@ -249,12 +344,14 @@ public sealed class IndexShards : Index
 
                 for (int s = 0; s < partials.Length; s++)
                 {
-                    var shardLabels = partials[s].LabelsFor(q);
-                    var shardDistances = partials[s].DistancesFor(q);
+                    var partial = partials[s];
+                    if (partial is null) continue; // empty, or skipped by the selector
+                    var shardLabels = partial.LabelsFor(q);
+                    var shardDistances = partial.DistancesFor(q);
                     for (int i = 0; i < k; i++)
                     {
                         if (shardLabels[i] < 0) break; // results are best-first, so -1 ends the list
-                        heap.Push(shardDistances[i], shardLabels[i] + _idOffsets[s]);
+                        heap.Push(shardDistances[i], shardLabels[i] + offsets[s]);
                     }
                 }
                 heap.Finish();

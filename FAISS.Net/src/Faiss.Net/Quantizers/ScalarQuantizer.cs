@@ -181,19 +181,11 @@ public sealed class ScalarQuantizer
             switch (Type)
             {
                 case ScalarQuantizerType.Float16:
-                    // Assembled byte by byte rather than read as ushort*, so the on-disk code stays
-                    // little-endian regardless of the host.
-                    for (int j = 0; j < D; j++)
-                        pout[j] = (float)BitConverter.UInt16BitsToHalf(
-                            (ushort)(pcode[2 * j] | (pcode[2 * j + 1] << 8)));
+                    DecodeFloat16(pcode, pout);
                     break;
 
                 case ScalarQuantizerType.PerDimension4Bit:
-                    for (int j = 0; j < D; j++)
-                    {
-                        int q = (j & 1) == 0 ? pcode[j >> 1] & 0x0F : (pcode[j >> 1] >> 4) & 0x0F;
-                        pout[j] = pmin[j] + q * pstep[j];
-                    }
+                    Decode4Bit(pcode, pout, pmin, pstep);
                     break;
 
                 default:
@@ -236,21 +228,115 @@ public sealed class ScalarQuantizer
         switch (Type)
         {
             case ScalarQuantizerType.Float16:
-                for (int j = 0; j < D; j++)
-                    output[j] = (float)BitConverter.UInt16BitsToHalf((ushort)(code[2 * j] | (code[2 * j + 1] << 8)));
+                DecodeFloat16(code, output);
                 break;
 
             case ScalarQuantizerType.PerDimension4Bit:
-                for (int j = 0; j < D; j++)
-                {
-                    int q = (j & 1) == 0 ? code[j >> 1] & 0x0F : (code[j >> 1] >> 4) & 0x0F;
-                    output[j] = offsets[j] + q * steps[j];
-                }
+                Decode4Bit(code, output, offsets, steps);
                 break;
 
             default:
                 Decode8Bit(code, output, offsets, steps);
                 break;
+        }
+    }
+
+    /// <summary>
+    /// Vectorized half-to-float decode, eight lanes at a time.
+    /// <para>
+    /// .NET exposes no portable half-precision vector conversion, so this is the classic bit-level
+    /// construction done with integer SIMD: shift the exponent and mantissa into float position and
+    /// rebias the exponent; for infinity and NaN add the remaining bias; for zero and subnormals
+    /// rebias by one more step and subtract <c>2^-14</c> in float arithmetic, which renormalizes the
+    /// mantissa exactly. Every branch of the scalar version becomes a compare-and-select, so the loop
+    /// has no data-dependent control flow and decodes every finite and non-finite input bit-exactly.
+    /// </para>
+    /// </summary>
+    private unsafe void DecodeFloat16(byte* code, float* output)
+    {
+        int j = 0;
+        if (Vector256.IsHardwareAccelerated && BitConverter.IsLittleEndian && D >= 8)
+        {
+            var mantissaMask = Vector256.Create(0x7fffu);
+            var exponentMask = Vector256.Create(0x7c00u << 13);
+            var rebias = Vector256.Create((127u - 15u) << 23);
+            var signMask = Vector256.Create(0x8000u);
+            var subnormalMagic = Vector256.Create(113u << 23).AsSingle();
+            var one = Vector256.Create(1u << 23);
+            var zero = Vector256<uint>.Zero;
+
+            for (; j <= D - 8; j += 8)
+            {
+                // The code is little-endian by definition, and so is the host on this path.
+                var halves = Vector128.Load((ushort*)(code + 2 * j));
+                (var low, var high) = Vector128.Widen(halves);
+                var h = Vector256.Create(low, high);
+
+                var bits = (h & mantissaMask) << 13;
+                var exponent = bits & exponentMask;
+                bits += rebias;
+
+                var isSpecial = Vector256.Equals(exponent, exponentMask);
+                bits += isSpecial & rebias;
+
+                var isSubnormal = Vector256.Equals(exponent, zero);
+                var renormalized = ((bits + one).AsSingle() - subnormalMagic).AsUInt32();
+                bits = Vector256.ConditionalSelect(isSubnormal, renormalized, bits);
+
+                bits |= (h & signMask) << 16;
+                Vector256.Store(bits.AsSingle(), output + j);
+            }
+        }
+
+        // Assembled byte by byte rather than read as ushort*, so the code stays little-endian on any host.
+        for (; j < D; j++)
+            output[j] = (float)BitConverter.UInt16BitsToHalf((ushort)(code[2 * j] | (code[2 * j + 1] << 8)));
+    }
+
+    /// <summary>
+    /// Both nibbles of every possible byte, already converted to float: entry <c>b</c> holds
+    /// <c>(float)(b &amp; 15)</c> in its low half and <c>(float)(b &gt;&gt; 4)</c> in its high half.
+    /// One 64-bit load per code byte then yields two decoded dimensions in lane order.
+    /// </summary>
+    private static readonly ulong[] NibblePairs = BuildNibblePairs();
+
+    private static ulong[] BuildNibblePairs()
+    {
+        var table = new ulong[256];
+        for (int b = 0; b < 256; b++)
+        {
+            ulong low = BitConverter.SingleToUInt32Bits(b & 15);
+            ulong high = BitConverter.SingleToUInt32Bits(b >> 4);
+            table[b] = low | (high << 32);
+        }
+        return table;
+    }
+
+    /// <summary>
+    /// Vectorized 4-bit decode, eight dimensions (four code bytes) at a time. Unpacking nibbles with
+    /// shifts would need lane interleaving that the portable vector API does not provide; a 256-entry
+    /// table of pre-converted nibble pairs replaces both the unpacking and the int-to-float conversion.
+    /// </summary>
+    private unsafe void Decode4Bit(byte* code, float* output, float* offsets, float* steps)
+    {
+        int j = 0;
+        if (Vector256.IsHardwareAccelerated && D >= 8)
+        {
+            fixed (ulong* table = NibblePairs)
+            {
+                for (; j <= D - 8; j += 8)
+                {
+                    byte* b = code + (j >> 1);
+                    var levels = Vector256.Create(table[b[0]], table[b[1]], table[b[2]], table[b[3]]).AsSingle();
+                    var decoded = Vector256.Load(offsets + j) + levels * Vector256.Load(steps + j);
+                    Vector256.Store(decoded, output + j);
+                }
+            }
+        }
+        for (; j < D; j++)
+        {
+            int q = (j & 1) == 0 ? code[j >> 1] & 0x0F : (code[j >> 1] >> 4) & 0x0F;
+            output[j] = offsets[j] + q * steps[j];
         }
     }
 

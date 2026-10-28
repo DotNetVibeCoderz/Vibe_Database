@@ -111,11 +111,80 @@ public abstract class Index
     public abstract void Search(ReadOnlySpan<float> queries, int nq, int k, Span<float> distances, Span<long> labels);
 
     /// <summary>
+    /// Core search with per-call options — Python's <c>index.search(xq, k, params=...)</c>. A
+    /// selector in <paramref name="parameters"/> is applied inside the scan, so each query still
+    /// receives up to <paramref name="k"/> members of the subset.
+    /// </summary>
+    /// <exception cref="NotSupportedException">The index cannot honour non-default parameters.</exception>
+    public virtual void Search(
+        ReadOnlySpan<float> queries, int nq, int k, Span<float> distances, Span<long> labels,
+        SearchParameters? parameters)
+    {
+        if (parameters is null || parameters.IsDefault)
+        {
+            Search(queries, nq, k, distances, labels);
+            return;
+        }
+        throw new NotSupportedException($"{GetType().Name} does not support search parameters or filtered search.");
+    }
+
+    /// <summary>k nearest neighbours under per-call options; see <see cref="SearchParameters"/>.</summary>
+    public SearchResult Search(ReadOnlySpan<float> queries, int k, SearchParameters? parameters)
+    {
+        int nq = ValidateBatch(queries, nameof(queries));
+        if (k <= 0) throw new ArgumentOutOfRangeException(nameof(k), "k must be positive.");
+        var result = SearchResult.Allocate(nq, k);
+        Search(queries, nq, k, result.Distances, result.Labels, parameters);
+        return result;
+    }
+
+    /// <summary>k nearest neighbours restricted to the ids a selector accepts.</summary>
+    public SearchResult Search(ReadOnlySpan<float> queries, int k, IDSelector selector)
+    {
+        ArgumentNullException.ThrowIfNull(selector);
+        return Search(queries, k, new SearchParameters { Sel = selector });
+    }
+
+    /// <summary>
     /// Every neighbour within <paramref name="radius"/>. For distance metrics the test is
     /// <c>distance &lt; radius</c>; for inner product it is <c>similarity &gt; radius</c>.
     /// </summary>
     public virtual RangeSearchResult RangeSearch(ReadOnlySpan<float> queries, float radius) =>
         throw new NotSupportedException($"{GetType().Name} does not implement range search.");
+
+    /// <summary>Radius search under per-call options, e.g. restricted by a selector.</summary>
+    /// <exception cref="NotSupportedException">The index cannot honour non-default parameters.</exception>
+    public virtual RangeSearchResult RangeSearch(ReadOnlySpan<float> queries, float radius, SearchParameters? parameters)
+    {
+        if (parameters is null || parameters.IsDefault) return RangeSearch(queries, radius);
+        throw new NotSupportedException($"{GetType().Name} does not support search parameters or filtered range search.");
+    }
+
+    /// <summary>Radius search restricted to the ids a selector accepts.</summary>
+    public RangeSearchResult RangeSearch(ReadOnlySpan<float> queries, float radius, IDSelector selector)
+    {
+        ArgumentNullException.ThrowIfNull(selector);
+        return RangeSearch(queries, radius, new SearchParameters { Sel = selector });
+    }
+
+    /// <summary>
+    /// Distances from one query to an explicit list of stored ids — <c>compute_distance_subset</c>
+    /// in FAISS. <see cref="IndexRefine"/> uses it to re-score candidates against full-precision
+    /// vectors. Ids below zero produce the metric's worst score. The default reconstructs each
+    /// vector; indexes holding raw vectors override it to read them in place.
+    /// </summary>
+    public virtual void ComputeDistanceSubset(ReadOnlySpan<float> query, ReadOnlySpan<long> ids, Span<float> distances)
+    {
+        if (query.Length != D) throw new ArgumentException($"Expected a query of length {D}.", nameof(query));
+        float worst = MetricType.IsSimilarity() ? float.MinValue : float.MaxValue;
+        Span<float> vector = D <= 1024 ? stackalloc float[D] : new float[D];
+        for (int i = 0; i < ids.Length; i++)
+        {
+            if (ids[i] < 0) { distances[i] = worst; continue; }
+            Reconstruct(ids[i], vector);
+            distances[i] = Core.VectorOps.Distance(query, vector, MetricType);
+        }
+    }
 
     /// <summary>Radius search from jagged query rows.</summary>
     public RangeSearchResult RangeSearch(float[][] queries, float radius) =>

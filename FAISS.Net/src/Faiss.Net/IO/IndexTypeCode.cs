@@ -14,25 +14,37 @@ public enum IndexTypeCode : ushort
     Flat = 1,
     FlatL2 = 2,
     FlatIP = 3,
+    MultiIndexQuantizer = 4,
 
     IVFFlat = 10,
     IVFPQ = 11,
     IVFScalarQuantizer = 12,
+    IVFResidualQuantizer = 13,
+    IVFLocalSearchQuantizer = 14,
 
     PQ = 20,
     ScalarQuantizer = 21,
+    ResidualQuantizer = 22,
+    LocalSearchQuantizer = 23,
 
     HNSWFlat = 30,
     NSGFlat = 31,
+    HNSWPQ = 32,
+    HNSWSQ = 33,
 
     IDMap = 40,
     IDMap2 = 41,
     PreTransform = 42,
     Replicas = 43,
     Shards = 44,
+    Refine = 45,
+    RefineFlat = 46,
 
     BinaryFlat = 50,
     BinaryIVF = 51,
+    BinaryHNSW = 52,
+
+    SparseFlat = 60,
 }
 
 /// <summary>Tag identifying a <c>VectorTransform</c> in a serialized file. Append-only, like <see cref="IndexTypeCode"/>.</summary>

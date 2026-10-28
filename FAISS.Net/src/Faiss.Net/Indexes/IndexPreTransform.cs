@@ -112,11 +112,22 @@ public sealed class IndexPreTransform : Index
     public override void Search(ReadOnlySpan<float> queries, int nq, int k, Span<float> distances, Span<long> labels) =>
         Base.Search(ApplyChain(queries, nq), nq, k, distances, labels);
 
-    public override RangeSearchResult RangeSearch(ReadOnlySpan<float> queries, float radius)
+    public override void Search(
+        ReadOnlySpan<float> queries, int nq, int k, Span<float> distances, Span<long> labels,
+        SearchParameters? parameters) =>
+        Base.Search(ApplyChain(queries, nq), nq, k, distances, labels, parameters);
+
+    public override RangeSearchResult RangeSearch(ReadOnlySpan<float> queries, float radius) =>
+        RangeSearch(queries, radius, parameters: null);
+
+    public override RangeSearchResult RangeSearch(ReadOnlySpan<float> queries, float radius, SearchParameters? parameters)
     {
         int nq = ValidateBatch(queries, nameof(queries));
-        return Base.RangeSearch(ApplyChain(queries, nq), radius);
+        return Base.RangeSearch(ApplyChain(queries, nq), radius, parameters: parameters);
     }
+
+    public override void ComputeDistanceSubset(ReadOnlySpan<float> query, ReadOnlySpan<long> ids, Span<float> distances) =>
+        Base.ComputeDistanceSubset(ApplyChain(query, 1), ids, distances);
 
     /// <summary>
     /// Reconstructs in the transformed space and maps back through the chain in reverse. Exact only

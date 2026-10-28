@@ -58,7 +58,7 @@ public abstract class VectorTransform
         return code switch
         {
             TransformTypeCode.RandomRotation => LinearTransform.ReadBody(reader, new RandomRotationMatrix()),
-            TransformTypeCode.OPQ => LinearTransform.ReadBody(reader, new OPQMatrix()),
+            TransformTypeCode.OPQ => OPQMatrix.ReadBody(reader),
             TransformTypeCode.Pca => LinearTransform.ReadBody(reader, new PCAMatrix()),
             TransformTypeCode.Normalization => NormalizationTransform.ReadBody(reader),
             _ => throw new InvalidDataException($"Unknown transform type code {code}."),
@@ -295,13 +295,14 @@ public sealed class OPQMatrix : LinearTransform
         int n = x.Length / DIn;
         if (n == 0) throw new ArgumentException("No training vectors supplied.", nameof(x));
 
-        // OPQ only makes sense as a square rotation; a reducing OPQ is a PCA followed by a rotation,
-        // which the caller can build explicitly with IndexPreTransform.
-        if (DIn != DOut)
-            throw new NotSupportedException(
-                "OPQMatrix requires dOut == dIn. For dimensionality reduction, chain PCAMatrix then OPQMatrix.");
+        // A reducing OPQ (dOut < dIn) learns a dOut x dIn matrix with orthonormal rows: a projection
+        // onto the dOut-dimensional subspace that the product quantizer can represent best, chosen
+        // jointly with the codebooks rather than fixed in advance by variance as PCA would.
+        if (DOut > DIn)
+            throw new ArgumentException($"OPQ cannot increase the dimension (dIn={DIn}, dOut={DOut}).");
 
         int d = DIn;
+        int dOut = DOut;
         var rng = new Utils.RandomGenerator(1234);
         float[] data;
         if (n > MaxTrainingPoints)
@@ -318,19 +319,23 @@ public sealed class OPQMatrix : LinearTransform
         }
 
         // Start from a random rotation: identity is a saddle point when subspace variances differ.
-        A = MatrixOps.RandomOrthonormal(d, 1234);
+        // For the reducing form, its first dOut rows: still orthonormal, and a random subspace.
+        var initial = MatrixOps.RandomOrthonormal(d, 1234);
+        A = dOut == d ? initial : initial.AsSpan(0, dOut * d).ToArray();
         IsOrthonormal = true;
         IsTrained = true;
         _errors.Clear();
 
-        var rotated = new float[(long)n * d];
-        var reconstructed = new float[(long)n * d];
+        var rotated = new float[(long)n * dOut];
+        var reconstructed = new float[(long)n * dOut];
+        double totalEnergy = 0;
+        for (long i = 0; i < (long)n * d; i++) totalEnergy += (double)data[i] * data[i];
 
         for (int iteration = 0; iteration < Iterations; iteration++)
         {
-            MatrixOps.ApplyLinear(data, n, d, rotated, d, A, []);
+            MatrixOps.ApplyLinear(data, n, d, rotated, dOut, A, []);
 
-            var pq = new ProductQuantizer(d, M)
+            var pq = new ProductQuantizer(dOut, M)
             {
                 ClusteringParameters = new ClusteringParameters { Iterations = PqIterations, Seed = 1234 + iteration }
             };
@@ -338,15 +343,23 @@ public sealed class OPQMatrix : LinearTransform
             byte[] codes = pq.ComputeCodes(rotated);
             pq.Decode(codes, n, reconstructed);
 
-            double error = 0;
-            for (long i = 0; i < (long)n * d; i++)
+            // Reconstruction error in the input space. With orthonormal rows it splits into the
+            // quantization error inside the subspace plus the energy the projection discards,
+            // ||x||^2 - ||Ax||^2; the second term is zero for a square rotation and is exactly what a
+            // reducing OPQ trades against the first, so leaving it out would report a random initial
+            // projection as better than the trained one.
+            double error = totalEnergy;
+            for (long i = 0; i < (long)n * dOut; i++)
             {
                 double diff = rotated[i] - reconstructed[i];
-                error += diff * diff;
+                error += diff * diff - (double)rotated[i] * rotated[i];
             }
             _errors.Add(error / n);
 
-            // Procrustes: M = sum_i x_i * xhat_i^T, then SVD(M) = U S V^T gives R = V U^T.
+            // Procrustes: M = sum_i x_i * xhat_i^T (dIn x dOut), then SVD(M) = U S V^T gives
+            // R = V U^T. For the reducing form M is rectangular; it is zero-padded to dIn x dIn so
+            // the square Jacobi SVD applies, and only the first dOut rows of V U^T are kept — the
+            // padded columns contribute singular vectors with zero weight in those rows.
             // This rank-1 accumulation is the hot spot of OPQ training (n * d^2 per iteration), so
             // it runs on per-thread matrices that are summed once at the end rather than contending
             // on a shared one.
@@ -365,12 +378,13 @@ public sealed class OPQMatrix : LinearTransform
                 for (int i = start; i < end; i++)
                 {
                     long xOffset = (long)i * d;
+                    long yOffset = (long)i * dOut;
                     for (int a = 0; a < d; a++)
                     {
                         double va = data[xOffset + a];
                         if (va == 0) continue;
                         long row = (long)a * d;
-                        for (int b = 0; b < d; b++) local[row + b] += va * reconstructed[xOffset + b];
+                        for (int b = 0; b < dOut; b++) local[row + b] += va * reconstructed[yOffset + b];
                     }
                 }
                 partials.Add(local);
@@ -380,8 +394,8 @@ public sealed class OPQMatrix : LinearTransform
                 for (long i = 0; i < cross.Length; i++) cross[i] += local[i];
 
             MatrixOps.Svd(cross, d, out double[] u, out _, out double[] v);
-            var next = new float[(long)d * d];
-            for (int i = 0; i < d; i++)
+            var next = new float[(long)dOut * d];
+            for (int i = 0; i < dOut; i++)
                 for (int j = 0; j < d; j++)
                 {
                     double sum = 0;
@@ -398,6 +412,19 @@ public sealed class OPQMatrix : LinearTransform
     {
         base.Write(writer);
         writer.Write(M);
+    }
+
+    /// <summary>
+    /// Reads the linear part, then <see cref=M/>. Before 1.1 the reader stopped after the linear
+    /// part while the writer had already appended M, so everything after an OPQ transform in a file
+    /// was read four bytes out of place; files written by those versions do contain M and load
+    /// correctly here.
+    /// </summary>
+    internal static OPQMatrix ReadBody(BinaryReader reader)
+    {
+        var opq = (OPQMatrix)LinearTransform.ReadBody(reader, new OPQMatrix());
+        opq.M = reader.ReadInt32();
+        return opq;
     }
 }
 

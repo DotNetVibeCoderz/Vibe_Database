@@ -1,0 +1,201 @@
+using Faiss.Net.Core;
+using Faiss.Net.IO;
+using Xunit;
+
+namespace Faiss.Net.Tests;
+
+/// <summary>
+/// The v1.2 kernels: each is an optimization of something that already worked, so each is tested
+/// against the path it replaces rather than against a recall threshold.
+/// </summary>
+public class KernelTests
+{
+    [Theory]
+    [InlineData(MetricType.L2, 64, 3000, 37, 10)]
+    [InlineData(MetricType.L2, 128, 1000, 100, 1)]
+    [InlineData(MetricType.InnerProduct, 48, 2500, 21, 7)]
+    [InlineData(MetricType.L2, 32, 300, 16, 400)] // k larger than the database: padding with -1
+    public void BlockedProductAgreesWithThePairwiseKernel(MetricType metric, int d, int n, int nq, int k)
+    {
+        var all = FaissNet.RandomClusteredVectors(n + nq, d, 20, 0.1f, 11);
+        var data = all.AsSpan(0, n * d).ToArray();
+        var queries = all.AsSpan(n * d).ToArray();
+        var index = new IndexFlat(d, metric);
+        index.Add(data);
+
+        // A selector that accepts everything forces the pairwise kernel for this one call, without
+        // touching global state that tests in other classes may be relying on concurrently.
+        var blocked = index.Search(queries, k);
+        var pairwise = index.Search(queries, k, IDSelector.All());
+
+        int mismatches = 0;
+        for (int i = 0; i < blocked.Labels.Length; i++)
+        {
+            if (blocked.Labels[i] != pairwise.Labels[i]) mismatches++;
+            if (pairwise.Labels[i] < 0)
+            {
+                Assert.Equal(-1, blocked.Labels[i]);
+                continue;
+            }
+            float expected = pairwise.Distances[i];
+            Assert.True(Math.Abs(blocked.Distances[i] - expected) <= 1e-3f * Math.Max(1f, Math.Abs(expected)),
+                $"distance {i}: blocked {blocked.Distances[i]} vs pairwise {expected}");
+        }
+        // Reordering is only allowed between near-ties, which on continuous data is very rare.
+        Assert.True(mismatches <= blocked.Labels.Length / 200, $"{mismatches} of {blocked.Labels.Length} labels differ");
+    }
+
+    [Fact]
+    public void BlockedProductFindsEveryVectorAsItsOwnNearestNeighbour()
+    {
+        const int d = 32, n = 2000;
+        var data = TestData.Uniform(n, d);
+        var index = new IndexFlatL2(d);
+        index.Add(data);
+        var result = index.Search(data, 1);
+        for (int i = 0; i < n; i++)
+        {
+            Assert.Equal(i, result.Labels[i]);
+            Assert.True(result.Distances[i] >= 0f, "the norm decomposition must never report a negative distance");
+        }
+    }
+
+    [Fact]
+    public void Fp16DecodeIsBitExactForEveryHalf()
+    {
+        const int d = 8;
+        var sq = new ScalarQuantizer(d, ScalarQuantizerType.Float16);
+        var code = new byte[2 * d];
+        var decoded = new float[d];
+
+        for (int start = 0; start < 65536; start += d)
+        {
+            for (int j = 0; j < d; j++)
+            {
+                ushort bits = (ushort)(start + j);
+                code[2 * j] = (byte)bits;
+                code[2 * j + 1] = (byte)(bits >> 8);
+            }
+            sq.Decode(code, decoded);
+            for (int j = 0; j < d; j++)
+            {
+                float expected = (float)BitConverter.UInt16BitsToHalf((ushort)(start + j));
+                if (float.IsNaN(expected)) Assert.True(float.IsNaN(decoded[j]), $"0x{start + j:X4} should decode to NaN");
+                else Assert.Equal(BitConverter.SingleToUInt32Bits(expected), BitConverter.SingleToUInt32Bits(decoded[j]));
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData(8)]
+    [InlineData(37)] // odd tail after the vector loop
+    [InlineData(128)]
+    public void FourBitDecodeMatchesTheScalarDefinition(int d)
+    {
+        var data = TestData.Uniform(400, d);
+        var sq = new ScalarQuantizer(d, ScalarQuantizerType.PerDimension4Bit);
+        sq.Train(data);
+        var code = new byte[sq.CodeSize];
+        var decoded = new float[d];
+        var random = new Random(5);
+
+        for (int trial = 0; trial < 200; trial++)
+        {
+            random.NextBytes(code);
+            if (d % 2 == 1) code[^1] &= 0x0F; // the unused high nibble of an odd dimension
+            sq.Decode(code, decoded);
+            for (int j = 0; j < d; j++)
+            {
+                int q = (j & 1) == 0 ? code[j >> 1] & 0x0F : code[j >> 1] >> 4;
+                Assert.Equal(sq.Offsets[j] + q * sq.Steps[j], decoded[j], 5);
+            }
+        }
+    }
+
+    [Fact]
+    public void PrecomputedIvfpqTablesMatchTheDirectTables()
+    {
+        const int d = 32;
+        var all = FaissNet.RandomClusteredVectors(5100, d, 30, 0.1f, 4);
+        var data = all.AsSpan(0, 5000 * d).ToArray();
+        var queries = all.AsSpan(5000 * d).ToArray();
+
+        var index = new IndexIVFPQ(d, nlist: 32, m: 8) { Nprobe = 8 };
+        index.Train(data);
+        index.Add(data);
+        var direct = index.Search(queries, 10);
+
+        index.UsePrecomputedTable = true;
+        var precomputed = index.Search(queries, 10);
+        Assert.Equal((long)32 * 8 * 256 * sizeof(float), index.PrecomputedTableBytes);
+
+        int mismatches = 0;
+        for (int i = 0; i < direct.Labels.Length; i++)
+        {
+            if (direct.Labels[i] != precomputed.Labels[i]) mismatches++;
+            Assert.Equal(direct.Distances[i], precomputed.Distances[i], 2);
+        }
+        Assert.True(mismatches <= direct.Labels.Length / 100, $"{mismatches} labels differ");
+    }
+
+    [Fact]
+    public void PrecomputedTablesAreRebuiltAfterReload()
+    {
+        const int d = 16;
+        var data = TestData.Clustered(3000, d);
+        var index = new IndexIVFPQ(d, nlist: 16, m: 4) { Nprobe = 4, UsePrecomputedTable = true };
+        index.Train(data);
+        index.Add(data);
+        var queries = TestData.Slice(data, d, 20);
+        var before = index.Search(queries, 5);
+
+        var reloaded = (IndexIVFPQ)IndexIO.Deserialize(IndexIO.Serialize(index));
+        reloaded.UsePrecomputedTable = true; // a runtime choice, not part of the file
+        Assert.Equal(before.Labels, reloaded.Search(queries, 5).Labels);
+    }
+
+    [Fact]
+    public void ReducingOpqProjectsAndStillSearches()
+    {
+        const int d = 64;
+        var all = FaissNet.RandomClusteredVectors(4100, d, 40, 0.1f, 8);
+        var data = all.AsSpan(0, 4000 * d).ToArray();
+        var queries = all.AsSpan(4000 * d).ToArray();
+        var truth = TestData.GroundTruth(data, queries, d, 10);
+
+        var opq = FaissNet.IndexFactory(d, "OPQ8_32,PQ8");
+        opq.Train(data);
+        opq.Add(data);
+        var transform = (OPQMatrix)((IndexPreTransform)opq).Transforms[0];
+        Assert.Equal(32, transform.DOut);
+        Assert.True(transform.ErrorHistory[^1] <= transform.ErrorHistory[0], "OPQ iterations should not increase the error");
+
+        double recall = FaissNet.ComputeRecall(truth, opq.Search(queries, 10));
+        var pca = FaissNet.IndexFactory(d, "PCA32,PQ8");
+        pca.Train(data);
+        pca.Add(data);
+        double pcaRecall = FaissNet.ComputeRecall(truth, pca.Search(queries, 10));
+        Assert.True(recall >= pcaRecall - 0.05, $"reducing OPQ {recall:P1} vs PCA {pcaRecall:P1}");
+
+        var reloaded = IndexIO.Deserialize(IndexIO.Serialize(opq));
+        Assert.Equal(opq.Search(queries, 10).Labels, reloaded.Search(queries, 10).Labels);
+    }
+
+    [Theory]
+    [InlineData("OPQ8,PQ8")]
+    [InlineData("OPQ8,IVF16,PQ8")]
+    [InlineData("OPQ8_32,IVF16,PQ8")]
+    public void IndexesBehindAnOpqTransformRoundTrip(string description)
+    {
+        // Regression: before 1.1 the OPQ reader left M unread, misaligning everything after it.
+        const int d = 64;
+        var data = TestData.Clustered(3000, d);
+        var index = FaissNet.IndexFactory(d, description);
+        index.Train(data);
+        index.Add(data);
+        var reloaded = IndexIO.Deserialize(IndexIO.Serialize(index));
+        var queries = TestData.Slice(data, d, 20);
+        Assert.Equal(index.Search(queries, 10).Labels, reloaded.Search(queries, 10).Labels);
+        Assert.Equal(8, ((OPQMatrix)((IndexPreTransform)reloaded).Transforms[0]).M);
+    }
+}

@@ -21,8 +21,7 @@ namespace Faiss.Net;
 /// </summary>
 public sealed class IndexScalarQuantizer : Index
 {
-    private byte[] _codes = [];
-    private int _count;
+    private CodeStore _codes;
 
     /// <summary>The underlying quantizer; exposed like <c>index.sq</c> in Python.</summary>
     public ScalarQuantizer Sq { get; private set; }
@@ -37,10 +36,14 @@ public sealed class IndexScalarQuantizer : Index
         : base(dimension, metric)
     {
         Sq = new ScalarQuantizer(dimension, type);
+        _codes = new CodeStore(Sq.CodeSize);
         IsTrained = Sq.IsTrained;
     }
 
     public override bool SupportsReconstruct => true;
+
+    /// <summary>Raw codes, <c>ntotal * CodeSize</c> bytes.</summary>
+    public ReadOnlySpan<byte> Codes => _codes.AsSpan();
 
     public override void Train(ReadOnlySpan<float> x)
     {
@@ -49,57 +52,64 @@ public sealed class IndexScalarQuantizer : Index
         IsTrained = true;
     }
 
-    public override void Add(ReadOnlySpan<float> x)
+    public override unsafe void Add(ReadOnlySpan<float> x)
     {
         EnsureTrained();
         int n = ValidateBatch(x, nameof(x));
         if (n == 0) return;
 
-        long needed = (long)(_count + n) * CodeSize;
-        if (needed > _codes.Length)
-            Array.Resize(ref _codes, (int)Math.Max(needed, _codes.Length + (_codes.Length >> 1)));
-
-        Sq.EncodeBatch(x, n, _codes.AsSpan(_count * CodeSize, n * CodeSize));
-        _count += n;
-        Ntotal = _count;
+        fixed (float* px = x)
+        {
+            nint xp = (nint)px;
+            _codes.Append(n, codes => Sq.EncodeBatch(new ReadOnlySpan<float>((float*)xp, n * D), n, codes));
+        }
+        Ntotal = _codes.Count;
     }
 
-    public override unsafe void Search(ReadOnlySpan<float> queries, int nq, int k, Span<float> distances, Span<long> labels)
+    public override void Search(ReadOnlySpan<float> queries, int nq, int k, Span<float> distances, Span<long> labels) =>
+        Search(queries, nq, k, distances, labels, null);
+
+    public override unsafe void Search(
+        ReadOnlySpan<float> queries, int nq, int k, Span<float> distances, Span<long> labels,
+        SearchParameters? parameters)
     {
         EnsureTrained();
         if (nq == 0) return;
-        if (_count == 0)
+        var (data, count) = _codes.Snapshot();
+        if (count == 0)
         {
-            distances.Fill(MetricType.IsSimilarity() ? float.MinValue : float.MaxValue);
-            labels.Fill(-1);
+            distances[..(nq * k)].Fill(MetricType.IsSimilarity() ? float.MinValue : float.MaxValue);
+            labels[..(nq * k)].Fill(-1);
             return;
         }
 
+        var sel = parameters?.Sel;
         fixed (float* xq = queries)
+        fixed (byte* pcodes = data)
         fixed (float* pdis = distances)
         fixed (long* plab = labels)
         {
-            nint qp = (nint)xq, dp = (nint)pdis, lp = (nint)plab;
+            nint qp = (nint)xq, cp = (nint)pcodes, dp = (nint)pdis, lp = (nint)plab;
             int threads = Threads > 0 ? Threads : Environment.ProcessorCount;
 
-            if (nq == 1 || threads == 1 || (long)nq * _count < 50_000)
+            if (nq == 1 || threads == 1 || (long)nq * count < 50_000)
                 for (int q = 0; q < nq; q++)
-                    ScanQuery((float*)qp + (long)q * D, (float*)dp + (long)q * k, (long*)lp + (long)q * k, k);
+                    ScanQuery((float*)qp + (long)q * D, (byte*)cp, count, (float*)dp + (long)q * k, (long*)lp + (long)q * k, k, sel);
             else
                 Parallel.For(0, nq, new ParallelOptions { MaxDegreeOfParallelism = threads }, q =>
-                    ScanQuery((float*)qp + (long)q * D, (float*)dp + (long)q * k, (long*)lp + (long)q * k, k));
+                    ScanQuery((float*)qp + (long)q * D, (byte*)cp, count, (float*)dp + (long)q * k, (long*)lp + (long)q * k, k, sel));
         }
     }
 
-    private unsafe void ScanQuery(float* query, float* outDistances, long* outLabels, int k)
+    private unsafe void ScanQuery(float* query, byte* codes, int count, float* outDistances, long* outLabels, int k, IDSelector? sel)
     {
         float[] scratch = ArrayPool<float>.Shared.Rent(D);
         try
         {
             if (MetricType.IsSimilarity())
-                Sweep<DescendingOrder>(query, scratch, outDistances, outLabels, k);
+                Sweep<DescendingOrder>(query, scratch, codes, count, outDistances, outLabels, k, sel);
             else
-                Sweep<AscendingOrder>(query, scratch, outDistances, outLabels, k);
+                Sweep<AscendingOrder>(query, scratch, codes, count, outDistances, outLabels, k, sel);
         }
         finally
         {
@@ -107,7 +117,8 @@ public sealed class IndexScalarQuantizer : Index
         }
     }
 
-    private unsafe void Sweep<TOrder>(float* query, float[] scratch, float* outDistances, long* outLabels, int k)
+    private unsafe void Sweep<TOrder>(
+        float* query, float[] scratch, byte* codes, int count, float* outDistances, long* outLabels, int k, IDSelector? sel)
         where TOrder : struct, IScoreOrder
     {
         var heap = new KnnHeap<TOrder>(new Span<float>(outDistances, k), new Span<long>(outLabels, k));
@@ -115,13 +126,13 @@ public sealed class IndexScalarQuantizer : Index
 
         // Pinned once for the whole scan, not once per candidate: see ScalarQuantizer.DecodeUnchecked.
         fixed (float* pdecoded = scratch)
-        fixed (byte* pcodes = _codes)
         fixed (float* poffsets = Sq.Offsets)
         fixed (float* psteps = Sq.Steps)
         {
-            for (int i = 0; i < _count; i++)
+            for (int i = 0; i < count; i++)
             {
-                Sq.DecodeUnchecked(pcodes + (long)i * codeSize, pdecoded, poffsets, psteps);
+                if (sel is not null && !sel.IsMember(i)) continue;
+                Sq.DecodeUnchecked(codes + (long)i * codeSize, pdecoded, poffsets, psteps);
                 float score = VectorOps.Distance(query, pdecoded, D, MetricType);
                 if (TOrder.Better(score, heap.WorstScore)) heap.Push(score, i);
             }
@@ -131,8 +142,8 @@ public sealed class IndexScalarQuantizer : Index
 
     public override void Reconstruct(long key, Span<float> output)
     {
-        if (key < 0 || key >= _count) throw new ArgumentOutOfRangeException(nameof(key));
-        Sq.Decode(_codes.AsSpan((int)key * CodeSize, CodeSize), output);
+        if (key < 0 || key >= _codes.Count) throw new ArgumentOutOfRangeException(nameof(key));
+        Sq.Decode(_codes[(int)key], output);
     }
 
     public override long RemoveIds(ReadOnlySpan<long> ids)
@@ -144,27 +155,18 @@ public sealed class IndexScalarQuantizer : Index
 
     public override long RemoveIds(Func<long, bool> predicate)
     {
-        int write = 0;
-        for (int read = 0; read < _count; read++)
-        {
-            if (predicate(read)) continue;
-            if (write != read)
-                _codes.AsSpan(read * CodeSize, CodeSize).CopyTo(_codes.AsSpan(write * CodeSize, CodeSize));
-            write++;
-        }
-        int removed = _count - write;
-        _count = write;
-        Ntotal = _count;
+        int removed = _codes.Compact(i => !predicate(i));
+        Ntotal = _codes.Count;
         return removed;
     }
 
     public override void Reset()
     {
-        _count = 0;
+        _codes.Clear();
         Ntotal = 0;
     }
 
-    public override long MemoryUsage => _codes.Length;
+    public override long MemoryUsage => _codes.MemoryUsage;
 
     public override string Describe() =>
         $"IndexScalarQuantizer(d={D}, ntotal={Ntotal}, {Sq}, {MetricType.ToShortString()})";
@@ -179,17 +181,20 @@ public sealed class IndexScalarQuantizer : Index
     protected internal override void WriteBody(BinaryWriter writer)
     {
         Sq.Write(writer);
-        writer.Write(_count);
-        writer.Write(_codes.AsSpan(0, _count * CodeSize));
+        var (data, count) = _codes.Snapshot();
+        writer.Write(count);
+        writer.Write(data.AsSpan(0, count * CodeSize));
     }
 
     protected internal override void ReadBody(BinaryReader reader)
     {
         Sq = ScalarQuantizer.Read(reader);
-        _count = reader.ReadInt32();
-        _codes = new byte[(long)_count * CodeSize];
-        reader.ReadExactly(_codes);
-        Ntotal = _count;
+        int count = reader.ReadInt32();
+        var data = new byte[(long)count * CodeSize];
+        reader.ReadExactly(data);
+        _codes = new CodeStore(Sq.CodeSize);
+        _codes.Load(data, count);
+        Ntotal = count;
         IsTrained = Sq.IsTrained;
     }
 }

@@ -41,14 +41,14 @@ public static class FaissNet
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(description);
 
-        var parts = description.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var parts = new List<string>(description.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
         int position = 0;
         bool wrapInIdMap = false;
         var transforms = new List<VectorTransform>();
         int currentDimension = dimension;
 
         // --- leading wrappers and transforms
-        while (position < parts.Length)
+        while (position < parts.Count)
         {
             string part = parts[position];
             if (part.Equals("IDMap", StringComparison.OrdinalIgnoreCase) ||
@@ -66,32 +66,132 @@ public static class FaissNet
             position++;
         }
 
-        if (position >= parts.Length)
+        if (position >= parts.Count)
             throw new ArgumentException($"Factory string '{description}' has no index component.", nameof(description));
+
+        // --- optional trailing refinement: ",RFlat" or ",Refine(<encoding>)"
+        string? refine = null;
+        string last = parts[^1];
+        if (parts.Count - position >= 2 &&
+            (last.Equals("RFlat", StringComparison.OrdinalIgnoreCase) ||
+             last.StartsWith("Refine(", StringComparison.OrdinalIgnoreCase)))
+        {
+            refine = last;
+            parts.RemoveAt(parts.Count - 1);
+        }
 
         // --- optional coarse quantizer level
         int nlist = 0;
-        if (parts[position].StartsWith("IVF", StringComparison.OrdinalIgnoreCase))
+        Index? coarse = null;
+        string head = parts[position];
+        if (head.StartsWith("IVF", StringComparison.OrdinalIgnoreCase))
         {
-            string count = parts[position][3..];
+            string spec = head[3..];
+            int underscore = spec.IndexOf('_');
+            string count = underscore < 0 ? spec : spec[..underscore];
             if (!int.TryParse(count, NumberStyles.Integer, CultureInfo.InvariantCulture, out nlist) || nlist <= 0)
-                throw new ArgumentException($"Cannot parse cell count from '{parts[position]}'.", nameof(description));
+                throw new ArgumentException($"Cannot parse cell count from '{head}'.", nameof(description));
+            if (underscore >= 0)
+                coarse = BuildCoarseQuantizer(spec[(underscore + 1)..], currentDimension, metric, description);
             position++;
-            if (position >= parts.Length)
+            if (position >= parts.Count)
                 throw new ArgumentException(
                     $"'{description}' declares IVF{nlist} but no encoding. Add ',Flat', ',PQ<m>' or ',SQ8'.",
                     nameof(description));
         }
 
         string encoding = parts[position++];
-        if (position < parts.Length && !parts[position].Equals("Flat", StringComparison.OrdinalIgnoreCase))
-            throw new ArgumentException($"Unexpected trailing component '{parts[position]}' in '{description}'.", nameof(description));
+        string? storage = null;
+        if (position < parts.Count)
+        {
+            // "HNSW32,SQ8": the second component is the graph's storage. A trailing ",Flat" after
+            // anything else is accepted as a no-op, as earlier versions did.
+            if (encoding.StartsWith("HNSW", StringComparison.OrdinalIgnoreCase) && nlist == 0)
+                storage = parts[position++];
+            else if (parts[position].Equals("Flat", StringComparison.OrdinalIgnoreCase))
+                position++;
+            if (position < parts.Count)
+                throw new ArgumentException($"Unexpected trailing component '{parts[position]}' in '{description}'.", nameof(description));
+        }
 
-        Index index = BuildIndex(encoding, currentDimension, nlist, metric, description);
+        Index index = storage is not null
+            ? BuildHnsw(encoding, storage, currentDimension, metric, description)
+            : BuildIndex(encoding, currentDimension, nlist, metric, description, coarse);
 
+        if (refine is not null) index = BuildRefine(refine, index, currentDimension, metric, description);
         if (transforms.Count > 0) index = new IndexPreTransform(transforms, index);
         if (wrapInIdMap) index = new IndexIDMap2(index);
         return index;
+    }
+
+    /// <summary>The <c>_HNSW32</c> or <c>_Flat</c> suffix of an <c>IVF</c> component.</summary>
+    private static Index BuildCoarseQuantizer(string spec, int dimension, MetricType metric, string description)
+    {
+        if (spec.StartsWith("HNSW", StringComparison.OrdinalIgnoreCase))
+        {
+            string rest = spec[4..];
+            int m = rest.Length == 0 ? 32 : ParseInt(rest, spec);
+            return new IndexHNSWFlat(dimension, m, metric);
+        }
+        if (spec.Equals("Flat", StringComparison.OrdinalIgnoreCase))
+            return metric == MetricType.InnerProduct ? new IndexFlatIP(dimension) : new IndexFlatL2(dimension);
+        throw new ArgumentException($"'{description}': unknown coarse quantizer '{spec}'. Use IVF<n>_HNSW<M>.");
+    }
+
+    /// <summary><c>HNSW&lt;M&gt;,Flat|SQ…|PQ…</c>: a graph over the given storage.</summary>
+    private static Index BuildHnsw(string graph, string storage, int dimension, MetricType metric, string description)
+    {
+        string rest = graph[4..];
+        int m = rest.Length == 0 ? 32 : ParseInt(rest, graph);
+
+        if (storage.Equals("Flat", StringComparison.OrdinalIgnoreCase)) return new IndexHNSWFlat(dimension, m, metric);
+        if (storage.StartsWith("SQ", StringComparison.OrdinalIgnoreCase))
+            return new IndexHNSWSQ(dimension, ParseScalarType(storage, description), m, metric);
+        if (storage.StartsWith("PQ", StringComparison.OrdinalIgnoreCase))
+        {
+            var (pqM, nbits) = ParsePq(storage, dimension, description);
+            return new IndexHNSWPQ(dimension, pqM, m, nbits, metric);
+        }
+        throw new ArgumentException($"'{description}': HNSW storage '{storage}' is not supported. Use Flat, SQ8, SQ4, SQfp16 or PQ<m>.");
+    }
+
+    /// <summary><c>RFlat</c> or <c>Refine(&lt;encoding&gt;)</c>: a re-ranking stage after the base index.</summary>
+    private static Index BuildRefine(string spec, Index baseIndex, int dimension, MetricType metric, string description)
+    {
+        if (spec.Equals("RFlat", StringComparison.OrdinalIgnoreCase)) return new IndexRefineFlat(baseIndex);
+        if (!spec.EndsWith(')'))
+            throw new ArgumentException($"'{description}': malformed refinement '{spec}'. Use RFlat or Refine(SQ8).");
+        string inner = spec["Refine(".Length..^1];
+        var refineIndex = BuildIndex(inner, dimension, 0, metric, description, null);
+        return new IndexRefine(baseIndex, refineIndex);
+    }
+
+    private static ScalarQuantizerType ParseScalarType(string encoding, string description) =>
+        encoding[2..].ToLowerInvariant() switch
+        {
+            "8" => ScalarQuantizerType.PerDimension8Bit,
+            "4" => ScalarQuantizerType.PerDimension4Bit,
+            "fp16" => ScalarQuantizerType.Float16,
+            "8_uniform" => ScalarQuantizerType.Uniform8Bit,
+            _ => throw new ArgumentException($"'{description}': unknown scalar quantizer '{encoding}'. Use SQ8, SQ4 or SQfp16."),
+        };
+
+    private static (int M, int Nbits) ParsePq(string encoding, int dimension, string description)
+    {
+        string rest = encoding[2..];
+        int nbits = 8;
+        int cross = rest.IndexOf('x');
+        if (cross >= 0)
+        {
+            nbits = ParseInt(rest[(cross + 1)..], encoding);
+            rest = rest[..cross];
+        }
+        int m = ParseInt(rest, encoding);
+        if (dimension % m != 0)
+            throw new ArgumentException(
+                $"'{description}': PQ{m} requires m to divide d={dimension}. Try m in " +
+                $"{{{string.Join(", ", Divisors(dimension).Take(8))}}}.");
+        return (m, nbits);
     }
 
     private static VectorTransform? TryParseTransform(string part, int dimension)
@@ -118,21 +218,23 @@ public static class FaissNet
             int underscore = rest.IndexOf('_');
             int m = ParseInt(underscore < 0 ? rest : rest[..underscore], part);
             int dOut = underscore < 0 ? dimension : ParseInt(rest[(underscore + 1)..], part);
-            if (dOut != dimension)
-                throw new ArgumentException(
-                    $"'{part}' asks for a rotation from d={dimension} to d={dOut}. OPQ here is square; " +
-                    $"chain a PCA first, e.g. \"PCA{dOut},OPQ{m}\".");
-            return new OPQMatrix(dimension, m);
+            if (dOut > dimension)
+                throw new ArgumentException($"'{part}': OPQ cannot raise the dimension from {dimension} to {dOut}.");
+            if (dOut % m != 0)
+                throw new ArgumentException($"'{part}': m={m} must divide the output dimension {dOut}.");
+            return new OPQMatrix(dimension, m, dOut);
         }
 
         return null;
     }
 
-    private static Index BuildIndex(string encoding, int dimension, int nlist, MetricType metric, string description)
+    private static Index BuildIndex(string encoding, int dimension, int nlist, MetricType metric, string description, Index? coarse)
     {
+        Index Quantizer() => coarse ?? (metric == MetricType.InnerProduct ? new IndexFlatIP(dimension) : new IndexFlatL2(dimension));
+
         if (encoding.Equals("Flat", StringComparison.OrdinalIgnoreCase))
         {
-            if (nlist > 0) return new IndexIVFFlat(dimension, nlist, metric);
+            if (nlist > 0) return new IndexIVFFlat(Quantizer(), dimension, nlist, metric);
             return metric == MetricType.InnerProduct ? new IndexFlatIP(dimension) : new IndexFlatL2(dimension);
         }
 
@@ -146,37 +248,17 @@ public static class FaissNet
 
         if (encoding.StartsWith("PQ", StringComparison.OrdinalIgnoreCase))
         {
-            string rest = encoding[2..];
-            int nbits = 8;
-            int cross = rest.IndexOf('x');
-            if (cross >= 0)
-            {
-                nbits = ParseInt(rest[(cross + 1)..], encoding);
-                rest = rest[..cross];
-            }
-            int m = ParseInt(rest, encoding);
-            if (dimension % m != 0)
-                throw new ArgumentException(
-                    $"'{description}': PQ{m} requires m to divide d={dimension}. Try m in " +
-                    $"{{{string.Join(", ", Divisors(dimension).Take(8))}}}.");
+            var (m, nbits) = ParsePq(encoding, dimension, description);
             return nlist > 0
-                ? new IndexIVFPQ(dimension, nlist, m, nbits, metric)
+                ? new IndexIVFPQ(Quantizer(), dimension, nlist, m, nbits, metric)
                 : new IndexPQ(dimension, m, nbits, metric);
         }
 
         if (encoding.StartsWith("SQ", StringComparison.OrdinalIgnoreCase))
         {
-            string rest = encoding[2..];
-            var type = rest.ToLowerInvariant() switch
-            {
-                "8" => ScalarQuantizerType.PerDimension8Bit,
-                "4" => ScalarQuantizerType.PerDimension4Bit,
-                "fp16" => ScalarQuantizerType.Float16,
-                "8_uniform" => ScalarQuantizerType.Uniform8Bit,
-                _ => throw new ArgumentException($"'{description}': unknown scalar quantizer '{encoding}'. Use SQ8, SQ4 or SQfp16."),
-            };
+            var type = ParseScalarType(encoding, description);
             return nlist > 0
-                ? new IndexIVFScalarQuantizer(dimension, nlist, type, metric)
+                ? new IndexIVFScalarQuantizer(Quantizer(), dimension, nlist, type, metric)
                 : new IndexScalarQuantizer(dimension, type, metric);
         }
 

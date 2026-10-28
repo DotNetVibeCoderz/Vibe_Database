@@ -40,11 +40,15 @@ public static class IndexIO
         [IndexTypeCode.PQ] = (d, m) => new IndexPQ(d, 1, 8, m),
         [IndexTypeCode.ScalarQuantizer] = (d, m) => new IndexScalarQuantizer(d, ScalarQuantizerType.PerDimension8Bit, m),
         [IndexTypeCode.HNSWFlat] = (d, m) => new IndexHNSWFlat(d, 32, m),
+        [IndexTypeCode.HNSWSQ] = (d, m) => new IndexHNSWSQ(d, ScalarQuantizerType.PerDimension8Bit, 32, m),
+        [IndexTypeCode.HNSWPQ] = (d, m) => new IndexHNSWPQ(d, 1, 32, 8, m),
         [IndexTypeCode.IDMap] = (d, m) => new IndexIDMap(new IndexFlat(d, m)),
         [IndexTypeCode.IDMap2] = (d, m) => new IndexIDMap2(new IndexFlat(d, m)),
         [IndexTypeCode.PreTransform] = IndexPreTransform.CreateForRead,
         [IndexTypeCode.Replicas] = (d, m) => new IndexReplicas(d, m),
         [IndexTypeCode.Shards] = (d, m) => new IndexShards(d, m),
+        [IndexTypeCode.Refine] = IndexRefine.CreateForRead,
+        [IndexTypeCode.RefineFlat] = IndexRefineFlat.CreateForRead,
     };
 
     private static readonly Dictionary<IndexTypeCode, Func<int, int, IndexBinary>> BinaryFactories = new()

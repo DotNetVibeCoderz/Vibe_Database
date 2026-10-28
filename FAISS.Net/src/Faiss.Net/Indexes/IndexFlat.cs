@@ -45,36 +45,63 @@ public class IndexFlat : Index
         Ntotal = _store.Count;
     }
 
-    public override unsafe void Search(ReadOnlySpan<float> queries, int nq, int k, Span<float> distances, Span<long> labels)
+    public override void Search(ReadOnlySpan<float> queries, int nq, int k, Span<float> distances, Span<long> labels) =>
+        Search(queries, nq, k, distances, labels, null);
+
+    public override unsafe void Search(
+        ReadOnlySpan<float> queries, int nq, int k, Span<float> distances, Span<long> labels,
+        SearchParameters? parameters)
     {
         if (nq == 0) return;
-        int n = _store.Count;
+        // One snapshot for the whole search: a concurrent Add may publish a longer store, but this
+        // search keeps scanning the vectors that existed when it started.
+        var (data, n) = _store.Snapshot();
         // k is deliberately NOT clamped to ntotal: the caller sized its buffers for the k it asked
         // for, so the row stride must stay k. The heap pads the unused slots with -1, as FAISS does.
 
         if (n == 0)
         {
-            distances.Fill(MetricType.IsSimilarity() ? float.MinValue : float.MaxValue);
-            labels.Fill(-1);
+            distances[..(nq * k)].Fill(MetricType.IsSimilarity() ? float.MinValue : float.MaxValue);
+            labels[..(nq * k)].Fill(-1);
             return;
         }
 
         fixed (float* xq = queries)
-        fixed (float* xb = _store.Buffer)
+        fixed (float* xb = data)
         fixed (float* dis = distances)
         fixed (long* ids = labels)
-            BruteForce.Knn(xq, nq, xb, n, D, k, MetricType, dis, ids, null, Threads);
+            BruteForce.Knn(xq, nq, xb, n, D, k, MetricType, dis, ids, null, Threads, parameters?.Sel);
     }
 
-    public override unsafe RangeSearchResult RangeSearch(ReadOnlySpan<float> queries, float radius)
+    public override RangeSearchResult RangeSearch(ReadOnlySpan<float> queries, float radius) =>
+        RangeSearch(queries, radius, parameters: null);
+
+    public override unsafe RangeSearchResult RangeSearch(ReadOnlySpan<float> queries, float radius, SearchParameters? parameters)
     {
         int nq = ValidateBatch(queries, nameof(queries));
-        if (nq == 0 || _store.Count == 0)
+        var (data, n) = _store.Snapshot();
+        if (nq == 0 || n == 0)
             return new RangeSearchResult(new long[nq + 1], [], []);
 
         fixed (float* xq = queries)
-        fixed (float* xb = _store.Buffer)
-            return BruteForce.RangeSearch(xq, nq, xb, _store.Count, D, radius, MetricType, null, Threads);
+        fixed (float* xb = data)
+            return BruteForce.RangeSearch(xq, nq, xb, n, D, radius, MetricType, null, Threads, parameters?.Sel);
+    }
+
+    public override unsafe void ComputeDistanceSubset(ReadOnlySpan<float> query, ReadOnlySpan<long> ids, Span<float> distances)
+    {
+        if (query.Length != D) throw new ArgumentException($"Expected a query of length {D}.", nameof(query));
+        var (data, n) = _store.Snapshot();
+        float worst = MetricType.IsSimilarity() ? float.MinValue : float.MaxValue;
+        fixed (float* pq = query)
+        fixed (float* xb = data)
+        {
+            for (int i = 0; i < ids.Length; i++)
+            {
+                long id = ids[i];
+                distances[i] = id >= 0 && id < n ? VectorOps.Distance(pq, xb + id * D, D, MetricType) : worst;
+            }
+        }
     }
 
     public override void Reconstruct(long key, Span<float> output)

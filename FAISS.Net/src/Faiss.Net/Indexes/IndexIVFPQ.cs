@@ -55,8 +55,103 @@ public sealed class IndexIVFPQ : IndexIVF
     /// <summary>Compression ratio against an equivalent <see cref="IndexFlat"/>, ignoring ids.</summary>
     public double CompressionRatio => (double)(D * sizeof(float)) / CodeSize;
 
+    private float[]? _precomputed;
+    private readonly object _precomputeLock = new();
+
+    /// <summary>
+    /// Replaces the per-list lookup-table build with a precomputed term, the
+    /// <c>use_precomputed_table</c> of FAISS. Off by default because it costs
+    /// <see cref="PrecomputedTableBytes"/> of memory (67 MB at <c>nlist = 4096, m = 16</c>); turn it
+    /// on when <c>nprobe</c> is large enough that rebuilding the table per probed cell dominates.
+    /// <para>
+    /// With residual coding the ADC distance to a code in cell <c>c</c> splits into
+    /// <c>‖x − y_c‖² + (‖y_r‖² + 2⟨y_c, y_r⟩) − 2⟨x, y_r⟩</c>. The first term is the coarse
+    /// distance the quantizer already returned, the second depends only on the cell and the
+    /// codeword and is precomputed once, and the third depends only on the query and is computed
+    /// once per query. Each probed cell then costs one table addition instead of a table build.
+    /// Applies to residual (L2) indexes; inner-product indexes encode raw vectors and never rebuild
+    /// the table per cell in the first place.
+    /// </para>
+    /// </summary>
+    public bool UsePrecomputedTable { get; set; }
+
+    /// <summary>Memory the precomputed table takes when enabled: <c>nlist * m * 2^nbits</c> floats.</summary>
+    public long PrecomputedTableBytes => (long)Nlist * Pq.M * Pq.Ksub * sizeof(float);
+
+    /// <summary>
+    /// Builds the cell-dependent table term now rather than on the first search. Called
+    /// automatically when <see cref="UsePrecomputedTable"/> is on.
+    /// </summary>
+    public unsafe void PrecomputeTable()
+    {
+        EnsureTrained();
+        if (!ByResidual) return;
+        int m = Pq.M, ksub = Pq.Ksub, dsub = Pq.Dsub;
+        var table = new float[(long)Nlist * m * ksub];
+
+        // ||codeword||^2, shared by every cell.
+        var norms = new float[m * ksub];
+        fixed (float* books = Pq.Centroids)
+            for (int i = 0; i < m * ksub; i++) norms[i] = VectorOps.Norm2Sqr(books + (long)i * dsub, dsub);
+
+        Parallel.For(0, Nlist, list =>
+        {
+            var centroid = new float[D];
+            GetCentroid(list, centroid);
+            fixed (float* pc = centroid)
+            fixed (float* books = Pq.Centroids)
+            fixed (float* pt = table)
+            {
+                float* row = pt + (long)list * m * ksub;
+                for (int sub = 0; sub < m; sub++)
+                {
+                    float* part = pc + sub * dsub;
+                    for (int c = 0; c < ksub; c++)
+                    {
+                        int index = sub * ksub + c;
+                        row[index] = norms[index] + 2f * VectorOps.InnerProduct(part, books + (long)index * dsub, dsub);
+                    }
+                }
+            }
+        });
+
+        _precomputed = table;
+    }
+
+    /// <summary>Per-query state for the precomputed path: the query term and a scratch table.</summary>
+    private sealed class PrecomputedQuery(float[] queryTerm, float[] table)
+    {
+        public readonly float[] QueryTerm = queryTerm;
+        public readonly float[] Table = table;
+    }
+
+    protected override object? PrepareQuery(ReadOnlySpan<float> query)
+    {
+        if (!UsePrecomputedTable || !ByResidual) return null;
+        if (_precomputed is null)
+            lock (_precomputeLock)
+                if (_precomputed is null) PrecomputeTable();
+
+        int size = Pq.DistanceTableSize;
+        var queryTerm = ArrayPool<float>.Shared.Rent(size);
+        var table = ArrayPool<float>.Shared.Rent(size);
+        // -2 <x, codeword>: the inner-product table, scaled.
+        Pq.ComputeDistanceTable(query, queryTerm.AsSpan(0, size), MetricType.InnerProduct);
+        var span = queryTerm.AsSpan(0, size);
+        for (int i = 0; i < span.Length; i++) span[i] *= -2f;
+        return new PrecomputedQuery(queryTerm, table);
+    }
+
+    protected override void ReleaseQuery(object? queryState)
+    {
+        if (queryState is not PrecomputedQuery state) return;
+        ArrayPool<float>.Shared.Return(state.QueryTerm);
+        ArrayPool<float>.Shared.Return(state.Table);
+    }
+
     protected override void TrainEncoder(ReadOnlySpan<float> x, int n, ReadOnlySpan<long> listNos)
     {
+        _precomputed = null; // depends on the codebooks being replaced
         if (!ByResidual)
         {
             Pq.Train(x[..(n * D)]);
@@ -101,9 +196,28 @@ public sealed class IndexIVFPQ : IndexIVF
         Pq.ComputeCodes(residuals, n, codes);
     }
 
-    protected override unsafe void ComputeListScores(ReadOnlySpan<float> query, int list, float coarseScore, Span<float> scores)
+    protected override unsafe void ComputeListScores(
+        ReadOnlySpan<float> query, int list, float coarseScore, ReadOnlySpan<byte> codes, Span<float> scores,
+        object? queryState)
     {
         int tableSize = Pq.DistanceTableSize;
+        if (queryState is PrecomputedQuery precomputed && _precomputed is { } cellTerms)
+        {
+            fixed (float* pt = precomputed.Table)
+            fixed (float* pq = precomputed.QueryTerm)
+            fixed (float* pcell = cellTerms)
+            fixed (byte* pc = codes)
+            {
+                // One vector add per probed cell replaces the ksub * d table build.
+                Buffer.MemoryCopy(pcell + (long)list * tableSize, pt, (long)tableSize * sizeof(float), (long)tableSize * sizeof(float));
+                VectorOps.Add(pt, pq, tableSize);
+                int codeSize = CodeSize;
+                for (int i = 0; i < scores.Length; i++)
+                    scores[i] = coarseScore + Pq.DistanceFromTable(pt, pc + (long)i * codeSize);
+            }
+            return;
+        }
+
         float[] table = ArrayPool<float>.Shared.Rent(tableSize);
         float[]? residual = null;
         try
@@ -122,7 +236,6 @@ public sealed class IndexIVFPQ : IndexIVF
 
             Pq.ComputeDistanceTable(effectiveQuery, table.AsSpan(0, tableSize), MetricType);
 
-            var codes = Lists.GetCodes(list);
             int codeSize = CodeSize;
             fixed (float* pt = table)
             fixed (byte* pc = codes)
@@ -178,5 +291,6 @@ public sealed class IndexIVFPQ : IndexIVF
         var lists = InvertedLists.Read(reader);
         RestoreIvf(quantizer, lists, nlist);
         IsTrained = Pq.IsTrained;
+        _precomputed = null;
     }
 }

@@ -21,6 +21,13 @@ public static unsafe class BruteForce
     private const long ParallelThreshold = 100_000;
 
     /// <summary>
+    /// Routes large L2 / inner-product batches through the blocked matrix-product kernel
+    /// (<see cref="BlockedKnn"/>). On by default; turn off to force the pairwise kernels, e.g. to
+    /// compare the two or to get distances computed by direct subtraction.
+    /// </summary>
+    public static bool UseBlockedKernel { get; set; } = true;
+
+    /// <summary>
     /// k-nearest neighbours of every query against a contiguous database.
     /// </summary>
     /// <param name="xq">Query vectors, <c>nq * d</c> row-major.</param>
@@ -28,30 +35,42 @@ public static unsafe class BruteForce
     /// <param name="ids">Optional id mapping; when null, result ids are database row indices.</param>
     /// <param name="outDistances">Output <c>nq * k</c> distances, best first.</param>
     /// <param name="outLabels">Output <c>nq * k</c> ids, <c>-1</c> padded.</param>
+    /// <param name="sel">
+    /// Optional filter over result ids (after <paramref name="ids"/> mapping). Rejected entries are
+    /// skipped before their distance is computed, so a selective filter also makes the scan cheaper.
+    /// </param>
     public static void Knn(
         float* xq, int nq, float* xb, int nb, int d, int k,
         MetricType metric, float* outDistances, long* outLabels,
-        long* ids = null, int maxThreads = 0)
+        long* ids = null, int maxThreads = 0, IDSelector? sel = null)
     {
         if (metric.IsSimilarity())
-            KnnCore<DescendingOrder>(xq, nq, xb, nb, d, k, metric, outDistances, outLabels, ids, maxThreads);
+            KnnCore<DescendingOrder>(xq, nq, xb, nb, d, k, metric, outDistances, outLabels, ids, maxThreads, sel);
         else
-            KnnCore<AscendingOrder>(xq, nq, xb, nb, d, k, metric, outDistances, outLabels, ids, maxThreads);
+            KnnCore<AscendingOrder>(xq, nq, xb, nb, d, k, metric, outDistances, outLabels, ids, maxThreads, sel);
     }
 
     private static void KnnCore<TOrder>(
         float* xq, int nq, float* xb, int nb, int d, int k,
         MetricType metric, float* outDistances, long* outLabels,
-        long* ids, int maxThreads) where TOrder : struct, IScoreOrder
+        long* ids, int maxThreads, IDSelector? sel) where TOrder : struct, IScoreOrder
     {
         int threads = maxThreads > 0 ? maxThreads : Environment.ProcessorCount;
         long work = (long)nq * nb;
+
+        // Batches large enough to amortize norms and transposes go through the blocked matrix
+        // product; a selector keeps the pairwise path, which skips rejected rows before scoring them.
+        if (sel is null && UseBlockedKernel && BlockedKnn.Applies(nq, nb, d, metric))
+        {
+            BlockedKnn.Knn<TOrder>(xq, nq, xb, nb, d, k, metric, outDistances, outLabels, ids, threads);
+            return;
+        }
 
         if (threads == 1 || work < ParallelThreshold)
         {
             for (int q = 0; q < nq; q++)
                 ScanOne<TOrder>(xq + (long)q * d, xb, nb, d, k, metric,
-                    outDistances + (long)q * k, outLabels + (long)q * k, ids, 0);
+                    outDistances + (long)q * k, outLabels + (long)q * k, ids, 0, sel);
             return;
         }
 
@@ -62,7 +81,7 @@ public static unsafe class BruteForce
             Parallel.For(0, nq, new ParallelOptions { MaxDegreeOfParallelism = threads }, q =>
             {
                 ScanOne<TOrder>((float*)pq + (long)q * d, (float*)pb, nb, d, k, metric,
-                    (float*)pd + (long)q * k, (long*)pl + (long)q * k, (long*)pi, 0);
+                    (float*)pd + (long)q * k, (long*)pl + (long)q * k, (long*)pi, 0, sel);
             });
             return;
         }
@@ -70,16 +89,30 @@ public static unsafe class BruteForce
         // Few queries, large database: split the database instead so a single query still scales.
         for (int q = 0; q < nq; q++)
             ScanOneBlockParallel<TOrder>(xq + (long)q * d, xb, nb, d, k, metric,
-                outDistances + (long)q * k, outLabels + (long)q * k, ids, threads);
+                outDistances + (long)q * k, outLabels + (long)q * k, ids, threads, sel);
     }
 
     /// <summary>Scans the whole database for one query into a single heap.</summary>
     private static void ScanOne<TOrder>(
         float* query, float* xb, int nb, int d, int k, MetricType metric,
-        float* outDistances, long* outLabels, long* ids, long idOffset)
+        float* outDistances, long* outLabels, long* ids, long idOffset, IDSelector? sel)
         where TOrder : struct, IScoreOrder
     {
         var heap = new KnnHeap<TOrder>(new Span<float>(outDistances, k), new Span<long>(outLabels, k));
+        if (sel is not null)
+        {
+            // Separate loop so the unfiltered scan keeps its single predictable branch.
+            for (int j = 0; j < nb; j++)
+            {
+                long id = ids != null ? ids[j] : idOffset + j;
+                if (!sel.IsMember(id)) continue;
+                float score = VectorOps.Distance(query, xb + (long)j * d, d, metric);
+                if (TOrder.Better(score, heap.WorstScore)) heap.Push(score, id);
+            }
+            heap.Finish();
+            return;
+        }
+
         for (int j = 0; j < nb; j++)
         {
             float score = VectorOps.Distance(query, xb + (long)j * d, d, metric);
@@ -93,13 +126,13 @@ public static unsafe class BruteForce
     /// <summary>Scans one query with the database split across threads, then merges the partial heaps.</summary>
     private static void ScanOneBlockParallel<TOrder>(
         float* query, float* xb, int nb, int d, int k, MetricType metric,
-        float* outDistances, long* outLabels, long* ids, int threads)
+        float* outDistances, long* outLabels, long* ids, int threads, IDSelector? sel)
         where TOrder : struct, IScoreOrder
     {
         int blocks = Math.Min(threads, Math.Max(1, nb / 1024));
         if (blocks <= 1)
         {
-            ScanOne<TOrder>(query, xb, nb, d, k, metric, outDistances, outLabels, ids, 0);
+            ScanOne<TOrder>(query, xb, nb, d, k, metric, outDistances, outLabels, ids, 0, sel);
             return;
         }
 
@@ -128,7 +161,7 @@ public static unsafe class BruteForce
                     long* blockIds = (long*)pi;
                     ScanOne<TOrder>((float*)pq, (float*)pb + (long)start * d, count, d, k, metric,
                         (float*)pd + (long)b * k, (long*)pl + (long)b * k,
-                        blockIds != null ? blockIds + start : null, start);
+                        blockIds != null ? blockIds + start : null, start, sel);
                 });
 
                 var heap = new KnnHeap<TOrder>(new Span<float>(outDistances, k), new Span<long>(outLabels, k));
@@ -158,7 +191,7 @@ public static unsafe class BruteForce
     /// </summary>
     public static RangeSearchResult RangeSearch(
         float* xq, int nq, float* xb, int nb, int d, float radius,
-        MetricType metric, long* ids = null, int maxThreads = 0)
+        MetricType metric, long* ids = null, int maxThreads = 0, IDSelector? sel = null)
     {
         int threads = maxThreads > 0 ? maxThreads : Environment.ProcessorCount;
         var perQuery = new List<(long Id, float Distance)>[nq];
@@ -166,14 +199,14 @@ public static unsafe class BruteForce
         if (threads == 1 || (long)nq * nb < ParallelThreshold)
         {
             for (int q = 0; q < nq; q++)
-                perQuery[q] = ScanRadius(xq + (long)q * d, xb, nb, d, radius, metric, ids);
+                perQuery[q] = ScanRadius(xq + (long)q * d, xb, nb, d, radius, metric, ids, sel);
         }
         else
         {
             nint pq = (nint)xq, pb = (nint)xb, pi = (nint)ids;
             Parallel.For(0, nq, new ParallelOptions { MaxDegreeOfParallelism = threads }, q =>
             {
-                perQuery[q] = ScanRadius((float*)pq + (long)q * d, (float*)pb, nb, d, radius, metric, (long*)pi);
+                perQuery[q] = ScanRadius((float*)pq + (long)q * d, (float*)pb, nb, d, radius, metric, (long*)pi, sel);
             });
         }
 
@@ -182,15 +215,17 @@ public static unsafe class BruteForce
 
     /// <summary>Collects every database entry inside the radius for one query.</summary>
     private static List<(long Id, float Distance)> ScanRadius(
-        float* query, float* xb, int nb, int d, float radius, MetricType metric, long* ids)
+        float* query, float* xb, int nb, int d, float radius, MetricType metric, long* ids, IDSelector? sel)
     {
         var hits = new List<(long, float)>();
         bool similarity = metric.IsSimilarity();
         for (int j = 0; j < nb; j++)
         {
+            long id = ids != null ? ids[j] : j;
+            if (sel is not null && !sel.IsMember(id)) continue;
             float score = VectorOps.Distance(query, xb + (long)j * d, d, metric);
             if (similarity ? score > radius : score < radius)
-                hits.Add((ids != null ? ids[j] : j, score));
+                hits.Add((id, score));
         }
         return hits;
     }

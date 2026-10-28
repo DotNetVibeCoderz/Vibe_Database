@@ -113,31 +113,54 @@ public sealed unsafe class MappedIndexFlat : Index, IDisposable
     public override void Add(ReadOnlySpan<float> x) =>
         throw new NotSupportedException("MappedIndexFlat is read-only. Build an IndexFlat, then MappedIndexFlat.Write it.");
 
-    public override void Search(ReadOnlySpan<float> queries, int nq, int k, Span<float> distances, Span<long> labels)
+    public override void Search(ReadOnlySpan<float> queries, int nq, int k, Span<float> distances, Span<long> labels) =>
+        Search(queries, nq, k, distances, labels, null);
+
+    public override void Search(
+        ReadOnlySpan<float> queries, int nq, int k, Span<float> distances, Span<long> labels,
+        SearchParameters? parameters)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         if (nq == 0) return;
         if (Ntotal == 0)
         {
-            distances.Fill(MetricType.IsSimilarity() ? float.MinValue : float.MaxValue);
-            labels.Fill(-1);
+            distances[..(nq * k)].Fill(MetricType.IsSimilarity() ? float.MinValue : float.MaxValue);
+            labels[..(nq * k)].Fill(-1);
             return;
         }
 
         fixed (float* xq = queries)
         fixed (float* pdis = distances)
         fixed (long* plab = labels)
-            BruteForce.Knn(xq, nq, _vectors, (int)Ntotal, D, k, MetricType, pdis, plab, null, Threads);
+            BruteForce.Knn(xq, nq, _vectors, (int)Ntotal, D, k, MetricType, pdis, plab, null, Threads, parameters?.Sel);
     }
 
-    public override RangeSearchResult RangeSearch(ReadOnlySpan<float> queries, float radius)
+    public override RangeSearchResult RangeSearch(ReadOnlySpan<float> queries, float radius) =>
+        RangeSearch(queries, radius, parameters: null);
+
+    public override RangeSearchResult RangeSearch(ReadOnlySpan<float> queries, float radius, SearchParameters? parameters)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         int nq = ValidateBatch(queries, nameof(queries));
         if (nq == 0 || Ntotal == 0) return new RangeSearchResult(new long[nq + 1], [], []);
 
         fixed (float* xq = queries)
-            return BruteForce.RangeSearch(xq, nq, _vectors, (int)Ntotal, D, radius, MetricType, null, Threads);
+            return BruteForce.RangeSearch(xq, nq, _vectors, (int)Ntotal, D, radius, MetricType, null, Threads, parameters?.Sel);
+    }
+
+    public override void ComputeDistanceSubset(ReadOnlySpan<float> query, ReadOnlySpan<long> ids, Span<float> distances)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (query.Length != D) throw new ArgumentException($"Expected a query of length {D}.", nameof(query));
+        float worst = MetricType.IsSimilarity() ? float.MinValue : float.MaxValue;
+        fixed (float* pq = query)
+        {
+            for (int i = 0; i < ids.Length; i++)
+            {
+                long id = ids[i];
+                distances[i] = id >= 0 && id < Ntotal ? VectorOps.Distance(pq, _vectors + id * D, D, MetricType) : worst;
+            }
+        }
     }
 
     public override void Reconstruct(long key, Span<float> output)

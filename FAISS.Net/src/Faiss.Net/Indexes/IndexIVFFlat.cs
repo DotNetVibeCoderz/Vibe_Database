@@ -37,9 +37,11 @@ public sealed class IndexIVFFlat : IndexIVF
     protected override void EncodeVectors(ReadOnlySpan<float> x, int n, ReadOnlySpan<long> listNos, Span<byte> codes) =>
         MemoryMarshal.AsBytes(x[..(n * D)]).CopyTo(codes);
 
-    protected override unsafe void ComputeListScores(ReadOnlySpan<float> query, int list, float coarseScore, Span<float> scores)
+    protected override unsafe void ComputeListScores(
+        ReadOnlySpan<float> query, int list, float coarseScore, ReadOnlySpan<byte> codes, Span<float> scores,
+        object? queryState)
     {
-        var vectors = MemoryMarshal.Cast<byte, float>(Lists.GetCodes(list));
+        var vectors = MemoryMarshal.Cast<byte, float>(codes);
         fixed (float* pq = query)
         fixed (float* pv = vectors)
         {

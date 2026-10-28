@@ -52,22 +52,45 @@ public class IndexIDMap : Index
         int n = ValidateBatch(x, nameof(x));
         if (ids.Length != n) throw new ArgumentException($"Expected {n} ids, got {ids.Length}.", nameof(ids));
 
-        Base.Add(x);
+        // Ids first: a concurrent search that sees a new base position can always translate it.
         foreach (long id in ids) IdMap.Add(id);
+        Base.Add(x);
         Ntotal = Base.Ntotal;
     }
 
-    public override void Search(ReadOnlySpan<float> queries, int nq, int k, Span<float> distances, Span<long> labels)
+    public override void Search(ReadOnlySpan<float> queries, int nq, int k, Span<float> distances, Span<long> labels) =>
+        Search(queries, nq, k, distances, labels, null);
+
+    /// <summary>
+    /// Searches the wrapped index with the selector re-expressed over its positions, then maps
+    /// positions back to caller ids. Selectors therefore speak caller ids, as in FAISS.
+    /// </summary>
+    public override void Search(
+        ReadOnlySpan<float> queries, int nq, int k, Span<float> distances, Span<long> labels,
+        SearchParameters? parameters)
     {
-        Base.Search(queries, nq, k, distances, labels);
-        Translate(labels);
+        Base.Search(queries, nq, k, distances, labels, Translate(parameters));
+        Translate(labels[..(nq * k)]);
     }
 
-    public override RangeSearchResult RangeSearch(ReadOnlySpan<float> queries, float radius)
+    public override RangeSearchResult RangeSearch(ReadOnlySpan<float> queries, float radius) =>
+        RangeSearch(queries, radius, parameters: null);
+
+    public override RangeSearchResult RangeSearch(ReadOnlySpan<float> queries, float radius, SearchParameters? parameters)
     {
-        var result = Base.RangeSearch(queries, radius);
+        var result = Base.RangeSearch(queries, radius, parameters: Translate(parameters));
         Translate(result.Labels);
         return result;
+    }
+
+    /// <summary>Copies parameters with the selector mapped from caller ids to base positions.</summary>
+    private SearchParameters? Translate(SearchParameters? parameters)
+    {
+        if (parameters?.Sel is null) return parameters;
+        var map = IdMap;
+        var translated = IDSelectorTranslated.Map(parameters.Sel, position =>
+            position >= 0 && position < map.Count ? map[(int)position] : -1);
+        return SearchParametersCopy.WithSelector(parameters, translated);
     }
 
     private void Translate(Span<long> labels)

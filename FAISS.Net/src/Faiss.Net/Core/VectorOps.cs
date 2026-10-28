@@ -194,6 +194,15 @@ public static unsafe class VectorOps
         _ => throw new NotSupportedException($"Metric {metric} is not supported."),
     };
 
+    /// <summary>Span form of <see cref="Distance(float*, float*, int, MetricType)"/>.</summary>
+    public static float Distance(ReadOnlySpan<float> a, ReadOnlySpan<float> b, MetricType metric)
+    {
+        if (a.Length != b.Length) throw new ArgumentException("Vectors must have equal length.");
+        fixed (float* pa = a)
+        fixed (float* pb = b)
+            return Distance(pa, pb, a.Length, metric);
+    }
+
     // --------------------------------------------------------------- Norms
 
     /// <summary>Squared L2 norm of a vector.</summary>

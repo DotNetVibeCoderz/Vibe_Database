@@ -34,6 +34,15 @@ public ref struct KnnHeap<TOrder> where TOrder : struct, IScoreOrder
     }
 
     /// <summary>
+    /// Resumes a heap whose first <paramref name="count"/> slots already hold a valid heap, for
+    /// kernels that interleave many queries and keep only the count between visits.
+    /// </summary>
+    internal KnnHeap(Span<float> scores, Span<long> ids, int count) : this(scores, ids)
+    {
+        Count = count;
+    }
+
+    /// <summary>
     /// Score of the worst retained candidate, or <see cref="IScoreOrder.Worst"/> while the heap has
     /// spare capacity. Candidates not better than this can be skipped.
     /// </summary>

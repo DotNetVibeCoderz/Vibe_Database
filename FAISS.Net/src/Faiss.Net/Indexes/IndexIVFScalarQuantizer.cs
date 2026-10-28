@@ -90,7 +90,9 @@ public sealed class IndexIVFScalarQuantizer : IndexIVF
         Sq.EncodeBatch(residuals, n, codes);
     }
 
-    protected override unsafe void ComputeListScores(ReadOnlySpan<float> query, int list, float coarseScore, Span<float> scores)
+    protected override unsafe void ComputeListScores(
+        ReadOnlySpan<float> query, int list, float coarseScore, ReadOnlySpan<byte> codes, Span<float> scores,
+        object? queryState)
     {
         float[] scratch = ArrayPool<float>.Shared.Rent(D * 2);
         try
@@ -108,7 +110,6 @@ public sealed class IndexIVFScalarQuantizer : IndexIVF
                 query[..D].CopyTo(effective);
             }
 
-            var codes = Lists.GetCodes(list);
             int codeSize = CodeSize;
 
             // Everything the decode loop needs is pinned once for the whole list; the per-candidate

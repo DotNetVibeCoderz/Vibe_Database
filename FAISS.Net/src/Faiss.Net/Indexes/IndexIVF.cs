@@ -98,6 +98,15 @@ public abstract class IndexIVF : Index
             kmeans.Train(x);
             Quantizer.Reset();
             Quantizer.Add(kmeans.Centroids);
+
+            // An HNSW coarse quantizer can develop sinks: centroids that capture vectors belonging to
+            // a neighbour, which turns into one inverted list many times larger than the rest. The
+            // training vectors are exactly the distribution it will assign, so repair it with them.
+            if (Quantizer is IndexHNSW hnsw && hnsw.Level0LinkSamplesPerNode > 0)
+            {
+                long samples = Math.Min(n, (long)hnsw.Level0LinkSamplesPerNode * hnsw.Ntotal);
+                hnsw.AddLevel0LinksFromSample(x[..(int)(samples * D)]);
+            }
         }
 
         var assignment = Assign(x, n);
@@ -175,20 +184,28 @@ public abstract class IndexIVF : Index
 
     // ------------------------------------------------------------ Searching
 
-    public override unsafe void Search(ReadOnlySpan<float> queries, int nq, int k, Span<float> distances, Span<long> labels)
+    public override void Search(ReadOnlySpan<float> queries, int nq, int k, Span<float> distances, Span<long> labels) =>
+        Search(queries, nq, k, distances, labels, null);
+
+    public override unsafe void Search(
+        ReadOnlySpan<float> queries, int nq, int k, Span<float> distances, Span<long> labels,
+        SearchParameters? parameters)
     {
         EnsureTrained();
         if (nq == 0) return;
         if (Ntotal == 0)
         {
-            distances.Fill(MetricType.IsSimilarity() ? float.MinValue : float.MaxValue);
-            labels.Fill(-1);
+            distances[..(nq * k)].Fill(MetricType.IsSimilarity() ? float.MinValue : float.MaxValue);
+            labels[..(nq * k)].Fill(-1);
             return;
         }
 
-        int nprobe = Math.Clamp(Nprobe, 1, Nlist);
+        var ivfParams = parameters as SearchParametersIVF;
+        int nprobe = Math.Clamp(ivfParams is { Nprobe: > 0 } ? ivfParams.Nprobe : Nprobe, 1, Nlist);
+        var scan = new ScanOptions(parameters?.Sel, ivfParams?.MaxCodes ?? 0);
+
         var coarse = SearchResult.Allocate(nq, nprobe);
-        Quantizer.Search(queries, nq, nprobe, coarse.Distances, coarse.Labels);
+        Quantizer.Search(queries, nq, nprobe, coarse.Distances, coarse.Labels, ivfParams?.QuantizerParams);
 
         fixed (float* xq = queries)
         fixed (float* pdis = distances)
@@ -202,65 +219,91 @@ public abstract class IndexIVF : Index
                 for (int q = 0; q < nq; q++)
                     SearchOne(new ReadOnlySpan<float>((float*)qp + (long)q * D, D),
                         coarse.Distances.AsSpan(q * nprobe, nprobe), coarse.Labels.AsSpan(q * nprobe, nprobe),
-                        k, (float*)dp + (long)q * k, (long*)lp + (long)q * k);
+                        k, (float*)dp + (long)q * k, (long*)lp + (long)q * k, scan);
             }
             else
             {
                 Parallel.For(0, nq, new ParallelOptions { MaxDegreeOfParallelism = threads }, q =>
                     SearchOne(new ReadOnlySpan<float>((float*)qp + (long)q * D, D),
                         coarse.Distances.AsSpan(q * nprobe, nprobe), coarse.Labels.AsSpan(q * nprobe, nprobe),
-                        k, (float*)dp + (long)q * k, (long*)lp + (long)q * k));
+                        k, (float*)dp + (long)q * k, (long*)lp + (long)q * k, scan));
             }
         }
     }
 
+    /// <summary>Per-call scan settings, resolved once per search.</summary>
+    private readonly record struct ScanOptions(IDSelector? Selector, long MaxCodes);
+
     private unsafe void SearchOne(
         ReadOnlySpan<float> query, ReadOnlySpan<float> coarseScores, ReadOnlySpan<long> coarseLists,
-        int k, float* outDistances, long* outLabels)
+        int k, float* outDistances, long* outLabels, ScanOptions scan)
     {
         if (MetricType.IsSimilarity())
-            SearchOneOrdered<DescendingOrder>(query, coarseScores, coarseLists, k, outDistances, outLabels);
+            SearchOneOrdered<DescendingOrder>(query, coarseScores, coarseLists, k, outDistances, outLabels, scan);
         else
-            SearchOneOrdered<AscendingOrder>(query, coarseScores, coarseLists, k, outDistances, outLabels);
+            SearchOneOrdered<AscendingOrder>(query, coarseScores, coarseLists, k, outDistances, outLabels, scan);
     }
 
     private unsafe void SearchOneOrdered<TOrder>(
         ReadOnlySpan<float> query, ReadOnlySpan<float> coarseScores, ReadOnlySpan<long> coarseLists,
-        int k, float* outDistances, long* outLabels) where TOrder : struct, IScoreOrder
+        int k, float* outDistances, long* outLabels, ScanOptions scan) where TOrder : struct, IScoreOrder
     {
         var heap = new KnnHeap<TOrder>(new Span<float>(outDistances, k), new Span<long>(outLabels, k));
+        var sel = scan.Selector;
 
-        int longest = 0;
-        for (int p = 0; p < coarseLists.Length; p++)
-        {
-            int list = (int)coarseLists[p];
-            if (list >= 0) longest = Math.Max(longest, Lists.ListSize(list));
-        }
-        if (longest == 0) { heap.Finish(); return; }
-
-        float[] scores = ArrayPool<float>.Shared.Rent(longest);
+        float[] scores = ArrayPool<float>.Shared.Rent(256);
+        object? state = PrepareQuery(query);
+        long scanned = 0;
         try
         {
             for (int p = 0; p < coarseLists.Length; p++)
             {
                 int list = (int)coarseLists[p];
                 if (list < 0) continue;
-                int size = Lists.ListSize(list);
+
+                // One read of the list: ids and codes stay consistent even while a writer appends.
+                var view = Lists.GetList(list);
+                int size = view.Count;
                 if (size == 0) continue;
+                // A list whose id range cannot hold a member is skipped without being scored.
+                if (sel is not null && !sel.MayIntersect(view.MinId, view.MaxId)) continue;
+
+                if (size > scores.Length)
+                {
+                    ArrayPool<float>.Shared.Return(scores);
+                    scores = ArrayPool<float>.Shared.Rent(size);
+                }
 
                 var slice = scores.AsSpan(0, size);
-                ComputeListScores(query, list, coarseScores[p], slice);
+                ComputeListScores(query, list, coarseScores[p], view.Codes, slice, state);
 
-                var ids = Lists.GetIds(list);
-                for (int i = 0; i < size; i++)
+                var ids = view.Ids;
+                if (sel is null)
                 {
-                    float score = slice[i];
-                    if (TOrder.Better(score, heap.WorstScore)) heap.Push(score, ids[i]);
+                    for (int i = 0; i < size; i++)
+                    {
+                        float score = slice[i];
+                        if (TOrder.Better(score, heap.WorstScore)) heap.Push(score, ids[i]);
+                    }
                 }
+                else
+                {
+                    // Score test first: it rejects most candidates for one comparison, so the
+                    // selector runs only on the few that could enter the heap.
+                    for (int i = 0; i < size; i++)
+                    {
+                        float score = slice[i];
+                        if (TOrder.Better(score, heap.WorstScore) && sel.IsMember(ids[i])) heap.Push(score, ids[i]);
+                    }
+                }
+
+                scanned += size;
+                if (scan.MaxCodes > 0 && scanned >= scan.MaxCodes) break;
             }
         }
         finally
         {
+            ReleaseQuery(state);
             ArrayPool<float>.Shared.Return(scores);
         }
 
@@ -268,7 +311,7 @@ public abstract class IndexIVF : Index
     }
 
     /// <summary>
-    /// Scores every entry of one list against the query, writing <c>ListSize(list)</c> values.
+    /// Scores every entry of one list against the query, writing <c>codes.Length / CodeSize</c> values.
     /// <para>
     /// Scoring a whole list at a time — rather than exposing a per-candidate distance callback — is
     /// what keeps the inner loop tight: the subclass can hoist all per-list setup (residual, lookup
@@ -276,17 +319,35 @@ public abstract class IndexIVF : Index
     /// </para>
     /// </summary>
     /// <param name="coarseScore">Query-to-centroid score for this list, reusable by the subclass.</param>
-    protected abstract void ComputeListScores(ReadOnlySpan<float> query, int list, float coarseScore, Span<float> scores);
+    /// <param name="codes">The list's codes, from the same snapshot as the ids the caller reads.</param>
+    /// <param name="queryState">Whatever <see cref="PrepareQuery"/> returned for this query.</param>
+    protected abstract void ComputeListScores(
+        ReadOnlySpan<float> query, int list, float coarseScore, ReadOnlySpan<byte> codes, Span<float> scores,
+        object? queryState);
 
-    public override unsafe RangeSearchResult RangeSearch(ReadOnlySpan<float> queries, float radius)
+    /// <summary>
+    /// Per-query setup shared by every probed list — a lookup-table term that does not depend on the
+    /// cell, for instance. Called once per query before any list is scored. The default does nothing.
+    /// </summary>
+    protected virtual object? PrepareQuery(ReadOnlySpan<float> query) => null;
+
+    /// <summary>Releases what <see cref="PrepareQuery"/> allocated.</summary>
+    protected virtual void ReleaseQuery(object? queryState) { }
+
+    public override RangeSearchResult RangeSearch(ReadOnlySpan<float> queries, float radius) =>
+        RangeSearch(queries, radius, parameters: null);
+
+    public override unsafe RangeSearchResult RangeSearch(ReadOnlySpan<float> queries, float radius, SearchParameters? parameters)
     {
         EnsureTrained();
         int nq = ValidateBatch(queries, nameof(queries));
         if (nq == 0) return new RangeSearchResult(new long[1], [], []);
 
-        int nprobe = Math.Clamp(Nprobe, 1, Nlist);
+        var ivfParams = parameters as SearchParametersIVF;
+        int nprobe = Math.Clamp(ivfParams is { Nprobe: > 0 } ? ivfParams.Nprobe : Nprobe, 1, Nlist);
+        var sel = parameters?.Sel;
         var coarse = SearchResult.Allocate(nq, nprobe);
-        Quantizer.Search(queries, nq, nprobe, coarse.Distances, coarse.Labels);
+        Quantizer.Search(queries, nq, nprobe, coarse.Distances, coarse.Labels, ivfParams?.QuantizerParams);
 
         var perQuery = new List<(long Id, float Distance)>[nq];
         bool similarity = MetricType.IsSimilarity();
@@ -298,38 +359,37 @@ public abstract class IndexIVF : Index
             {
                 var hits = new List<(long, float)>();
                 var query = new ReadOnlySpan<float>((float*)qp + (long)q * D, D);
-                var scores = new float[Math.Max(1, LongestProbedList(coarse.Labels.AsSpan(q * nprobe, nprobe)))];
-
-                for (int p = 0; p < nprobe; p++)
+                float[] scores = [];
+                object? state = PrepareQuery(query);
+                try
                 {
-                    int list = (int)coarse.Labels[q * nprobe + p];
-                    if (list < 0) continue;
-                    int size = Lists.ListSize(list);
-                    if (size == 0) continue;
+                    for (int p = 0; p < nprobe; p++)
+                    {
+                        int list = (int)coarse.Labels[q * nprobe + p];
+                        if (list < 0) continue;
+                        var view = Lists.GetList(list);
+                        int size = view.Count;
+                        if (size == 0) continue;
+                        if (sel is not null && !sel.MayIntersect(view.MinId, view.MaxId)) continue;
+                        if (size > scores.Length) scores = new float[size];
 
-                    var slice = scores.AsSpan(0, size);
-                    ComputeListScores(query, list, coarse.Distances[q * nprobe + p], slice);
-                    var ids = Lists.GetIds(list);
-                    for (int i = 0; i < size; i++)
-                        if (similarity ? slice[i] > radius : slice[i] < radius)
-                            hits.Add((ids[i], slice[i]));
+                        var slice = scores.AsSpan(0, size);
+                        ComputeListScores(query, list, coarse.Distances[q * nprobe + p], view.Codes, slice, state);
+                        var ids = view.Ids;
+                        for (int i = 0; i < size; i++)
+                            if ((similarity ? slice[i] > radius : slice[i] < radius) && (sel is null || sel.IsMember(ids[i])))
+                                hits.Add((ids[i], slice[i]));
+                    }
+                }
+                finally
+                {
+                    ReleaseQuery(state);
                 }
                 perQuery[q] = hits;
             });
         }
 
         return Core.BruteForce.Flatten(perQuery);
-    }
-
-    private int LongestProbedList(ReadOnlySpan<long> lists)
-    {
-        int longest = 0;
-        for (int i = 0; i < lists.Length; i++)
-        {
-            int list = (int)lists[i];
-            if (list >= 0) longest = Math.Max(longest, Lists.ListSize(list));
-        }
-        return longest;
     }
 
     // ------------------------------------------------------------- Removal
